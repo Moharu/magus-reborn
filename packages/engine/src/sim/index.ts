@@ -50,7 +50,12 @@ export const simulate = ({ loadout, policy, durationSeconds = 60, maxCasts = {} 
         if (index === -1) throw new Error(`policy spell ${id} is not in the loadout`)
         return index
     })
-    if (!(durationSeconds > 0)) throw new Error('durationSeconds must be positive')
+    if (!(Number.isFinite(durationSeconds) && durationSeconds > 0))
+        throw new Error('durationSeconds must be a finite positive number')
+    for (const [id, cap] of Object.entries(maxCasts)) {
+        if (!loadout.includes(id as SpellId)) throw new Error(`maxCasts spell ${id} is not in the loadout`)
+        if (!(Number.isInteger(cap) && cap! >= 0)) throw new Error(`maxCasts for ${id} must be a non-negative integer`)
+    }
 
     const battle = new Battle({ name: 'Caster', spells: loadout }, { name: 'Dummy', spells: [], hp: DUMMY_HP })
     const totalTicks = secondsToTicks(durationSeconds)
@@ -121,15 +126,20 @@ export const parseSimInput = (raw: unknown): SimInput => {
     const { loadout, policy, durationSeconds, maxCasts } = raw as Record<string, unknown>
     if (!isIdList(loadout) || loadout.length === 0) throw new Error('"loadout" must be a non-empty array of spell ids')
     if (!isIdList(policy) || policy.length === 0) throw new Error('"policy" must be a non-empty array of spell ids')
-    if (durationSeconds !== undefined && !(typeof durationSeconds === 'number' && durationSeconds > 0))
-        throw new Error('"durationSeconds" must be a positive number')
+    if (
+        durationSeconds !== undefined &&
+        !(typeof durationSeconds === 'number' && Number.isFinite(durationSeconds) && durationSeconds > 0)
+    )
+        throw new Error('"durationSeconds" must be a finite positive number')
     if (
         maxCasts !== undefined &&
         (typeof maxCasts !== 'object' ||
             maxCasts === null ||
-            Object.entries(maxCasts).some(([k, v]) => !isSpellId(k) || !(typeof v === 'number' && v >= 0)))
+            Object.entries(maxCasts).some(([k, v]) => !isSpellId(k) || !(Number.isInteger(v) && (v as number) >= 0)))
     )
-        throw new Error('"maxCasts" must map spell ids to non-negative numbers')
+        throw new Error('"maxCasts" must map spell ids to non-negative integers')
+    const missing = Object.keys(maxCasts ?? {}).find(id => !loadout.includes(id as SpellId))
+    if (missing) throw new Error(`"maxCasts" spell ${missing} is not in the loadout`)
     return {
         loadout,
         policy,

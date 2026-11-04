@@ -53,6 +53,18 @@ describe('simulate', () => {
     })
 })
 
+describe('simulate guards', () => {
+    const base: SimInput = { loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'] }
+    it.each([Infinity, NaN, 0, -5])('rejects durationSeconds %s', durationSeconds => {
+        expect(() => simulate({ ...base, durationSeconds })).toThrow(/finite positive/)
+    })
+    it('rejects non-integer, negative and out-of-loadout maxCasts', () => {
+        expect(() => simulate({ ...base, maxCasts: { SPELL_FIREBALL: 0.5 } })).toThrow(/non-negative integer/)
+        expect(() => simulate({ ...base, maxCasts: { SPELL_FIREBALL: -1 } })).toThrow(/non-negative integer/)
+        expect(() => simulate({ ...base, maxCasts: { SPELL_IGNITE: 1 } })).toThrow(/not in the loadout/)
+    })
+})
+
 describe('parseSimInput', () => {
     it('accepts a valid input', () => {
         const raw = { loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], durationSeconds: 30 }
@@ -69,6 +81,14 @@ describe('parseSimInput', () => {
         [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], durationSeconds: '60' }, /"durationSeconds"/],
         [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], durationSeconds: -1 }, /"durationSeconds"/],
         [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], maxCasts: { X: 1 } }, /"maxCasts"/],
+        [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], durationSeconds: Infinity }, /"durationSeconds"/],
+        [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], durationSeconds: NaN }, /"durationSeconds"/],
+        [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], maxCasts: { SPELL_FIREBALL: 1.5 } }, /"maxCasts"/],
+        [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], maxCasts: { SPELL_FIREBALL: -1 } }, /"maxCasts"/],
+        [
+            { loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], maxCasts: { SPELL_IGNITE: 1 } },
+            /SPELL_IGNITE is not in the loadout/,
+        ],
     ])('rejects %j', (raw, message) => {
         expect(() => parseSimInput(raw)).toThrow(message)
     })
