@@ -53,7 +53,13 @@ describe('battle', () => {
         const events = b.drainEvents()
         expect(events.filter(e => e.source === 'SPELL_IGNITE')).toHaveLength(26)
         expect(events.filter(e => e.source === 'SPELL_FIREBALL')).toEqual([
-            { tick: b.state.gameTick, player: 'player2', amount: expect.closeTo(-5.6), source: 'SPELL_FIREBALL', kind: 'spell' },
+            {
+                tick: b.state.gameTick,
+                player: 'player2',
+                amount: expect.closeTo(-5.6),
+                source: 'SPELL_FIREBALL',
+                kind: 'spell',
+            },
         ])
     })
 })

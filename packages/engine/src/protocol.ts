@@ -107,6 +107,10 @@ export type RegistryMessage = { t: 'lobbies'; lobbies: LobbyListing[] }
 export const sanitizeName = (name: unknown, fallback: string) => {
     if (typeof name !== 'string') return fallback
     // drop control characters, collapse whitespace
-    const clean = name.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX_LENGTH)
+    const clean = name
+        .replace(/[\u0000-\u001f\u007f]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, NAME_MAX_LENGTH)
     return clean || fallback
 }

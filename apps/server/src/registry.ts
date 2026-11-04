@@ -1,10 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import {
-    LOBBY_CODE_ALPHABET,
-    LOBBY_CODE_LENGTH,
-    type LobbyListing,
-    type RegistryMessage,
-} from '@magus/engine/protocol'
+import { LOBBY_CODE_ALPHABET, LOBBY_CODE_LENGTH, type LobbyListing, type RegistryMessage } from '@magus/engine/protocol'
 import type { Env } from './env'
 
 const MAX_LOBBIES = 500

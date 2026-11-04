@@ -1,11 +1,4 @@
-import {
-    Battle,
-    DEFAULT_SPELLS,
-    GAME_TICK_INTERVAL,
-    isValidLoadout,
-    type PlayerKey,
-    type SpellId,
-} from '@magus/engine'
+import { Battle, DEFAULT_SPELLS, GAME_TICK_INTERVAL, isValidLoadout, type PlayerKey, type SpellId } from '@magus/engine'
 import {
     BEST_OF_OPTIONS,
     DEFAULT_SETTINGS,
@@ -299,7 +292,11 @@ export class Lobby {
             this.changed()
         } else if (this.phase === 'set_up') {
             seat.ready = true
-            if (this.seats.player1!.ready && this.seats.player2!.ready && this.countdownValue! > READY_SETUP_COUNTDOWN) {
+            if (
+                this.seats.player1!.ready &&
+                this.seats.player2!.ready &&
+                this.countdownValue! > READY_SETUP_COUNTDOWN
+            ) {
                 this.countdownValue = READY_SETUP_COUNTDOWN
             }
             this.changed()

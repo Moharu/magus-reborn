@@ -1,13 +1,13 @@
 {
-  "name": "@magus/engine",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "exports": {
-    ".": "./src/index.ts",
-    "./protocol": "./src/protocol.ts"
-  },
-  "scripts": {
-    "typecheck": "tsc -p ."
-  }
+    "name": "@magus/engine",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./protocol": "./src/protocol.ts"
+    },
+    "scripts": {
+        "typecheck": "tsc -p ."
+    }
 }

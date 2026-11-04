@@ -59,13 +59,7 @@ export interface TemporalShieldBuff extends EffectBase {
 }
 
 export type EffectState =
-    | IgniteDebuff
-    | LivingBombDebuff
-    | CounterspellDebuff
-    | HasteBuff
-    | BlurBuff
-    | MagicEaterBuff
-    | TemporalShieldBuff
+    IgniteDebuff | LivingBombDebuff | CounterspellDebuff | HasteBuff | BlurBuff | MagicEaterBuff | TemporalShieldBuff
 export type EffectId = EffectState['id']
 
 export interface SpellState {

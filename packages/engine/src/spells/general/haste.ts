@@ -46,7 +46,9 @@ export const hasteBuffReducer: EffectReducer<HasteBuff> = (state, { target }, bu
     // instants don't consume haste
     const shouldRemoveBuff = state.log
         .slice(buff.logIndex)
-        .some(log => log.type === 'SPELL_RELEASE' && log.caster === target && player.spells[log.spellIndex].castTime > 0)
+        .some(
+            log => log.type === 'SPELL_RELEASE' && log.caster === target && player.spells[log.spellIndex].castTime > 0,
+        )
     buff.logIndex = state.log.length
     if (shouldRemoveBuff || state.gameTick === buff.startingTick + buff.duration) {
         player.spells = player.spells.map((spell, i) => ({ ...spell, castTime: buff.backup[i] }))

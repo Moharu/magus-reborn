@@ -215,7 +215,12 @@ describe('match flow', () => {
     it('rejects invalid loadouts', () => {
         const { lobby, transport } = startMatch()
         const before = lobby.seats.player1!.spells
-        for (const spells of [['SPELL_FIREBALL'], [...FIRE.slice(0, 5), 'SPELL_FIREBALL'], [...FIRE.slice(0, 5), 'NOPE'], 'x']) {
+        for (const spells of [
+            ['SPELL_FIREBALL'],
+            [...FIRE.slice(0, 5), 'SPELL_FIREBALL'],
+            [...FIRE.slice(0, 5), 'NOPE'],
+            'x',
+        ]) {
             lobby.message('c1', { t: 'set_spells', spells } as never)
         }
         expect(lobby.seats.player1!.spells).toEqual(before)
@@ -333,7 +338,11 @@ describe('disconnects during a match', () => {
         toBattle(lobby)
         vi.advanceTimersByTime(500)
         lobby.disconnect('c2')
-        expect(lobby.info()).toMatchObject({ paused: true, pauseReason: 'Bob disconnected', player2: { connected: false } })
+        expect(lobby.info()).toMatchObject({
+            paused: true,
+            pauseReason: 'Bob disconnected',
+            player2: { connected: false },
+        })
         const tick = lobby.battle!.state.gameTick
         seconds(5)
         expect(lobby.battle!.state.gameTick).toBe(tick)

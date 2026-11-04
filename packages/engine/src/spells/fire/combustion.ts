@@ -15,7 +15,9 @@ export const Combustion: SpellDefinition = {
         const player = state[target]
         const igniteDamage = player.effects.reduce((dmg, effect) => {
             if (effect.id === 'DEBUFF_IGNITE') {
-                return dmg + (effect.damage / effect.duration) * (effect.duration + effect.startingTick - state.gameTick)
+                return (
+                    dmg + (effect.damage / effect.duration) * (effect.duration + effect.startingTick - state.gameTick)
+                )
             }
             return dmg
         }, 0)
