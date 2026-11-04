@@ -30,7 +30,9 @@ export const temporalShieldBuffReducer: EffectReducer<TemporalShieldBuff> = (sta
         // death is final: expiry never brings a player back from 0 HP
         if (player.hp <= 0) return
         const current = toCenti(player.hp)
-        // at 100% this is exactly the backup
-        player.hp = fromCenti(current + Math.round(((toCenti(buff.backup) - current) * buff.healingPercentage) / 100))
+        const gap = toCenti(buff.backup) - current
+        const restored = Math.round((gap * buff.healingPercentage) / 100)
+        // at 100% restored === gap, so HP becomes exactly the backup
+        player.hp = fromCenti(current + restored)
     }
 }
