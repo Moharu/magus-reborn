@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createSpellState } from '../src'
+import { createSpellState, DamageMeter } from '../src'
 import { advance, castFull, effectIds, FIRE, GENERAL, releases, setup, slot } from './helpers'
 
 const IGNITE_PER_TICK = 13.3 / 200
@@ -104,6 +104,33 @@ describe('Combustion', () => {
         // 48 ignite ticks during the combustion cast + 152 remaining ticks + 4.2 base
         expect(b.state.player2.hp).toBeCloseTo(100 - 13.3 - 4.2)
         expect(effectIds(b, 'player2')).toEqual(['DEBUFF_IGNITE'])
+    })
+
+    it('does not consume the ignites: they remain and keep ticking afterwards', () => {
+        const b = setup()
+        castFull(b, 'player1', 'SPELL_IGNITE')
+        castFull(b, 'player1', 'SPELL_COMBUSTION')
+        const hpAfter = b.state.player2.hp
+        advance(b, 10)
+        expect(effectIds(b, 'player2')).toEqual(['DEBUFF_IGNITE'])
+        expect(b.state.player2.hp).toBeCloseTo(hpAfter - 10 * IGNITE_PER_TICK)
+    })
+
+    it('reports its damage as a Combustion event and on the meter', () => {
+        const b = setup()
+        castFull(b, 'player1', 'SPELL_IGNITE')
+        b.drainEvents()
+        castFull(b, 'player1', 'SPELL_COMBUSTION')
+        const events = b.drainEvents().filter(e => e.source === 'SPELL_COMBUSTION')
+        expect(events).toHaveLength(1)
+        expect(events[0]).toMatchObject({ player: 'player2', kind: 'spell' })
+        // 152 remaining ignite ticks + 4.2 base
+        expect(events[0].amount).toBeCloseTo(-(152 * IGNITE_PER_TICK + 4.2))
+        const meter = new DamageMeter('player2')
+        meter.record(events)
+        const row = meter.summary().rows.find(r => r.label === 'Combustion')
+        expect(row?.hits).toBe(1)
+        expect(row?.total).toBeCloseTo(152 * IGNITE_PER_TICK + 4.2)
     })
 })
 
