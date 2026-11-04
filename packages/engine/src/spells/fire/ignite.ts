@@ -24,5 +24,5 @@ export const Ignite: SpellDefinition = {
         }),
 }
 
-export const igniteDebuffReducer: EffectReducer<IgniteDebuff> = (state, { target }, debuff) =>
-    simpleDamage(state, target, debuff.damage / debuff.duration)
+export const igniteDebuffReducer: EffectReducer<IgniteDebuff> = (state, { target, enemy }, debuff) =>
+    simpleDamage(state, target, debuff.damage / debuff.duration, enemy)

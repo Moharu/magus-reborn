@@ -5,7 +5,7 @@ import { castFull, FIRE, GENERAL, setup, slot } from './helpers'
 describe('HP clamp and immediate death resolution', () => {
     it('simpleDamage never takes HP below 0', () => {
         const b = setup()
-        simpleDamage(b.state, 'player2', 1000)
+        simpleDamage(b.state, 'player2', 1000, 'player1')
         expect(b.state.player2.hp).toBe(0)
     })
 

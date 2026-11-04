@@ -25,6 +25,6 @@ export const Afterburn: SpellDefinition = {
                 log.spellIndex === fireballIndex &&
                 log.tick >= fromTick,
         )
-        simpleDamage(state, target, BASE_DAMAGE + DAMAGE_PER_STACK * fireballsCast.length)
+        simpleDamage(state, target, BASE_DAMAGE + DAMAGE_PER_STACK * fireballsCast.length, caster)
     },
 }
