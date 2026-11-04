@@ -12,6 +12,7 @@ import type {
     SpellId,
     SpellState,
 } from './types'
+import { flushMagicEater } from './spells/general/magic-eater'
 import { enemyOf, isCasting } from './utils'
 
 export interface PlayerInit {
@@ -79,6 +80,14 @@ export class Battle {
                     const reducer = EFFECT_REDUCERS[effect.id] as EffectReducer<EffectState>
                     this.measure(effect.source, 'effect', () => reducer(state, { target, enemy }, effect))
                 }
+            }
+        }
+
+        // after both players' effects, before expiry: identical timing for both, last-tick damage included
+        for (const [key] of PAIRS) {
+            for (const effect of state[key].effects) {
+                if (effect.id !== 'BUFF_MAGIC_EATER') continue
+                this.measure(effect.source, 'effect', () => flushMagicEater(state, key, effect))
             }
         }
 
