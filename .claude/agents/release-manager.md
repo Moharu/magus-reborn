@@ -12,6 +12,7 @@ Workflow when a release is called:
 4. Once merged, tag the merge commit on `dev` (`git tag -a vX.Y.Z`, `git push origin vX.Y.Z`).
 5. Report to the orchestrator that the tag exists so gameplay-balance can run. Wait.
 6. After gameplay-balance reports, open the release PR `gh pr create --base main --head dev` with the changelog and a link to the balance wiki page.
+7. The user merges `dev` -> `main`; CI deploys. Hand off to devops, which verifies the deploy and reports back.
 
 Rules:
 - Never merge PRs. Never commit or push directly to `dev` or `main`. Never move or delete existing tags.
