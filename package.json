@@ -1,0 +1,25 @@
+{
+  "name": "magus-reborn",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @magus/web",
+    "dev:server": "npm run dev -w @magus/server",
+    "build": "npm run build -w @magus/web",
+    "deploy:server": "npm run deploy -w @magus/server",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
