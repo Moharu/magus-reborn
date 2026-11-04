@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Battle, DEFAULT_SPELLS, DUMMY_HP, secondsToTicks, simulate, type SimInput } from '../src'
+import { Battle, DEFAULT_SPELLS, DUMMY_HP, parseSimInput, secondsToTicks, simulate, type SimInput } from '../src'
 import { CAST as FIREBALL_CAST, DAMAGE as FIREBALL_DAMAGE } from '../src/spells/fire/fireball'
 import { DEBUFF_TOTAL_DAMAGE as IGNITE_TOTAL } from '../src/spells/fire/ignite'
 
@@ -29,20 +29,15 @@ describe('simulate', () => {
     })
 
     it('attributes effect ticks to the spell that applied them', () => {
-        // a single Ignite cast with a 10s debuff, fully ticked out inside 15s
-        const result = simulate({ loadout: ['SPELL_IGNITE'], policy: ['SPELL_IGNITE'], durationSeconds: 1.6 })
-        expect(result.perSpell.SPELL_IGNITE?.casts).toBe(1)
-        const long = simulate({
-            loadout: ['SPELL_IGNITE', 'SPELL_HASTE'],
-            policy: ['SPELL_HASTE'],
-            durationSeconds: 30,
+        // one Ignite cast: released at 1.6s, its 10s debuff finishes ticking by 11.6s, inside 12s
+        const result = simulate({
+            loadout: ['SPELL_IGNITE'],
+            policy: ['SPELL_IGNITE'],
+            maxCasts: { SPELL_IGNITE: 1 },
+            durationSeconds: 12,
         })
-        expect(long.totalDamage).toBe(0)
-        const ignite = simulate({ loadout: ['SPELL_IGNITE'], policy: ['SPELL_IGNITE'], durationSeconds: 60 })
-        expect(ignite.perSpell.SPELL_IGNITE!.damage).toBeGreaterThan(0)
-        expect(ignite.perSpell.SPELL_IGNITE!.damage).toBeLessThanOrEqual(
-            ignite.perSpell.SPELL_IGNITE!.casts * IGNITE_TOTAL + 1e-6,
-        )
+        expect(result.perSpell.SPELL_IGNITE).toEqual({ damage: IGNITE_TOTAL, casts: 1, share: 1 })
+        expect(result.totalDamage).toBe(IGNITE_TOTAL)
     })
 
     it('shares sum to 1 and per-spell damage sums to the total', () => {
@@ -55,6 +50,27 @@ describe('simulate', () => {
     it('rejects policy spells missing from the loadout and unknown ids', () => {
         expect(() => simulate({ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_IGNITE'] })).toThrow(/not in the loadout/)
         expect(() => simulate({ loadout: ['NOPE' as never], policy: [] })).toThrow(/unknown spell/)
+    })
+})
+
+describe('parseSimInput', () => {
+    it('accepts a valid input', () => {
+        const raw = { loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], durationSeconds: 30 }
+        expect(parseSimInput(raw)).toEqual(raw)
+    })
+
+    it.each([
+        [null, /JSON object/],
+        [[], /JSON object/],
+        [{ policy: ['SPELL_FIREBALL'] }, /"loadout"/],
+        [{ loadout: ['SPELL_NOPE'], policy: ['SPELL_FIREBALL'] }, /"loadout"/],
+        [{ loadout: ['SPELL_FIREBALL'] }, /"policy"/],
+        [{ loadout: ['SPELL_FIREBALL'], policy: 'SPELL_FIREBALL' }, /"policy"/],
+        [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], durationSeconds: '60' }, /"durationSeconds"/],
+        [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], durationSeconds: -1 }, /"durationSeconds"/],
+        [{ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'], maxCasts: { X: 1 } }, /"maxCasts"/],
+    ])('rejects %j', (raw, message) => {
+        expect(() => parseSimInput(raw)).toThrow(message)
     })
 })
 

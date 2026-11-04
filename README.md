@@ -35,7 +35,7 @@ npm run format
 
 ### Damage simulator
 
-`simulate({ loadout, policy, durationSeconds = 60 })` (exported from `@magus/engine`) runs the real engine against a passive training dummy and returns `{ totalDamage, dps, durationSeconds, perSpell: { [id]: { damage, casts, share } } }`. `policy` is an ordered priority list: each tick the caster starts the first spell the engine accepts and releases it exactly when its cast time completes. Effect damage (Ignite, Living Bomb ticks) counts toward the spell that applied it.
+`simulate({ loadout, policy, durationSeconds = 60 })` (exported from `@magus/engine`) runs the real engine against a passive training dummy and returns `{ totalDamage, dps, durationSeconds, perSpell: { [id]: { damage, casts, share } } }`. `policy` is an ordered priority list: each tick the caster starts the first spell the engine accepts and releases it exactly when its cast time completes. Effect damage (Ignite, Living Bomb ticks) counts toward the spell that applied it. Optional `maxCasts: { [id]: n }` caps releases of a spell. JSON input is validated (`parseSimInput`); a bad shape exits with code 1 and a readable message.
 
 ```sh
 npm run sim -w @magus/engine -- input.json    # { "loadout": [...], "policy": [...], "durationSeconds": 60 }

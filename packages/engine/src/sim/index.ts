@@ -16,6 +16,8 @@ export interface SimInput {
     /** Ordered priority list. Each tick the first spell the engine accepts is started. */
     policy: SpellId[]
     durationSeconds?: number
+    /** Optional cap on releases per spell; a capped spell is no longer castable for the policy. */
+    maxCasts?: Partial<Record<SpellId, number>>
 }
 
 export interface SimSpellResult {
@@ -41,7 +43,7 @@ const DUMMY: PlayerKey = 'player2'
  * is started. Damage comes from the engine's attributed HpEvents, so effect ticks (Ignite,
  * Living Bomb) count toward the spell that applied them.
  */
-export const simulate = ({ loadout, policy, durationSeconds = 60 }: SimInput): SimResult => {
+export const simulate = ({ loadout, policy, durationSeconds = 60, maxCasts = {} }: SimInput): SimResult => {
     for (const id of [...loadout, ...policy]) if (!isSpellId(id)) throw new Error(`unknown spell id: ${id}`)
     const order = policy.map(id => {
         const index = loadout.indexOf(id)
@@ -63,8 +65,13 @@ export const simulate = ({ loadout, policy, durationSeconds = 60 }: SimInput): S
             const spell = player.spells[player.cast]
             if (gameTick < player.castStartingTick! + spell.castTime) return
             battle.stopCast(CASTER, player.cast)
+            collect() // count the release before deciding what to start next (maxCasts)
         }
-        for (const index of order) if (battle.startCast(CASTER, index)) break
+        for (const index of order) {
+            const cap = maxCasts[loadout[index]]
+            if (cap !== undefined && (casts.get(loadout[index]) ?? 0) >= cap) continue
+            if (battle.startCast(CASTER, index)) break
+        }
     }
 
     const collect = () => {
@@ -105,3 +112,28 @@ export const simulate = ({ loadout, policy, durationSeconds = 60 }: SimInput): S
 
 /** Strips float noise (e.g. 0.1 + 0.2) so output is stable and readable. */
 const round = (n: number) => Math.round(n * 1e6) / 1e6
+
+const isIdList = (v: unknown): v is SpellId[] => Array.isArray(v) && v.every(isSpellId)
+
+/** Validates untrusted input (e.g. a CLI JSON file), throwing a readable error. */
+export const parseSimInput = (raw: unknown): SimInput => {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('input must be a JSON object')
+    const { loadout, policy, durationSeconds, maxCasts } = raw as Record<string, unknown>
+    if (!isIdList(loadout) || loadout.length === 0) throw new Error('"loadout" must be a non-empty array of spell ids')
+    if (!isIdList(policy) || policy.length === 0) throw new Error('"policy" must be a non-empty array of spell ids')
+    if (durationSeconds !== undefined && !(typeof durationSeconds === 'number' && durationSeconds > 0))
+        throw new Error('"durationSeconds" must be a positive number')
+    if (
+        maxCasts !== undefined &&
+        (typeof maxCasts !== 'object' ||
+            maxCasts === null ||
+            Object.entries(maxCasts).some(([k, v]) => !isSpellId(k) || !(typeof v === 'number' && v >= 0)))
+    )
+        throw new Error('"maxCasts" must map spell ids to non-negative numbers')
+    return {
+        loadout,
+        policy,
+        ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+        ...(maxCasts !== undefined ? { maxCasts: maxCasts as SimInput['maxCasts'] } : {}),
+    }
+}
