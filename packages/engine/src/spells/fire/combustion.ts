@@ -1,5 +1,5 @@
 import type { SpellDefinition } from '../../types'
-import { simpleDamage } from '../../utils'
+import { remainingShare, simpleDamage } from '../../utils'
 
 export const CAST = 2.4
 export const DAMAGE = 4.2
@@ -15,9 +15,8 @@ export const Combustion: SpellDefinition = {
         const player = state[target]
         const igniteDamage = player.effects.reduce((dmg, effect) => {
             if (effect.id === 'DEBUFF_IGNITE') {
-                return (
-                    dmg + (effect.damage / effect.duration) * (effect.duration + effect.startingTick - state.gameTick)
-                )
+                // exact complement of the ticks already dealt, so ticks + Combustion = the full Ignite
+                return dmg + remainingShare(effect.damage, effect.duration, state.gameTick - effect.startingTick)
             }
             return dmg
         }, 0)

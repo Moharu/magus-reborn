@@ -1,6 +1,6 @@
 import { secondsToTicks } from '../../constants'
 import type { EffectReducer, SpellDefinition, TemporalShieldBuff } from '../../types'
-import { simpleBuff } from '../../utils'
+import { fromCenti, simpleBuff, toCenti } from '../../utils'
 
 export const COOLDOWN = 12
 export const BUFF_DURATION = 1.2
@@ -29,6 +29,10 @@ export const temporalShieldBuffReducer: EffectReducer<TemporalShieldBuff> = (sta
         const player = state[target]
         // death is final: expiry never brings a player back from 0 HP
         if (player.hp <= 0) return
-        player.hp += (buff.backup - player.hp) * (buff.healingPercentage / 100)
+        const current = toCenti(player.hp)
+        const gap = toCenti(buff.backup) - current
+        const restored = Math.round((gap * buff.healingPercentage) / 100)
+        // at 100% restored === gap, so HP becomes exactly the backup
+        player.hp = fromCenti(current + restored)
     }
 }

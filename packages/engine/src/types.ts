@@ -52,6 +52,12 @@ export interface MagicEaterBuff extends EffectBase {
     healingPercentage: number
     /** Damage the buff owner dealt since the last heal, healed on the next buff tick. */
     pendingDamage: number
+    /**
+     * Heal owed but not yet given, in ten-thousandths of HP an integer.
+     * Its magnitude is at most half a centi-HP (50), and it can be negative when a tick's heal was rounded up.
+     * Carried between ticks so small per-tick heals still sum to exactly the percentage of damage dealt.
+     */
+    healCarry: number
 }
 export interface TemporalShieldBuff extends EffectBase {
     id: 'BUFF_TEMPORAL_SHIELD'

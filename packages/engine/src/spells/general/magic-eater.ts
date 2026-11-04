@@ -1,6 +1,6 @@
 import { secondsToTicks } from '../../constants'
 import type { BattleState, EffectReducer, MagicEaterBuff, PlayerKey, SpellDefinition } from '../../types'
-import { simpleBuff, simpleHeal } from '../../utils'
+import { fromCenti, simpleBuff, simpleHeal, toCenti } from '../../utils'
 
 export const COOLDOWN = 18
 export const BUFF_DURATION = 7.8
@@ -21,6 +21,7 @@ export const MagicEater: SpellDefinition = {
             healingPercentage: HEALING_PERCENTAGE,
             duration: secondsToTicks(BUFF_DURATION),
             pendingDamage: 0,
+            healCarry: 0,
         }),
 }
 
@@ -32,6 +33,10 @@ export const magicEaterBuffReducer: EffectReducer<MagicEaterBuff> = () => {}
  * Called by `Battle.tick` after every effect of both players has run, including on the buff's last tick.
  */
 export const flushMagicEater = (state: BattleState, target: PlayerKey, buff: MagicEaterBuff) => {
-    simpleHeal(state, target, buff.pendingDamage * (buff.healingPercentage / 100))
+    // integer math: owed heal in 1/10000 HP, given in whole centi-HP, the rest carried to the next tick
+    const owed = toCenti(buff.pendingDamage) * buff.healingPercentage + buff.healCarry
+    const heal = Math.round(owed / 100)
+    buff.healCarry = owed - heal * 100
     buff.pendingDamage = 0
+    simpleHeal(state, target, fromCenti(heal))
 }

@@ -73,7 +73,7 @@ export class PlayerHud extends Container {
             color: 0xffffff,
             alpha: 0.15,
         })
-        setText(this.hpText, infinite ? '∞' : `${Math.max(0, player.hp).toFixed(2)} %`)
+        setText(this.hpText, infinite ? '∞' : `${formatHp(player.hp)} %`)
 
         g.roundRect(x0, 76, w, 26, 5).fill({ color: 0x000000, alpha: 0.55 })
         if (player.cast !== null && player.castStartingTick !== null) {
@@ -256,3 +256,9 @@ export class ActionBar extends Container {
         b.root.scale.set(down ? 0.94 : 1)
     }
 }
+
+/**
+ * One decimal, rounded up so a living player never reads 0.0. Goes through integer hundredths
+ * (engine HP is on a 0.01 grid) so float noise like 86.7 * 10 = 867.0000000000001 cannot bump it.
+ */
+export const formatHp = (hp: number) => (Math.ceil(Math.round(Math.max(0, hp) * 100) / 10) / 10).toFixed(1)
