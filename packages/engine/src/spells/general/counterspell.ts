@@ -18,7 +18,7 @@ export const Counterspell: SpellDefinition = {
         if (!isCasting(player)) return
         player.cast = null
         player.castStartingTick = null
-        player.globalCooldown = state.gameTick + secondsToTicks(LOCK_DURATION)
+        player.lockedUntil = state.gameTick + secondsToTicks(LOCK_DURATION)
         simpleDebuff<CounterspellDebuff>(state, target, {
             id: 'DEBUFF_COUNTERSPELL',
             label: 'Spell cast disabled.',

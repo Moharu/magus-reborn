@@ -43,7 +43,8 @@ const createPlayer = ({ name, spells, hp = MAX_HP }: PlayerInit): PlayerState =>
     effects: [],
     cast: null,
     castStartingTick: null,
-    globalCooldown: 0,
+    gcdUntil: 0,
+    lockedUntil: 0,
     spells: spells.map(createSpellState),
 })
 
@@ -51,14 +52,17 @@ const createPlayer = ({ name, spells, hp = MAX_HP }: PlayerInit): PlayerState =>
 export const cooldownRemaining = (spell: SpellState, gameTick: number) =>
     spell.lastCast !== null && spell.cooldown ? Math.max(0, spell.lastCast + spell.cooldown - gameTick) : 0
 
+/** Ticks remaining on the player's GCD, 0 if free. */
+export const gcdRemaining = (player: PlayerState, gameTick: number) => Math.max(0, player.gcdUntil - gameTick)
+
 /**
  * Ticks remaining until the player may start `spell` because of the GCD or a Counterspell lock, 0 if free.
- * Off-GCD spells ignore the GCD but not a Counterspell lock.
+ * A lock blocks every spell; the GCD blocks on-GCD spells and cast-time spells, but not off-GCD spells.
  */
 export const lockRemaining = (player: PlayerState, spell: SpellState, gameTick: number) => {
-    const remaining = Math.max(0, player.globalCooldown - gameTick)
-    if (!remaining || !SPELLS[spell.id].offGlobalCooldown) return remaining
-    return player.effects.some(e => e.id === 'DEBUFF_COUNTERSPELL') ? remaining : 0
+    const locked = Math.max(0, player.lockedUntil - gameTick)
+    const gcd = SPELLS[spell.id].offGlobalCooldown ? 0 : gcdRemaining(player, gameTick)
+    return Math.max(locked, gcd)
 }
 
 export class Battle {
@@ -189,7 +193,7 @@ export class Battle {
         spell.lastCast = state.gameTick
         // never shortens a longer lock already in place
         if (spell.globalCooldown)
-            state[caster].globalCooldown = Math.max(state[caster].globalCooldown, state.gameTick + spell.globalCooldown)
+            state[caster].gcdUntil = Math.max(state[caster].gcdUntil, state.gameTick + spell.globalCooldown)
         const def = SPELLS[spell.id]
         this.measure(spell.id, 'spell', () => def.reducer(state, { caster, target: enemyOf(caster) }))
         this.resolveDeaths()

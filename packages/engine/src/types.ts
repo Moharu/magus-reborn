@@ -86,8 +86,10 @@ export interface PlayerState {
     effects: EffectState[]
     cast: number | null
     castStartingTick: number | null
-    /** Tick until which the player is locked: by the GCD, or by Counterspell (which also blocks off-GCD spells). */
-    globalCooldown: number
+    /** Tick until which the GCD blocks on-GCD and cast-time spells. Written only by casting. */
+    gcdUntil: number
+    /** Tick until which a Counterspell lock blocks every spell. Independent of effects: cleansing does not clear it. */
+    lockedUntil: number
     spells: SpellState[]
 }
 
