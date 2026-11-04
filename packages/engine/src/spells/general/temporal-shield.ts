@@ -28,6 +28,8 @@ export const TemporalShield: SpellDefinition = {
 export const temporalShieldBuffReducer: EffectReducer<TemporalShieldBuff> = (state, { target }, buff) => {
     if (state.gameTick === buff.startingTick + buff.duration) {
         const player = state[target]
+        // death is final: expiry never brings a player back from 0 HP
+        if (player.hp <= 0) return
         player.hp += (buff.backup - player.hp) * (buff.healingPercentage / 100)
     }
 }

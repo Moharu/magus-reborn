@@ -50,7 +50,8 @@ export interface BlurBuff extends EffectBase {
 export interface MagicEaterBuff extends EffectBase {
     id: 'BUFF_MAGIC_EATER'
     healingPercentage: number
-    lastTargetHp: number
+    /** Damage the buff owner dealt since the last heal, healed on the next buff tick. */
+    pendingDamage: number
 }
 export interface TemporalShieldBuff extends EffectBase {
     id: 'BUFF_TEMPORAL_SHIELD'

@@ -27,9 +27,9 @@ export const LivingBomb: SpellDefinition = {
         }),
 }
 
-export const livingBombDebuffReducer: EffectReducer<LivingBombDebuff> = (state, { target }, debuff) => {
-    simpleDamage(state, target, debuff.damage / debuff.duration)
+export const livingBombDebuffReducer: EffectReducer<LivingBombDebuff> = (state, { target, enemy }, debuff) => {
+    simpleDamage(state, target, debuff.damage / debuff.duration, enemy)
     if (state.gameTick === debuff.startingTick + debuff.duration) {
-        simpleDamage(state, target, debuff.expirationDamage)
+        simpleDamage(state, target, debuff.expirationDamage, enemy)
     }
 }
