@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
     GLOBAL_COOLDOWN,
     GLOBAL_COOLDOWN_SECONDS,
+    gcdRemaining,
     lockRemaining,
     secondsToTicks,
     simulate,
@@ -49,14 +50,14 @@ describe('global cooldown (#7)', () => {
             const b = setup(GENERAL, FIRE)
             castFull(b, 'player1', 'SPELL_HASTE')
             advance(b, 1)
-            const gcdEnd = b.state.player1.globalCooldown
+            const gcdEnd = b.state.player1.gcdUntil
             expect(b.startCast('player1', slot(b, 'player1', id))).toBe(true)
-            expect(b.state.player1.globalCooldown).toBe(gcdEnd)
+            expect(b.state.player1.gcdUntil).toBe(gcdEnd)
 
             // from an idle state it leaves the player free
             const c = setup(GENERAL, FIRE)
             expect(castFull(c, 'player1', id)).toBe(true)
-            expect(c.state.player1.globalCooldown).toBe(0)
+            expect(c.state.player1.gcdUntil).toBe(0)
             expect(c.startCast('player1', slot(c, 'player1', 'SPELL_HASTE'))).toBe(true)
         })
     }
@@ -77,7 +78,7 @@ describe('global cooldown (#7)', () => {
     it('releasing a cast-time spell does not start a GCD', () => {
         const b = setup(GENERAL, FIRE)
         expect(castFull(b, 'player1', 'SPELL_FIREBALL')).toBe(true)
-        expect(b.state.player1.globalCooldown).toBe(0)
+        expect(b.state.player1.gcdUntil).toBe(0)
         expect(b.startCast('player1', slot(b, 'player1', 'SPELL_HASTE'))).toBe(true)
     })
 
@@ -107,7 +108,7 @@ describe('global cooldown and instant-cancel (#25)', () => {
         expect(b.startCast('player1', slot(b, 'player1', 'SPELL_MAGIC_EATER'))).toBe(true)
         expect(b.state.player1.cast).toBeNull()
         expect(cancels(b)).toHaveLength(1)
-        expect(b.state.player1.globalCooldown).toBe(b.state.gameTick + GLOBAL_COOLDOWN)
+        expect(b.state.player1.gcdUntil).toBe(b.state.gameTick + GLOBAL_COOLDOWN)
         expect(b.startCast('player1', fireball)).toBe(false)
     })
 
@@ -119,7 +120,7 @@ describe('global cooldown and instant-cancel (#25)', () => {
         expect(b.startCast('player1', slot(b, 'player1', 'SPELL_BLUR'))).toBe(true)
         expect(b.state.player1.cast).toBeNull()
         expect(cancels(b)).toHaveLength(1)
-        expect(b.state.player1.globalCooldown).toBe(0)
+        expect(b.state.player1.gcdUntil).toBe(0)
         expect(b.startCast('player1', fireball)).toBe(true)
     })
 
@@ -153,4 +154,73 @@ describe('simulator and the GCD', () => {
         })
         expect(result.perSpell.SPELL_FIREBALL?.casts).toBe(1)
     })
+})
+
+describe('GCD and Counterspell lock are independent (#37)', () => {
+    /** player1 counterspells player2's Fireball, locking player2 for 60 ticks. */
+    const lockPlayer2 = () => {
+        const b = setup(GENERAL, GENERAL)
+        b.startCast('player2', slot(b, 'player2', 'SPELL_FIREBALL'))
+        advance(b, 5)
+        castFull(b, 'player1', 'SPELL_COUNTERSPELL')
+        return b
+    }
+
+    it('removing DEBUFF_COUNTERSPELL early does not shorten or remove the lock', () => {
+        const b = lockPlayer2()
+        const lockEnd = b.state.player2.lockedUntil
+        expect(lockEnd).toBe(b.state.gameTick + 60)
+        b.state.player2.effects = b.state.player2.effects.filter(e => e.id !== 'DEBUFF_COUNTERSPELL')
+        advance(b, 1)
+        expect(b.state.player2.lockedUntil).toBe(lockEnd)
+        for (const id of GENERAL) {
+            const i = slot(b, 'player2', id)
+            expect(lockRemaining(b.state.player2, b.state.player2.spells[i], b.state.gameTick)).toBe(59)
+            expect(b.startCast('player2', i)).toBe(false)
+        }
+        advance(b, 58)
+        expect(b.startCast('player2', slot(b, 'player2', 'SPELL_BLUR'))).toBe(false)
+        advance(b, 1)
+        expect(b.startCast('player2', slot(b, 'player2', 'SPELL_BLUR'))).toBe(true)
+    })
+
+    it('a lock does not change the GCD', () => {
+        const b = lockPlayer2()
+        expect(b.state.player2.gcdUntil).toBe(0)
+        expect(gcdRemaining(b.state.player2, b.state.gameTick)).toBe(0)
+    })
+
+    it('a GCD started while a lock is active does not extend the lock', () => {
+        const b = lockPlayer2()
+        const lockEnd = b.state.player2.lockedUntil
+        advance(b, 60)
+        // lock expires exactly now; the first on-GCD spell starts a GCD without touching the lock
+        expect(b.startCast('player2', slot(b, 'player2', 'SPELL_HASTE'))).toBe(true)
+        expect(b.state.player2.gcdUntil).toBe(b.state.gameTick + GLOBAL_COOLDOWN)
+        expect(b.state.player2.lockedUntil).toBe(lockEnd)
+
+        // and a GCD started by player1 while player2 is locked leaves player2's lock alone
+        const c = lockPlayer2()
+        const cLockEnd = c.state.player2.lockedUntil
+        advance(c, 1)
+        expect(c.startCast('player1', slot(c, 'player1', 'SPELL_HASTE'))).toBe(true)
+        expect(c.state.player2.lockedUntil).toBe(cLockEnd)
+        expect(c.state.player2.gcdUntil).toBe(0)
+    })
+
+    for (const id of OFF_GCD) {
+        it(`${id} is blocked by a lock but not by the GCD`, () => {
+            const g = setup(GENERAL, GENERAL)
+            castFull(g, 'player2', 'SPELL_HASTE')
+            expect(gcdRemaining(g.state.player2, g.state.gameTick)).toBe(GLOBAL_COOLDOWN)
+            const gi = slot(g, 'player2', id)
+            expect(lockRemaining(g.state.player2, g.state.player2.spells[gi], g.state.gameTick)).toBe(0)
+            expect(g.startCast('player2', gi)).toBe(true)
+
+            const b = lockPlayer2()
+            const i = slot(b, 'player2', id)
+            expect(lockRemaining(b.state.player2, b.state.player2.spells[i], b.state.gameTick)).toBe(60)
+            expect(b.startCast('player2', i)).toBe(false)
+        })
+    }
 })
