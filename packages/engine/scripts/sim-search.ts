@@ -25,7 +25,10 @@ const toId = (s: string) => {
 const args = process.argv.slice(2)
 const flag = (name: string) => {
     const i = args.indexOf(`--${name}`)
-    return i === -1 ? undefined : args[i + 1]
+    if (i === -1) return undefined
+    const value = args[i + 1]
+    if (value === undefined || value.startsWith('--')) throw new Error(`--${name} needs a value`)
+    return value
 }
 const intFlag = (name: string, fallback?: number) => {
     const raw = flag(name)

@@ -46,7 +46,7 @@ Spell ids are case-insensitive and the `SPELL_` prefix is optional. `--policy` d
 
 #### Counterspell pressure (risk index)
 
-Every run also reports `dpsUnderPressure` and `risk = dps - dpsUnderPressure`, plus `pressure: { reactionSeconds, totalDamage, interrupts }` listing each countered cast. The model:
+Every run also reports `dpsUnderPressure` and `risk = dps - dpsUnderPressure`, plus `pressure: { reactionSeconds, totalDamage, interrupts, perSpell }`: the countered casts and the pressured breakdown. The unpressured run (`dps`, `perSpell`) gives the dummy no spells at all, so there is no Counterspell threat. The model:
 
 - The dummy holds the engine's real Counterspell. It is ready at 0 s and again `COOLDOWN` (11.7 s, from `spells/general/counterspell.ts`) after each use.
 - A cast can be countered `reactionSeconds` (R, default 0.4 s, at least one 50 ms tick) after it starts, if it is still in progress. Casts shorter than R, and instants, are never countered. Neither is a cast that would deal nothing (for example one that would only land after the fight ends).
@@ -84,7 +84,7 @@ A plain priority list collapses to its top spell: fire spells have no cooldown, 
 }
 ```
 
-A held Meteor is never cast in the unpressured run (the dummy never spends its Counterspell there), so such a policy can have a lower `dps` than `dpsUnderPressure` would suggest, and even a negative `risk`. The pressure model is what makes holding pay: the dummy spends its Counterspell within one cooldown window, on a cheap Ignite-phase cast, and the Meteors go out while it is down.
+In the unpressured run the dummy has no Counterspell, so `enemyCounterspellOnCooldown` always holds and a held Meteor is cast like a bare one. Under pressure the dummy spends its Counterspell within one cooldown window on a cheaper Ignite-phase cast, and the Meteors go out while it is down. `risk` can legitimately be negative: the policy reacts to the adversary, so under pressure it can end up with a better spell mix than it uses unpressured (for example holding Meteor forces Ignite and Combustion casts that bare Meteor spam would skip).
 
 #### Rotation search
 
@@ -92,13 +92,13 @@ A held Meteor is never cast in the unpressured run (the dummy never spends its C
 npm run sim:search -- --size N [--top K] [--jobs J] [--pool fireball,ignite,...] [--duration 60] [--reaction 0.4] [--cap C] [--no-dedupe]
 ```
 
-Runs every loadout of 1 to `N` pool spells times every policy through `simulate` and prints the top `K` (default 10) as JSON: `{ options, evaluated, results: [{ loadout, policy, description, dps, dpsUnderPressure, risk, totalDamage, pressuredDamage, cast, equivalents }] }`. The library API is `search`, `enumerateLoadouts(pool, size)` and `enumeratePolicies(loadout, { cap, variants, prune })` from `@magus/engine`.
+Runs every loadout of 1 to `N` pool spells times every policy through `simulate` and prints the top `K` (default 10) as JSON: `{ options, evaluated, results: [{ loadout, policy, description, dps, dpsUnderPressure, risk, totalDamage, pressuredDamage, cast, castUnderPressure, interrupts, equivalents }] }`. The library API is `search`, `enumerateLoadouts(pool, size)` and `enumeratePolicies(loadout, { cap, variants, prune })` from `@magus/engine`.
 
 - **Ranking**: `dpsUnderPressure` descending, then `dps` descending, then fewer spells, then fewer conditions, then the JSON of `[loadout, policy]` ascending. That is a total order, so the output is stable and does not depend on `--jobs`.
 - **Pool**: by default the 7 spells that can change dummy damage (Fireball, Ignite, Combustion, Afterburn, Living Bomb, Meteor, Haste). Counterspell, Temporal Shield, Magic Eater and Blur deal no damage and the dummy casts nothing at you, so a real 6-slot loadout fills its spare slots with them. A result's `loadout` lists only the spells its policy uses.
-- **Policies** for a loadout use each of its spells exactly once: every priority order times every combination of rule variants (`DEFAULT_RULE_VARIANTS`: Ignite bare / `< 3` / `< 6` stacks, Combustion bare / `>= 3` / `>= 6`, Afterburn bare / after 4 or 6 Fireballs in 10 s, Living Bomb bare / not active, Meteor bare / held for the enemy Counterspell; others bare).
+- **Policies** for a loadout use each of its spells exactly once: every priority order times every combination of rule variants (`DEFAULT_RULE_VARIANTS`: Ignite bare / `< 3` / `< 6` stacks, Combustion bare / `>= 3` / `>= 6`, Afterburn bare / after 4 or 6 Fireballs in its lookback (`LOOKBACK_TIME`, 10 s), Living Bomb bare / not active, Meteor bare / held for the enemy Counterspell; others bare). So "top" means best within these fixed menus with each spell listed once: rules like `ignite [< 3] > combustion > ignite`, or other thresholds, are not searched.
 - **Pruning**: a terminal rule (unconditional, cast-time, no cooldown) is only allowed last, since nothing after it can fire. A policy that would put one earlier is the same behaviour as a smaller loadout's. Not applied when the loadout has an off-GCD spell.
-- **Dedupe** (default on): results that cast the same spells and deal the same damage in both runs are folded into the first-ranked one; `equivalents` counts the others.
+- **Dedupe** (default on): results that cast the same spells in both runs (`cast`, `castUnderPressure`), deal the same damage in both and get countered at the same moments (`interrupts`) are the same behaviour; they are folded into the first-ranked one and `equivalents` counts the others.
 - **Bounds**: candidates per `--size` with the default pool and menus: 1: 15, 2: 127, 3: 785, 4: 3,653, 5: 12,053, 6: 25,493. `--cap C` limits the policies per loadout (first `C` in enumeration order).
 - **Runtime** (60 s fight, R = 0.4 s, about 6 ms per candidate on one core): `--size 4` takes about 23 s with `--jobs 1` and 9 s with 16 jobs; the full `--size 6` search takes about 3 minutes with `--jobs 1` and about 70 s with 16 jobs. `--jobs` defaults to the available cores (at most 16); each job is a child process running one shard. CI only runs small searches (3-spell pool, size 2).
 

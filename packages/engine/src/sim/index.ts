@@ -58,12 +58,21 @@ export interface SimResult {
     durationSeconds: number
     /** Unpressured breakdown. */
     perSpell: Partial<Record<SpellId, SimSpellResult>>
-    pressure: { reactionSeconds: number; totalDamage: number; interrupts: SimInterrupt[] }
+    pressure: {
+        reactionSeconds: number
+        totalDamage: number
+        interrupts: SimInterrupt[]
+        /** Breakdown of the pressured run (countered casts are not releases, so they don't count). */
+        perSpell: Partial<Record<SpellId, SimSpellResult>>
+    }
 }
 
 const CASTER: PlayerKey = 'player1'
 const DUMMY: PlayerKey = 'player2'
-/** The dummy's only spell: the engine's real Counterspell, used by the pressure model. */
+/**
+ * The dummy's only spell in the pressured run: the engine's real Counterspell. In the unpressured run
+ * the dummy has no spells at all, so there is no Counterspell threat (`enemyCounterspellOnCooldown` holds).
+ */
 const DUMMY_SPELLS: SpellId[] = ['SPELL_COUNTERSPELL']
 
 /** A cast-time spell the caster started. `end` is the tick it was released, cancelled or countered. */
@@ -141,7 +150,7 @@ const run = (
     const rules = policy.map(toRule).map(rule => ({ ...rule, index: loadout.indexOf(rule.spell) }))
     const battle = new Battle(
         { name: 'Caster', spells: loadout },
-        { name: 'Dummy', spells: DUMMY_SPELLS, hp: DUMMY_HP },
+        { name: 'Dummy', spells: ready === null ? [] : DUMMY_SPELLS, hp: DUMMY_HP },
     )
     const totalTicks = secondsToTicks(durationSeconds)
     /** In centi-HP, so totals are exact sums of the engine's 0.01-grid events. */
@@ -235,7 +244,8 @@ const sumCenti = (damage: Map<SpellId, number>) => {
 
 /**
  * Drives the real engine (`Battle.startCast` / `stopCast` / `tick`) against a passive dummy:
- * once untouched (`dps`, `perSpell`) and once under Counterspell pressure (`dpsUnderPressure`).
+ * once untouched, with no spells on the dummy (`dps`, `perSpell`), and once under Counterspell pressure
+ * (`dpsUnderPressure`, `pressure.perSpell`).
  * Damage comes from the engine's attributed HpEvents, so effect ticks (Ignite, Living Bomb) count
  * toward the spell that applied them.
  *
@@ -287,14 +297,19 @@ export const simulate = (input: SimInput): SimResult => {
         pressured = run(input, interrupts, ready, reaction, cooldown)
     }
 
-    const totalDamage = fromCenti(sumCenti(base.damage))
-    const perSpell: SimResult['perSpell'] = {}
-    for (const id of input.loadout) {
-        const dmg = fromCenti(base.damage.get(id) ?? 0)
-        const n = base.casts.get(id) ?? 0
-        if (dmg === 0 && n === 0) continue
-        perSpell[id] = { damage: round(dmg), casts: n, share: totalDamage > 0 ? round(dmg / totalDamage) : 0 }
+    const breakdown = ({ damage, casts }: RunResult) => {
+        const total = fromCenti(sumCenti(damage))
+        const out: SimResult['perSpell'] = {}
+        for (const id of input.loadout) {
+            const dmg = fromCenti(damage.get(id) ?? 0)
+            const n = casts.get(id) ?? 0
+            if (dmg === 0 && n === 0) continue
+            out[id] = { damage: round(dmg), casts: n, share: total > 0 ? round(dmg / total) : 0 }
+        }
+        return out
     }
+    const totalDamage = fromCenti(sumCenti(base.damage))
+    const perSpell = breakdown(base)
     const seconds = ticksToSeconds(totalTicks)
     const pressuredDamage = fromCenti(sumCenti(pressured.damage))
     const dps = round(totalDamage / seconds)
@@ -306,7 +321,12 @@ export const simulate = (input: SimInput): SimResult => {
         risk: round(dps - dpsUnderPressure),
         durationSeconds: seconds,
         perSpell,
-        pressure: { reactionSeconds, totalDamage: round(pressuredDamage), interrupts: chosen },
+        pressure: {
+            reactionSeconds,
+            totalDamage: round(pressuredDamage),
+            interrupts: chosen,
+            perSpell: breakdown(pressured),
+        },
     }
 }
 

@@ -79,7 +79,8 @@ export const conditionHolds = (state: BattleState, caster: PlayerKey, target: Pl
         case 'recentReleasesAtLeast': {
             const index = state[caster].spells.findIndex(s => s.id === c.spell)
             if (index === -1) return c.count === 0
-            // same window shape as Afterburn's lookback: releases at or after gameTick - seconds
+            // releases at or after gameTick - seconds, like Afterburn's lookback; but this is read when the
+            // cast starts, while Afterburn counts at its release (a heuristic, not an exact prediction)
             const from = Math.max(state.gameTick - secondsToTicks(c.seconds), 0)
             let n = 0
             for (const entry of state.log)

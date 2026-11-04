@@ -115,6 +115,8 @@ describe('search', () => {
             totalDamage: 300,
             pressuredDamage: 240,
             cast: ['SPELL_FIREBALL'],
+            castUnderPressure: ['SPELL_FIREBALL'],
+            interrupts: [{ spell: 'SPELL_FIREBALL', startSeconds: 0, atSeconds: 0.4 }],
         }
         const higherDps = { ...base, dps: 6 }
         const bigger = { ...base, loadout: ['SPELL_FIREBALL', 'SPELL_HASTE'] as SpellId[] }
@@ -132,6 +134,12 @@ describe('search', () => {
         // dedupe folds identical behaviour into the first-ranked one
         const ranked = rankResults([withCondition, bigger, base], 10)
         expect(ranked).toEqual([{ ...base, equivalents: 2 }])
+        // same totals but countered at a different moment: a different behaviour, not folded
+        const laterCounter = {
+            ...bigger,
+            interrupts: [{ spell: 'SPELL_FIREBALL' as SpellId, startSeconds: 1.3, atSeconds: 1.7 }],
+        }
+        expect(rankResults([laterCounter, base], 10)).toEqual([base, laterCounter])
     })
 
     it('validates its bounds', () => {

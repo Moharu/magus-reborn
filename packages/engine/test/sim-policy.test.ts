@@ -71,13 +71,18 @@ describe('conditional policy rules', () => {
         expect(result.totalDamage).toBe(fromCenti(4 * toCenti(FIREBALL_DAMAGE) + toCenti(afterburn)))
     })
 
-    it('never casts a held Meteor when no Counterspell is spent (unpressured run)', () => {
+    it('a held Meteor fires freely unpressured, and only while the Counterspell is down under pressure', () => {
         const result = simulate({
             loadout: ['SPELL_FIREBALL', 'SPELL_METEOR'],
             policy: [HOLD_METEOR, 'SPELL_FIREBALL'],
         })
-        expect(result.perSpell.SPELL_METEOR).toBeUndefined()
+        // unpressured the dummy has no spells, so there is no Counterspell to wait for: Meteor spam
+        const spam = simulate({ loadout: ['SPELL_METEOR'], policy: ['SPELL_METEOR'] })
+        expect(result.perSpell).toEqual({ SPELL_METEOR: spam.perSpell.SPELL_METEOR })
+        expect(result.dps).toBe(spam.dps)
+        // under pressure the Counterspells land on Fireballs and the Meteors go out in the safe windows
         expect(result.pressure.interrupts.every(i => i.spell === 'SPELL_FIREBALL')).toBe(true)
+        expect(result.pressure.perSpell.SPELL_METEOR!.casts).toBeGreaterThan(0)
     })
 
     it('bare ids still work and match the equivalent rule objects', () => {
@@ -173,8 +178,12 @@ describe('using the safe window after the enemy Counterspell', () => {
         const smart = simulate({ loadout, policy: smartPolicy })
         const unheld = simulate({ loadout, policy: [smartPolicy[0], 'SPELL_METEOR', 'SPELL_IGNITE'] })
         expect(smart.dpsUnderPressure).toBeGreaterThan(unheld.dpsUnderPressure)
-        // the price of holding: unpressured, the Counterspell is never spent, so Meteor is never cast
-        expect(smart.perSpell.SPELL_METEOR).toBeUndefined()
-        expect(smart.risk).toBeGreaterThan(0)
+        // Meteor really lands under pressure: the policy beats itself with the Meteor rule removed
+        expect(smart.pressure.perSpell.SPELL_METEOR!.casts).toBeGreaterThan(0)
+        const withoutMeteor = simulate({ loadout, policy: [smartPolicy[0], smartPolicy[2]] })
+        expect(smart.dpsUnderPressure).toBeGreaterThan(withoutMeteor.dpsUnderPressure)
+        // unpressured there is no Counterspell, so the held Meteor is cast like a bare one
+        expect(smart.perSpell.SPELL_METEOR!.casts).toBeGreaterThan(0)
+        expect(smart.dps).toBe(unheld.dps)
     })
 })

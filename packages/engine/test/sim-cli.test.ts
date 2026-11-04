@@ -47,10 +47,14 @@ describe('sim CLI', () => {
         expect(ranks).toEqual([...ranks].sort((a, b) => b - a))
     }, 60_000)
 
-    it('sim:search rejects a missing --size', () => {
+    it('sim:search rejects a missing --size or flag value', () => {
         const script = fileURLToPath(new URL('../scripts/sim-search.ts', import.meta.url))
         expect(() => execFileSync('npx', ['tsx', script], { encoding: 'utf8', stdio: 'pipe' })).toThrow(
             /--size is required/,
         )
+        // a flag never swallows the next flag as its value
+        expect(() =>
+            execFileSync('npx', ['tsx', script, '--pool', '--size', '2'], { encoding: 'utf8', stdio: 'pipe' }),
+        ).toThrow(/--pool needs a value/)
     }, 30_000)
 })

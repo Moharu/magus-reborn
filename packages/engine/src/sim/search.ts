@@ -1,7 +1,8 @@
 import { SPELL_IDS, SPELLS } from '../catalog'
+import { LOOKBACK_TIME as AFTERBURN_LOOKBACK } from '../spells/fire/afterburn'
 import type { SpellId } from '../types'
 import { describePolicy, isTerminalRule, type PolicyRule } from './policy'
-import { simulate, type SimPressure } from './index'
+import { simulate, type SimInterrupt, type SimPressure } from './index'
 
 /**
  * Spells that can change the damage dealt to a passive dummy. Counterspell, Temporal Shield, Magic Eater
@@ -32,7 +33,7 @@ const combustionAt = (count: number): PolicyRule => ({
 })
 const afterburnAfter = (count: number): PolicyRule => ({
     spell: 'SPELL_AFTERBURN',
-    when: [{ type: 'recentReleasesAtLeast', spell: 'SPELL_FIREBALL', count, seconds: 10 }],
+    when: [{ type: 'recentReleasesAtLeast', spell: 'SPELL_FIREBALL', count, seconds: AFTERBURN_LOOKBACK }],
 })
 
 /**
@@ -141,6 +142,10 @@ export interface SearchResult {
     pressuredDamage: number
     /** Spells released at least once in the unpressured run, in loadout order. */
     cast: SpellId[]
+    /** Spells released at least once in the pressured run, in loadout order. */
+    castUnderPressure: SpellId[]
+    /** The Counterspells the pressure model landed, see `SimResult.pressure.interrupts`. */
+    interrupts: SimInterrupt[]
     /** Other policies with identical results that `rankResults` folded into this one. */
     equivalents?: number
 }
@@ -162,7 +167,8 @@ export const compareResults = (a: SearchResult, b: SearchResult) =>
 
 /**
  * Sorts by `compareResults` and keeps the first `top`. With `dedupe`, results that cast the same spells
- * (`cast`) and deal the same damage in both runs are treated as one behaviour, even across loadouts that
+ * (`cast`, `castUnderPressure`), deal the same damage in both runs and get countered at the same moments
+ * (`interrupts`) are treated as one behaviour, even across loadouts that
  * only differ by spells the policy never reaches: only the first in ranking order (so the smallest
  * loadout, then the fewest conditions) is kept, and `equivalents` counts the ones folded into it.
  */
@@ -172,7 +178,7 @@ export const rankResults = (results: SearchResult[], top: number, dedupe = true)
     const groups = new Map<string, SearchResult>()
     const out: SearchResult[] = []
     for (const r of sorted) {
-        const key = JSON.stringify([r.cast, r.totalDamage, r.pressuredDamage])
+        const key = JSON.stringify([r.cast, r.castUnderPressure, r.totalDamage, r.pressuredDamage, r.interrupts])
         const first = groups.get(key)
         if (first) {
             first.equivalents = (first.equivalents ?? 0) + 1 + (r.equivalents ?? 0)
@@ -213,6 +219,8 @@ export const evaluateCandidate = (
         totalDamage: r.totalDamage,
         pressuredDamage: r.pressure.totalDamage,
         cast: loadout.filter(id => (r.perSpell[id]?.casts ?? 0) > 0),
+        castUnderPressure: loadout.filter(id => (r.pressure.perSpell[id]?.casts ?? 0) > 0),
+        interrupts: r.pressure.interrupts,
     }
 }
 
