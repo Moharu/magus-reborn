@@ -87,6 +87,8 @@ export type LogEntry =
     | { type: 'SPELL_RELEASE'; caster: PlayerKey; spellIndex: number; tick: number }
     | { type: 'START_CAST'; caster: PlayerKey; spellIndex: number; tick: number }
     | { type: 'STOP_CAST'; caster: PlayerKey; tick: number }
+    /** The caster's own cast was cancelled by using an instant mid-cast. */
+    | { type: 'CANCEL_CAST'; caster: PlayerKey; spellIndex: number; tick: number }
 
 export type Winner = PlayerKey | 'draw' | null
 
@@ -131,6 +133,8 @@ export interface SpellDefinition {
     castSeconds?: number
     cooldownSeconds?: number
     globalCooldownTicks?: number
+    /** Instants only: if true, using it mid-cast keeps the current cast going. Default false (cancels it). */
+    usableWhileCasting?: boolean
     reducer: (state: BattleState, ctx: CastContext) => void
 }
 
