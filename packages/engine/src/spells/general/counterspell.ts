@@ -12,7 +12,7 @@ export const Counterspell: SpellDefinition = {
     description: "Counters current opponent's cast, disabling all spells for a short time if successfully interrupted.",
     advancedDescription: `Counters current opponent's cast, disabling all spells for ${LOCK_DURATION} seconds if successfully interrupted.`,
     cooldownSeconds: COOLDOWN,
-    globalCooldownTicks: 0,
+    offGlobalCooldown: true,
     reducer: (state, { target }) => {
         const player = state[target]
         if (!isCasting(player)) return

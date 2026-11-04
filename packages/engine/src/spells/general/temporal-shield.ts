@@ -13,7 +13,6 @@ export const TemporalShield: SpellDefinition = {
     description: 'After expiration returns user to the same hp amount as when the effect was applied.',
     advancedDescription: `After expiration returns user to the same hp amount as when the effect was applied. Lasts ${BUFF_DURATION} seconds.`,
     cooldownSeconds: COOLDOWN,
-    globalCooldownTicks: 0,
     reducer: (state, { caster }) =>
         simpleBuff<TemporalShieldBuff>(state, caster, {
             id: 'BUFF_TEMPORAL_SHIELD',

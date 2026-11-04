@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Battle, cooldownRemaining, SPELLS, type SpellId } from '../src'
+import { Battle, cooldownRemaining, GLOBAL_COOLDOWN, SPELLS, type SpellId } from '../src'
 import { advance, castFull, effectIds, FIRE, GENERAL, setup, slot } from './helpers'
 
 describe('fixed original bugs', () => {
@@ -18,6 +18,7 @@ describe('fixed original bugs', () => {
         castFull(b, 'player1', 'SPELL_HASTE')
         advance(b, 201)
         castFull(b, 'player1', 'SPELL_HASTE')
+        advance(b, GLOBAL_COOLDOWN)
         castFull(b, 'player1', 'SPELL_FIREBALL')
         advance(b, 1)
         expect(effectIds(b, 'player1')).toEqual([])
@@ -27,7 +28,7 @@ describe('fixed original bugs', () => {
     it('Haste is consumed when an instant and a cast-time spell release on the same tick', () => {
         const b = setup(GENERAL, FIRE)
         castFull(b, 'player1', 'SPELL_HASTE')
-        advance(b, 1)
+        advance(b, GLOBAL_COOLDOWN)
         const fireball = slot(b, 'player1', 'SPELL_FIREBALL')
         b.startCast('player1', fireball)
         advance(b, 13)

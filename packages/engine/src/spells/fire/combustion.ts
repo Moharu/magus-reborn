@@ -11,7 +11,6 @@ export const Combustion: SpellDefinition = {
     description: 'Deals low damage instantly, plus the damage of all remaining ignite effects.',
     advancedDescription: `Deals ${DAMAGE} damage instantly, plus the damage of all remaining ignite effects.`,
     castSeconds: CAST,
-    globalCooldownTicks: 0,
     reducer: (state, { caster, target }) => {
         const player = state[target]
         const igniteDamage = player.effects.reduce((dmg, effect) => {

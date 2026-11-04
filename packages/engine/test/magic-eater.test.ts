@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
     Battle,
+    GLOBAL_COOLDOWN,
     simpleBuff,
     simpleDamage,
     simpleDebuff,
@@ -54,6 +55,7 @@ describe('Magic Eater damage attribution', () => {
         const b = setup(GENERAL, FIRE)
         b.state.player1.hp = 50
         castFull(b, 'player1', 'SPELL_MAGIC_EATER')
+        advance(b, GLOBAL_COOLDOWN)
         const before = b.state.player2.hp
         castFull(b, 'player1', 'SPELL_FIREBALL')
         advance(b, 1)
@@ -80,6 +82,7 @@ describe('Magic Eater damage attribution', () => {
         const b = setup(GENERAL, FIRE)
         b.state.player1.hp = 99
         castFull(b, 'player1', 'SPELL_MAGIC_EATER')
+        advance(b, GLOBAL_COOLDOWN)
         castFull(b, 'player1', 'SPELL_FIREBALL')
         advance(b, 1)
         expect(b.state.player1.hp).toBe(100)

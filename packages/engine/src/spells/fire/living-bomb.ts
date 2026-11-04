@@ -15,7 +15,6 @@ export const LivingBomb: SpellDefinition = {
         'Deals low damage over time, upon expiration, explodes in a burst of damage. Replaces existing Living Bomb effects.',
     advancedDescription: `Deals ${DEBUFF_TOTAL_DAMAGE} damage over ${DEBUFF_DURATION} seconds, upon expiration, explodes dealing ${DEBUFF_FINAL_DAMAGE} damage. Replaces existing Living Bomb effects.`,
     castSeconds: CAST,
-    globalCooldownTicks: 0,
     reducer: (state, { target }) =>
         uniqueDebuff<LivingBombDebuff>(state, target, {
             id: 'DEBUFF_LIVING_BOMB',

@@ -1,5 +1,13 @@
 import { Container, Graphics, Sprite, Text } from 'pixi.js'
-import { cooldownRemaining, HOTKEYS, SPELLS, ticksToSeconds, type PlayerState, type SpellState } from '@magus/engine'
+import {
+    cooldownRemaining,
+    HOTKEYS,
+    lockRemaining,
+    SPELLS,
+    ticksToSeconds,
+    type PlayerState,
+    type SpellState,
+} from '@magus/engine'
 import { TEXT_FONT, WIDTH, type Side } from './layout'
 import { iconTexture } from './textures'
 
@@ -201,7 +209,6 @@ export class ActionBar extends Container {
     }
 
     update(player: PlayerState, tick: number, keysDown: Set<number>) {
-        const locked = player.globalCooldown > tick
         player.spells.forEach((spell, i) => {
             const b = this.buttons[i]
             if (b.spellId !== spell.id) {
@@ -214,7 +221,7 @@ export class ActionBar extends Container {
                 b,
                 spell,
                 tick,
-                locked ? player.globalCooldown - tick : 0,
+                lockRemaining(player, spell, tick),
                 player.cast === i,
                 keysDown.has(i) || this.pressed.has(i),
             )
