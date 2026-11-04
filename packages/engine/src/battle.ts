@@ -53,6 +53,7 @@ export const cooldownRemaining = (spell: SpellState, gameTick: number) =>
 export class Battle {
     state: BattleState
     private events: HpEvent[] = []
+    private winnerTick: number | null = null
 
     constructor(player1: PlayerInit, player2: PlayerInit) {
         this.state = {
@@ -87,6 +88,14 @@ export class Battle {
             )
         }
 
+        this.resolveDeaths()
+    }
+
+    /** Clamps HP at 0 and sets `winner`; both dead at once is a draw. Runs after every tick and cast. */
+    private resolveDeaths() {
+        const state = this.state
+        // a winner decided earlier in this same tick can still become a draw
+        if (state.winner && this.winnerTick !== state.gameTick) return
         const p1Dead = state.player1.hp <= 0
         const p2Dead = state.player2.hp <= 0
         if (p1Dead) state.player1.hp = 0
@@ -94,6 +103,7 @@ export class Battle {
         if (p1Dead && p2Dead) state.winner = 'draw'
         else if (p1Dead) state.winner = 'player2'
         else if (p2Dead) state.winner = 'player1'
+        if (state.winner && this.winnerTick === null) this.winnerTick = state.gameTick
     }
 
     startCast(caster: PlayerKey, spellIndex: number): boolean {
@@ -155,6 +165,7 @@ export class Battle {
         state[caster].globalCooldown = state.gameTick + spell.globalCooldown
         const def = SPELLS[spell.id]
         this.measure(spell.id, 'spell', () => def.reducer(state, { caster, target: enemyOf(caster) }))
+        this.resolveDeaths()
     }
 
     private log(entry: LogEntry) {

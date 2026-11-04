@@ -3,7 +3,7 @@ import type { BattleState, EffectState, PlayerKey, PlayerState } from './types'
 type Applied<E extends EffectState> = Omit<E, 'startingTick' | 'type'>
 
 export const simpleDamage = (state: BattleState, target: PlayerKey, damage: number) => {
-    state[target].hp -= damage
+    state[target].hp = Math.max(0, state[target].hp - damage)
 }
 
 export const simpleDebuff = <E extends EffectState>(state: BattleState, target: PlayerKey, debuff: Applied<E>) => {
