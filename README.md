@@ -33,6 +33,17 @@ npm run typecheck
 npm run format
 ```
 
+### Damage simulator
+
+`simulate({ loadout, policy, durationSeconds = 60 })` (exported from `@magus/engine`) runs the real engine against a passive training dummy and returns `{ totalDamage, dps, durationSeconds, perSpell: { [id]: { damage, casts, share } } }`. `policy` is an ordered priority list: each tick the caster starts the first spell the engine accepts and releases it exactly when its cast time completes. Effect damage (Ignite, Living Bomb ticks) counts toward the spell that applied it.
+
+```sh
+npm run sim -w @magus/engine -- input.json    # { "loadout": [...], "policy": [...], "durationSeconds": 60 }
+npm run sim -w @magus/engine -- --loadout fireball,ignite --policy ignite,fireball --duration 60
+```
+
+Spell ids are case-insensitive and the `SPELL_` prefix is optional. `--policy` defaults to the loadout order.
+
 ### CI
 
 `.github/workflows/ci.yml` runs `npm ci`, `npm test`, `npm run typecheck`, `npm run format:check` and `npm run build` on every pull request into `dev` and every push to `dev`. In the branch protection rule for `dev`, mark the `ci` status check as required.
