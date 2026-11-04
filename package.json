@@ -9,6 +9,7 @@
     "scripts": {
         "dev:web": "npm run dev -w @magus/web",
         "dev:server": "npm run dev -w @magus/server",
+        "sim:search": "npm run sim:search -w @magus/engine --",
         "build": "npm run build -w @magus/web",
         "deploy:server": "npm run deploy -w @magus/server",
         "test": "vitest run",

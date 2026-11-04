@@ -4,6 +4,7 @@ import { secondsToTicks, ticksToSeconds } from '../constants'
 import { COOLDOWN as COUNTERSPELL_COOLDOWN } from '../spells/general/counterspell'
 import type { BattleState, PlayerKey, SpellId } from '../types'
 import { fromCenti, toCenti } from '../utils'
+import { conditionHolds, parsePolicyEntry, toRule, type PolicyEntry } from './policy'
 
 /**
  * Far more than any loadout deals in a fight (hundreds per minute), so the dummy never reaches 0
@@ -21,8 +22,11 @@ export interface SimPressure {
 export interface SimInput {
     /** Spells equipped by the caster, in slot order. */
     loadout: SpellId[]
-    /** Ordered priority list. Each tick the first spell the engine accepts is started. */
-    policy: SpellId[]
+    /**
+     * Ordered rules. Each tick the first rule whose conditions hold and whose spell the engine accepts is
+     * started. A bare spell id is an unconditional rule. See `PolicyCondition`.
+     */
+    policy: PolicyEntry[]
     durationSeconds?: number
     /** Optional cap on releases per spell; a capped spell is no longer castable for the policy. */
     maxCasts?: Partial<Record<SpellId, number>>
@@ -105,8 +109,9 @@ const releaseValue = (battle: Battle, totalTicks: number) => {
 }
 
 const validate = ({ loadout, policy, durationSeconds = 60, maxCasts = {}, pressure = {} }: SimInput) => {
-    for (const id of [...loadout, ...policy]) if (!isSpellId(id)) throw new Error(`unknown spell id: ${id}`)
-    for (const id of policy) if (!loadout.includes(id)) throw new Error(`policy spell ${id} is not in the loadout`)
+    for (const id of loadout) if (!isSpellId(id)) throw new Error(`unknown spell id: ${id}`)
+    const spells = policy.map(entry => toRule(parsePolicyEntry(entry)).spell)
+    for (const id of spells) if (!loadout.includes(id)) throw new Error(`policy spell ${id} is not in the loadout`)
     if (!(Number.isFinite(durationSeconds) && durationSeconds > 0))
         throw new Error('durationSeconds must be a finite positive number')
     for (const [id, cap] of Object.entries(maxCasts)) {
@@ -133,7 +138,7 @@ const run = (
     reaction: number,
     cooldown: number,
 ): RunResult => {
-    const order = policy.map(id => loadout.indexOf(id))
+    const rules = policy.map(toRule).map(rule => ({ ...rule, index: loadout.indexOf(rule.spell) }))
     const battle = new Battle(
         { name: 'Caster', spells: loadout },
         { name: 'Dummy', spells: DUMMY_SPELLS, hp: DUMMY_HP },
@@ -188,9 +193,10 @@ const run = (
             track()
             collect() // count the release before deciding what to start next (maxCasts)
         }
-        for (const index of order) {
-            const cap = maxCasts[loadout[index]]
-            if (cap !== undefined && (casts.get(loadout[index]) ?? 0) >= cap) continue
+        for (const { spell, when = [], index } of rules) {
+            const cap = maxCasts[spell]
+            if (cap !== undefined && (casts.get(spell) ?? 0) >= cap) continue
+            if (!when.every(c => conditionHolds(battle.state, CASTER, DUMMY, c))) continue
             if (battle.startCast(CASTER, index)) break
         }
         track()
@@ -309,12 +315,26 @@ const round = (n: number) => Math.round(n * 1e6) / 1e6
 
 const isIdList = (v: unknown): v is SpellId[] => Array.isArray(v) && v.every(isSpellId)
 
+const parsePolicy = (v: unknown): PolicyEntry[] => {
+    if (!Array.isArray(v) || v.length === 0)
+        throw new Error('"policy" must be a non-empty array of spell ids or { spell, when } rules')
+    return v.map((entry, i) => {
+        try {
+            return parsePolicyEntry(entry)
+        } catch (error) {
+            throw new Error(`"policy[${i}]": ${error instanceof Error ? error.message : String(error)}`)
+        }
+    })
+}
+
 /** Validates untrusted input (e.g. a CLI JSON file), throwing a readable error. */
 export const parseSimInput = (raw: unknown): SimInput => {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('input must be a JSON object')
     const { loadout, policy, durationSeconds, maxCasts, pressure } = raw as Record<string, unknown>
     if (!isIdList(loadout) || loadout.length === 0) throw new Error('"loadout" must be a non-empty array of spell ids')
-    if (!isIdList(policy) || policy.length === 0) throw new Error('"policy" must be a non-empty array of spell ids')
+    const rules = parsePolicy(policy)
+    const stray = rules.map(entry => toRule(entry).spell).find(id => !loadout.includes(id))
+    if (stray) throw new Error(`"policy" spell ${stray} is not in the loadout`)
     if (
         durationSeconds !== undefined &&
         !(typeof durationSeconds === 'number' && Number.isFinite(durationSeconds) && durationSeconds > 0)
@@ -345,7 +365,7 @@ export const parseSimInput = (raw: unknown): SimInput => {
     }
     return {
         loadout,
-        policy,
+        policy: rules,
         ...(durationSeconds !== undefined ? { durationSeconds } : {}),
         ...(maxCasts !== undefined ? { maxCasts: maxCasts as SimInput['maxCasts'] } : {}),
         ...(pressure !== undefined

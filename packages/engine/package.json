@@ -9,7 +9,8 @@
     },
     "scripts": {
         "typecheck": "tsc -p . && tsc -p tsconfig.scripts.json",
-        "sim": "tsx scripts/sim.ts"
+        "sim": "tsx scripts/sim.ts",
+        "sim:search": "tsx scripts/sim-search.ts"
     },
     "devDependencies": {
         "@types/node": "^24.19.2",
