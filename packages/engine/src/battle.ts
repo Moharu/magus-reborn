@@ -126,6 +126,11 @@ export class Battle {
         if (cooldownRemaining(spell, state.gameTick) > 0) return false
 
         if (!spell.castTime) {
+            if (player.cast !== null && !SPELLS[spell.id].usableWhileCasting) {
+                this.log({ type: 'CANCEL_CAST', caster, spellIndex: player.cast, tick: state.gameTick })
+                player.cast = null
+                player.castStartingTick = null
+            }
             this.castSpell(caster, spellIndex)
             return true
         }

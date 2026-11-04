@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Battle, cooldownRemaining, type SpellId } from '../src'
+import { Battle, cooldownRemaining, SPELLS, type SpellId } from '../src'
 import { advance, castFull, effectIds, FIRE, GENERAL, setup, slot } from './helpers'
 
 describe('fixed original bugs', () => {
@@ -31,8 +31,9 @@ describe('fixed original bugs', () => {
         const fireball = slot(b, 'player1', 'SPELL_FIREBALL')
         b.startCast('player1', fireball)
         advance(b, 13)
-        b.startCast('player1', slot(b, 'player1', 'SPELL_BLUR'))
+        // release first: Blur mid-cast would cancel the Fireball (#25)
         b.stopCast('player1', fireball)
+        b.startCast('player1', slot(b, 'player1', 'SPELL_BLUR'))
         advance(b, 1)
         expect(effectIds(b, 'player1')).not.toContain('BUFF_HASTE')
         expect(b.state.player1.spells[fireball].castTime).toBe(26)
@@ -63,14 +64,20 @@ describe('fixed original bugs', () => {
         const b = setup(GENERAL, FIRE)
         const fireball = slot(b, 'player1', 'SPELL_FIREBALL')
         const blur = slot(b, 'player1', 'SPELL_BLUR')
-        b.startCast('player1', fireball)
-        advance(b, 30)
-        b.startCast('player1', blur)
-        b.stopCast('player1', blur)
-        expect(b.state.player2.hp).toBe(100)
-        expect(b.state.player1.cast).toBe(fireball)
-        b.stopCast('player1', fireball)
-        expect(b.state.player2.hp).toBeCloseTo(94.4)
+        // since #25 an instant cancels the cast; opt Blur in to keep testing the key-release path
+        SPELLS.SPELL_BLUR.usableWhileCasting = true
+        try {
+            b.startCast('player1', fireball)
+            advance(b, 30)
+            b.startCast('player1', blur)
+            b.stopCast('player1', blur)
+            expect(b.state.player2.hp).toBe(100)
+            expect(b.state.player1.cast).toBe(fireball)
+            b.stopCast('player1', fireball)
+            expect(b.state.player2.hp).toBeCloseTo(94.4)
+        } finally {
+            delete SPELLS.SPELL_BLUR.usableWhileCasting
+        }
     })
 
     it('Afterburn deals its base damage without Fireball equipped', () => {
