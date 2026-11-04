@@ -1,6 +1,6 @@
 // Usage:
 //   npm run sim -w @magus/engine -- input.json
-//   npm run sim -w @magus/engine -- --loadout fireball,ignite --policy ignite,fireball [--duration 60]
+//   npm run sim -w @magus/engine -- --loadout fireball,ignite --policy ignite,fireball [--duration 60] [--reaction 0.4]
 // Ids may be given with or without the SPELL_ prefix, case-insensitive. --policy defaults to the loadout order.
 import { readFileSync } from 'node:fs'
 import { parseSimInput, simulate, type SpellId } from '../src'
@@ -25,7 +25,13 @@ try {
         const loadout = list(flag('loadout'))
         const policy = flag('policy') ? list(flag('policy')) : loadout
         const duration = flag('duration')
-        raw = { loadout, policy, ...(duration !== undefined ? { durationSeconds: Number(duration) } : {}) }
+        const reaction = flag('reaction')
+        raw = {
+            loadout,
+            policy,
+            ...(duration !== undefined ? { durationSeconds: Number(duration) } : {}),
+            ...(reaction !== undefined ? { pressure: { reactionSeconds: Number(reaction) } } : {}),
+        }
     }
     console.log(JSON.stringify(simulate(parseSimInput(raw)), null, 2))
 } catch (error) {
