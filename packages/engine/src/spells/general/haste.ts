@@ -12,7 +12,6 @@ export const Haste: SpellDefinition = {
     description: 'Enhances cast speed of next spell',
     advancedDescription: `Enhances cast speed of next spell by ${BUFF_CAST_REDUCTION_PERCENTAGE}%.`,
     cooldownSeconds: COOLDOWN,
-    globalCooldownTicks: 0,
     reducer: (state, { caster }) => {
         const player = state[caster]
         // refresh rather than stack: restore the un-hasted cast times first

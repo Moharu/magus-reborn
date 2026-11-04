@@ -11,6 +11,5 @@ export const Fireball: SpellDefinition = {
     description: 'Deals moderate damage instantly.',
     advancedDescription: `Deals ${DAMAGE} damage instantly.`,
     castSeconds: CAST,
-    globalCooldownTicks: 0,
     reducer: (state, { caster, target }) => simpleDamage(state, target, DAMAGE, caster),
 }

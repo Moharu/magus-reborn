@@ -13,7 +13,6 @@ export const Ignite: SpellDefinition = {
     description: 'Deals damage over time.',
     advancedDescription: `Deals ${DEBUFF_TOTAL_DAMAGE} damage over ${DEBUFF_DURATION} seconds.`,
     castSeconds: CAST,
-    globalCooldownTicks: 0,
     reducer: (state, { target }) =>
         simpleDebuff<IgniteDebuff>(state, target, {
             id: 'DEBUFF_IGNITE',

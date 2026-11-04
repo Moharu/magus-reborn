@@ -1,5 +1,5 @@
 import { EFFECT_REDUCERS, SPELLS } from './catalog'
-import { DEFAULT_GLOBAL_COOLDOWN, ENGINE_VERSION, MAX_HP, secondsToTicks } from './constants'
+import { ENGINE_VERSION, GLOBAL_COOLDOWN, MAX_HP, secondsToTicks } from './constants'
 import type {
     BattleSnapshot,
     BattleState,
@@ -32,7 +32,7 @@ export const createSpellState = (id: SpellId): SpellState => {
         id,
         castTime: def.castSeconds ? secondsToTicks(def.castSeconds) : 0,
         cooldown: def.cooldownSeconds ? secondsToTicks(def.cooldownSeconds) : 0,
-        globalCooldown: def.globalCooldownTicks ?? DEFAULT_GLOBAL_COOLDOWN,
+        globalCooldown: def.castSeconds || def.offGlobalCooldown ? 0 : GLOBAL_COOLDOWN,
         lastCast: null,
     }
 }
@@ -50,6 +50,16 @@ const createPlayer = ({ name, spells, hp = MAX_HP }: PlayerInit): PlayerState =>
 /** Ticks remaining until the spell is off cooldown, 0 if ready. */
 export const cooldownRemaining = (spell: SpellState, gameTick: number) =>
     spell.lastCast !== null && spell.cooldown ? Math.max(0, spell.lastCast + spell.cooldown - gameTick) : 0
+
+/**
+ * Ticks remaining until the player may start `spell` because of the GCD or a Counterspell lock, 0 if free.
+ * Off-GCD spells ignore the GCD but not a Counterspell lock.
+ */
+export const lockRemaining = (player: PlayerState, spell: SpellState, gameTick: number) => {
+    const remaining = Math.max(0, player.globalCooldown - gameTick)
+    if (!remaining || !SPELLS[spell.id].offGlobalCooldown) return remaining
+    return player.effects.some(e => e.id === 'DEBUFF_COUNTERSPELL') ? remaining : 0
+}
 
 export class Battle {
     state: BattleState
@@ -119,10 +129,11 @@ export class Battle {
         const state = this.state
         const player = state[caster]
         if (state.winner) return false
-        if (state.gameTick < player.globalCooldown) return false
 
         const spell = player.spells[spellIndex]
         if (!spell) return false
+        // checked before cancelling: a spell rejected by the GCD leaves the current cast alone
+        if (lockRemaining(player, spell, state.gameTick) > 0) return false
         if (cooldownRemaining(spell, state.gameTick) > 0) return false
 
         if (!spell.castTime) {
@@ -176,7 +187,9 @@ export class Battle {
         this.log({ type: 'SPELL_RELEASE', caster, spellIndex, tick: state.gameTick })
         const spell = state[caster].spells[spellIndex]
         spell.lastCast = state.gameTick
-        state[caster].globalCooldown = state.gameTick + spell.globalCooldown
+        // never shortens a longer lock already in place
+        if (spell.globalCooldown)
+            state[caster].globalCooldown = Math.max(state[caster].globalCooldown, state.gameTick + spell.globalCooldown)
         const def = SPELLS[spell.id]
         this.measure(spell.id, 'spell', () => def.reducer(state, { caster, target: enemyOf(caster) }))
         this.resolveDeaths()

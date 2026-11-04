@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createSpellState, DamageMeter } from '../src'
+import { createSpellState, DamageMeter, GLOBAL_COOLDOWN } from '../src'
 import { advance, castFull, effectIds, FIRE, GENERAL, releases, setup, slot } from './helpers'
 
 const IGNITE_PER_TICK = 13.3 / 200
@@ -14,8 +14,10 @@ describe('spell timings', () => {
         expect(createSpellState('SPELL_HASTE').castTime).toBe(0)
     })
 
-    it('every spell overrides the global cooldown to 0', () => {
-        for (const id of [...FIRE, ...GENERAL]) expect(createSpellState(id).globalCooldown).toBe(0)
+    it('only on-GCD instants start a global cooldown', () => {
+        const onGcd = ['SPELL_HASTE', 'SPELL_TEMPORAL_SHIELD', 'SPELL_MAGIC_EATER']
+        for (const id of [...FIRE, ...GENERAL])
+            expect(createSpellState(id).globalCooldown).toBe(onGcd.includes(id) ? GLOBAL_COOLDOWN : 0)
     })
 })
 
@@ -185,6 +187,7 @@ describe('Haste', () => {
     it('is consumed by the next cast-time spell', () => {
         const b = setup(GENERAL, FIRE)
         castFull(b, 'player1', 'SPELL_HASTE')
+        advance(b, GLOBAL_COOLDOWN)
         const start = b.state.gameTick
         castFull(b, 'player1', 'SPELL_FIREBALL')
         expect(b.state.gameTick - start).toBe(13)
@@ -259,6 +262,7 @@ describe('Magic Eater', () => {
         const b = setup(GENERAL, FIRE)
         b.state.player1.hp = 50
         castFull(b, 'player1', 'SPELL_MAGIC_EATER')
+        advance(b, GLOBAL_COOLDOWN)
         castFull(b, 'player1', 'SPELL_FIREBALL')
         advance(b, 1)
         expect(b.state.player1.hp).toBeCloseTo(50 + 5.6 * 0.4)
@@ -268,6 +272,7 @@ describe('Magic Eater', () => {
         const b = setup(GENERAL, FIRE)
         b.state.player1.hp = 99
         castFull(b, 'player1', 'SPELL_MAGIC_EATER')
+        advance(b, GLOBAL_COOLDOWN)
         castFull(b, 'player1', 'SPELL_FIREBALL')
         advance(b, 1)
         expect(b.state.player1.hp).toBe(100)

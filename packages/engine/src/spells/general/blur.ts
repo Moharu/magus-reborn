@@ -12,7 +12,7 @@ export const Blur: SpellDefinition = {
     description: 'Upon expiry, cleanses harmful effects (except Counterspell) applied while the buff was active.',
     advancedDescription: `Upon expiry, cleanses harmful effects (except Counterspell) applied while the buff was active. Lasts ${BUFF_DURATION} seconds.`,
     cooldownSeconds: COOLDOWN,
-    globalCooldownTicks: 0,
+    offGlobalCooldown: true,
     reducer: (state, { caster }) =>
         simpleBuff<BlurBuff>(state, caster, {
             id: 'BUFF_BLUR',

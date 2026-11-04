@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { MAX_HP, SPELLS } from '../src'
+import { GLOBAL_COOLDOWN, MAX_HP, SPELLS } from '../src'
 import { advance, castFull, effectIds, releases, setup, slot } from './helpers'
 
 describe('using an instant mid-cast (#25)', () => {
@@ -73,6 +73,7 @@ describe('using an instant mid-cast (#25)', () => {
         const haste = slot(b, 'player2', 'SPELL_HASTE')
         const fireball = slot(b, 'player2', 'SPELL_FIREBALL')
         expect(castFull(b, 'player2', 'SPELL_HASTE')).toBe(true)
+        advance(b, GLOBAL_COOLDOWN)
         b.startCast('player2', fireball)
         advance(b, 2)
         expect(b.startCast('player2', haste)).toBe(false) // on cooldown

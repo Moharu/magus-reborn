@@ -69,6 +69,7 @@ export interface SpellState {
     castTime: number
     /** In ticks. 0 means no cooldown. */
     cooldown: number
+    /** In ticks: the GCD this spell starts on release. 0 for cast-time and off-GCD spells. */
     globalCooldown: number
     lastCast: number | null
 }
@@ -79,6 +80,7 @@ export interface PlayerState {
     effects: EffectState[]
     cast: number | null
     castStartingTick: number | null
+    /** Tick until which the player is locked: by the GCD, or by Counterspell (which also blocks off-GCD spells). */
     globalCooldown: number
     spells: SpellState[]
 }
@@ -132,7 +134,8 @@ export interface SpellDefinition {
     advancedDescription: string
     castSeconds?: number
     cooldownSeconds?: number
-    globalCooldownTicks?: number
+    /** Instants only: if true, it neither starts nor is blocked by the GCD. Cast-time spells never start one. */
+    offGlobalCooldown?: boolean
     /** Instants only: if true, using it mid-cast keeps the current cast going. Default false (cancels it). */
     usableWhileCasting?: boolean
     reducer: (state: BattleState, ctx: CastContext) => void
