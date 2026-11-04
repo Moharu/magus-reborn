@@ -41,7 +41,8 @@ export interface CounterspellDebuff extends EffectBase {
 export interface HasteBuff extends EffectBase {
     id: 'BUFF_HASTE'
     backup: number[]
-    compareTick: number
+    /** Log entries before this index were already checked for a consuming cast. */
+    logIndex: number
 }
 export interface BlurBuff extends EffectBase {
     id: 'BUFF_BLUR'

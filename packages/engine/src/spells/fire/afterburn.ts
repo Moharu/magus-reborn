@@ -17,7 +17,6 @@ export const Afterburn: SpellDefinition = {
     globalCooldownTicks: 0,
     reducer: (state, { caster, target }) => {
         const fireballIndex = state[caster].spells.findIndex(spell => spell.id === 'SPELL_FIREBALL')
-        if (fireballIndex === -1) return
         const fromTick = Math.max(state.gameTick - secondsToTicks(LOOKBACK_TIME), 0)
         const fireballsCast = state.log.filter(
             log =>

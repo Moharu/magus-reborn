@@ -15,6 +15,12 @@ export const Haste: SpellDefinition = {
     globalCooldownTicks: 0,
     reducer: (state, { caster }) => {
         const player = state[caster]
+        // refresh rather than stack: restore the un-hasted cast times first
+        const existing = player.effects.find(effect => effect.id === 'BUFF_HASTE')
+        if (existing) {
+            player.spells = player.spells.map((spell, i) => ({ ...spell, castTime: existing.backup[i] }))
+            player.effects = player.effects.filter(effect => effect !== existing)
+        }
         const buff: HasteBuff = {
             id: 'BUFF_HASTE',
             label: 'Haste',
@@ -22,7 +28,7 @@ export const Haste: SpellDefinition = {
             type: 'positive',
             startingTick: state.gameTick,
             duration: secondsToTicks(BUFF_DURATION),
-            compareTick: state.gameTick,
+            logIndex: state.log.length,
             backup: player.spells.map(spell => spell.castTime),
         }
         player.effects = [...player.effects, buff]
@@ -37,15 +43,11 @@ export const Haste: SpellDefinition = {
 
 export const hasteBuffReducer: EffectReducer<HasteBuff> = (state, { target }, buff) => {
     const player = state[target]
-    let shouldRemoveBuff = false
-    const newSpellRelease = state.log.find(
-        log => log.type === 'SPELL_RELEASE' && log.caster === target && log.tick > buff.compareTick,
-    )
-    if (newSpellRelease && newSpellRelease.type === 'SPELL_RELEASE') {
-        // instants don't consume haste
-        shouldRemoveBuff = !!player.spells[newSpellRelease.spellIndex].castTime
-        if (!shouldRemoveBuff) buff.compareTick = newSpellRelease.tick
-    }
+    // instants don't consume haste
+    const shouldRemoveBuff = state.log
+        .slice(buff.logIndex)
+        .some(log => log.type === 'SPELL_RELEASE' && log.caster === target && player.spells[log.spellIndex].castTime > 0)
+    buff.logIndex = state.log.length
     if (shouldRemoveBuff || state.gameTick === buff.startingTick + buff.duration) {
         player.spells = player.spells.map((spell, i) => ({ ...spell, castTime: buff.backup[i] }))
         player.effects = player.effects.filter(effect => effect.id !== buff.id)

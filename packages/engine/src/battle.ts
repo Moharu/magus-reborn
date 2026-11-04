@@ -48,7 +48,7 @@ const createPlayer = ({ name, spells, hp = MAX_HP }: PlayerInit): PlayerState =>
 
 /** Ticks remaining until the spell is off cooldown, 0 if ready. */
 export const cooldownRemaining = (spell: SpellState, gameTick: number) =>
-    spell.lastCast && spell.cooldown ? Math.max(0, spell.lastCast + spell.cooldown - gameTick) : 0
+    spell.lastCast !== null && spell.cooldown ? Math.max(0, spell.lastCast + spell.cooldown - gameTick) : 0
 
 export class Battle {
     state: BattleState
@@ -71,7 +71,9 @@ export class Battle {
         state.gameTick += 1
 
         for (const [target, enemy] of PAIRS) {
-            for (const effect of state[target].effects) {
+            for (const effect of [...state[target].effects]) {
+                // an earlier reducer this tick may have removed it (e.g. Blur cleanse)
+                if (!state[target].effects.includes(effect)) continue
                 if (!effect.tickInterval || (state.gameTick - effect.startingTick) % effect.tickInterval === 0) {
                     const reducer = EFFECT_REDUCERS[effect.id] as EffectReducer<EffectState>
                     this.measure(effect.source, 'effect', () => reducer(state, { target, enemy }, effect))
@@ -85,23 +87,24 @@ export class Battle {
             )
         }
 
-        if (state.player1.hp <= 0) {
-            state.player1.hp = 0
-            state.winner = 'player2'
-        } else if (state.player2.hp <= 0) {
-            state.player2.hp = 0
-            state.winner = 'player1'
-        }
+        const p1Dead = state.player1.hp <= 0
+        const p2Dead = state.player2.hp <= 0
+        if (p1Dead) state.player1.hp = 0
+        if (p2Dead) state.player2.hp = 0
+        if (p1Dead && p2Dead) state.winner = 'draw'
+        else if (p1Dead) state.winner = 'player2'
+        else if (p2Dead) state.winner = 'player1'
     }
 
     startCast(caster: PlayerKey, spellIndex: number): boolean {
         const state = this.state
         const player = state[caster]
+        if (state.winner) return false
         if (state.gameTick < player.globalCooldown) return false
 
         const spell = player.spells[spellIndex]
         if (!spell) return false
-        if (spell.lastCast && spell.cooldown && state.gameTick <= spell.lastCast + spell.cooldown) return false
+        if (cooldownRemaining(spell, state.gameTick) > 0) return false
 
         if (!spell.castTime) {
             this.castSpell(caster, spellIndex)
@@ -113,9 +116,11 @@ export class Battle {
         return true
     }
 
-    stopCast(caster: PlayerKey, _spellIndex?: number): boolean {
+    /** Releases the spell in `spellIndex` if it is the one being cast. */
+    stopCast(caster: PlayerKey, spellIndex: number): boolean {
         const state = this.state
         const player = state[caster]
+        if (player.cast !== spellIndex) return false
         this.log({ type: 'STOP_CAST', caster, tick: state.gameTick })
         let released = false
         if (isCasting(player)) {
