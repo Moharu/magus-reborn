@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Battle, DEFAULT_SPELLS, DUMMY_HP, parseSimInput, secondsToTicks, simulate, type SimInput } from '../src'
 import { CAST as FIREBALL_CAST, DAMAGE as FIREBALL_DAMAGE } from '../src/spells/fire/fireball'
 import { DEBUFF_TOTAL_DAMAGE as IGNITE_TOTAL } from '../src/spells/fire/ignite'
+import { fromCenti, toCenti } from '../src/utils'
 
 const MIXED: SimInput = {
     loadout: ['SPELL_FIREBALL', 'SPELL_IGNITE', 'SPELL_COMBUSTION', 'SPELL_LIVING_BOMB', 'SPELL_HASTE', 'SPELL_BLUR'],
@@ -21,7 +22,7 @@ describe('simulate', () => {
         expect(casts).toBe(46)
         const result = simulate({ loadout: ['SPELL_FIREBALL'], policy: ['SPELL_FIREBALL'] })
         expect(result.durationSeconds).toBe(60)
-        expect(result.totalDamage).toBeCloseTo(casts * FIREBALL_DAMAGE, 6)
+        expect(result.totalDamage).toBe(fromCenti(casts * toCenti(FIREBALL_DAMAGE)))
         expect(result.dps).toBeCloseTo((casts * FIREBALL_DAMAGE) / 60, 5)
         expect(result.perSpell).toEqual({
             SPELL_FIREBALL: { damage: result.totalDamage, casts, share: 1 },
@@ -43,7 +44,7 @@ describe('simulate', () => {
     it('shares sum to 1 and per-spell damage sums to the total', () => {
         const result = simulate(MIXED)
         const rows = Object.values(result.perSpell)
-        expect(rows.reduce((a, r) => a + r.damage, 0)).toBeCloseTo(result.totalDamage, 5)
+        expect(fromCenti(rows.reduce((a, r) => a + toCenti(r.damage), 0))).toBe(result.totalDamage)
         expect(rows.reduce((a, r) => a + r.share, 0)).toBeCloseTo(1, 5)
     })
 

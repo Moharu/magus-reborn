@@ -31,6 +31,7 @@ const magicEater = (b: Battle, on: PlayerKey, pendingDamage = 0, duration = 100)
         healingPercentage: 40,
         duration,
         pendingDamage,
+        healCarry: 0,
     })
 
 /** Expires (and restores HP) on the next tick. */

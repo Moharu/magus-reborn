@@ -13,7 +13,7 @@ import type {
     SpellState,
 } from './types'
 import { flushMagicEater } from './spells/general/magic-eater'
-import { enemyOf, isCasting } from './utils'
+import { enemyOf, fromCenti, isCasting, toCenti } from './utils'
 
 export interface PlayerInit {
     name: string
@@ -205,8 +205,9 @@ export class Battle {
         const before2 = state.player2.hp
         run()
         const tick = state.gameTick
-        const d1 = state.player1.hp - before1
-        const d2 = state.player2.hp - before2
+        // differences on the centi-HP grid, so event amounts are exact (e.g. -13.3, never -13.299999999999997)
+        const d1 = fromCenti(toCenti(state.player1.hp) - toCenti(before1))
+        const d2 = fromCenti(toCenti(state.player2.hp) - toCenti(before2))
         if (d1 !== 0) this.events.push({ tick, player: 'player1', amount: d1, source, kind })
         if (d2 !== 0) this.events.push({ tick, player: 'player2', amount: d2, source, kind })
     }

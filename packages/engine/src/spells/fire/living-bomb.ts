@@ -1,6 +1,6 @@
 import { secondsToTicks } from '../../constants'
 import type { EffectReducer, LivingBombDebuff, SpellDefinition } from '../../types'
-import { simpleDamage, uniqueDebuff } from '../../utils'
+import { simpleDamage, tickShare, uniqueDebuff } from '../../utils'
 
 export const CAST = 1.5
 export const DEBUFF_TOTAL_DAMAGE = 7
@@ -27,7 +27,7 @@ export const LivingBomb: SpellDefinition = {
 }
 
 export const livingBombDebuffReducer: EffectReducer<LivingBombDebuff> = (state, { target, enemy }, debuff) => {
-    simpleDamage(state, target, debuff.damage / debuff.duration, enemy)
+    simpleDamage(state, target, tickShare(debuff.damage, debuff.duration, state.gameTick - debuff.startingTick), enemy)
     if (state.gameTick === debuff.startingTick + debuff.duration) {
         simpleDamage(state, target, debuff.expirationDamage, enemy)
     }

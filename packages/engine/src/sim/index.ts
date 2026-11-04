@@ -2,11 +2,11 @@ import { Battle } from '../battle'
 import { isSpellId } from '../catalog'
 import { secondsToTicks, ticksToSeconds } from '../constants'
 import type { PlayerKey, SpellId } from '../types'
+import { fromCenti, toCenti } from '../utils'
 
 /**
  * Far more than any loadout deals in a fight (hundreds per minute), so the dummy never reaches 0
- * and `winner` stays null. Kept moderate because damage is read from hp deltas and a huge hp
- * value would cost floating-point precision. `simulate` throws if the fight ever ends.
+ * and `winner` stays null. Kept moderate so hp in centi-HP stays far inside the safe-integer range. `simulate` throws if the fight ever ends.
  */
 export const DUMMY_HP = 1e6
 
@@ -59,6 +59,7 @@ export const simulate = ({ loadout, policy, durationSeconds = 60, maxCasts = {} 
 
     const battle = new Battle({ name: 'Caster', spells: loadout }, { name: 'Dummy', spells: [], hp: DUMMY_HP })
     const totalTicks = secondsToTicks(durationSeconds)
+    /** In centi-HP, so totals are exact sums of the engine's 0.01-grid events. */
     const damage = new Map<SpellId, number>()
     const casts = new Map<SpellId, number>()
     let logSeen = 0
@@ -82,7 +83,7 @@ export const simulate = ({ loadout, policy, durationSeconds = 60, maxCasts = {} 
     const collect = () => {
         for (const event of battle.drainEvents()) {
             if (event.player !== DUMMY || event.amount >= 0) continue
-            damage.set(event.source, (damage.get(event.source) ?? 0) - event.amount)
+            damage.set(event.source, (damage.get(event.source) ?? 0) - toCenti(event.amount))
         }
         const log = battle.state.log
         for (; logSeen < log.length; logSeen++) {
@@ -102,11 +103,12 @@ export const simulate = ({ loadout, policy, durationSeconds = 60, maxCasts = {} 
         if (battle.state.winner !== null) throw new Error(`dummy fight ended early: ${battle.state.winner}`)
     }
 
-    let totalDamage = 0
-    for (const value of damage.values()) totalDamage += value
+    let totalCenti = 0
+    for (const value of damage.values()) totalCenti += value
+    const totalDamage = fromCenti(totalCenti)
     const perSpell: SimResult['perSpell'] = {}
     for (const id of loadout) {
-        const dmg = damage.get(id) ?? 0
+        const dmg = fromCenti(damage.get(id) ?? 0)
         const n = casts.get(id) ?? 0
         if (dmg === 0 && n === 0) continue
         perSpell[id] = { damage: round(dmg), casts: n, share: totalDamage > 0 ? round(dmg / totalDamage) : 0 }
