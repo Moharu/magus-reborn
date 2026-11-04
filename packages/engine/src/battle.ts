@@ -191,7 +191,7 @@ export class Battle {
         this.log({ type: 'SPELL_RELEASE', caster, spellIndex, tick: state.gameTick })
         const spell = state[caster].spells[spellIndex]
         spell.lastCast = state.gameTick
-        // never shortens a longer lock already in place
+        // never shortens a longer GCD already running; the Counterspell lock (lockedUntil) is separate
         if (spell.globalCooldown)
             state[caster].gcdUntil = Math.max(state[caster].gcdUntil, state.gameTick + spell.globalCooldown)
         const def = SPELLS[spell.id]
