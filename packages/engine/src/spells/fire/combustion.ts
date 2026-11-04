@@ -1,4 +1,5 @@
 import type { SpellDefinition } from '../../types'
+import { simpleDamage } from '../../utils'
 
 export const CAST = 2.4
 export const DAMAGE = 4.2
@@ -21,6 +22,6 @@ export const Combustion: SpellDefinition = {
             }
             return dmg
         }, 0)
-        player.hp -= igniteDamage + DAMAGE
+        simpleDamage(state, target, igniteDamage + DAMAGE)
     },
 }
