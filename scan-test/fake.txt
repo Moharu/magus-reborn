@@ -1,0 +1,2 @@
+FAKE TEST FIXTURE for issue 19, not a real credential
+GITHUB_TOKEN=ghp_tMIiaSHOMw9FDd8QyvwplKj45gQyrPBjfTGL
