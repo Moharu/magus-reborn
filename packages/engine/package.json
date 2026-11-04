@@ -8,6 +8,11 @@
         "./protocol": "./src/protocol.ts"
     },
     "scripts": {
-        "typecheck": "tsc -p ."
+        "typecheck": "tsc -p . && tsc -p tsconfig.scripts.json",
+        "sim": "tsx scripts/sim.ts"
+    },
+    "devDependencies": {
+        "@types/node": "^24.19.2",
+        "tsx": "^4.23.15"
     }
 }
