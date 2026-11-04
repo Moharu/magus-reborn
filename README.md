@@ -33,6 +33,10 @@ npm run typecheck
 npm run format
 ```
 
+### CI
+
+`.github/workflows/ci.yml` runs `npm ci`, `npm test`, `npm run typecheck`, `npm run format:check` and `npm run build` on every pull request into `dev` and every push to `dev`. In the branch protection rule for `dev`, mark the `ci` status check as required.
+
 ## Controls
 
 | Key         | Slot       |
