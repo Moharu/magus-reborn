@@ -80,7 +80,7 @@ interface RunResult {
 
 const fork = (battle: Battle) => {
     const copy = new Battle({ name: 'Caster', spells: [] }, { name: 'Dummy', spells: [] })
-    copy.state = JSON.parse(JSON.stringify({ ...battle.state, log: [] })) as BattleState
+    copy.state = JSON.parse(JSON.stringify(battle.state)) as BattleState
     return copy
 }
 
@@ -114,8 +114,9 @@ const validate = ({ loadout, policy, durationSeconds = 60, maxCasts = {}, pressu
         if (!(Number.isInteger(cap) && cap! >= 0)) throw new Error(`maxCasts for ${id} must be a non-negative integer`)
     }
     const { reactionSeconds = DEFAULT_REACTION_SECONDS } = pressure
-    if (!(Number.isFinite(reactionSeconds) && reactionSeconds >= 0))
-        throw new Error('reactionSeconds must be a finite non-negative number')
+    // a counter needs a cast already in progress, so R must be at least one tick (50 ms)
+    if (!(Number.isFinite(reactionSeconds) && secondsToTicks(reactionSeconds) >= 1))
+        throw new Error(`reactionSeconds must be a finite number of at least ${ticksToSeconds(1)}s (one tick)`)
 }
 
 /**
@@ -144,20 +145,24 @@ const run = (
     const records: CastRecord[] = []
     let open: CastRecord | null = null
     let logSeen = 0
-    /** First tick a cast can be countered in the next window; only casts within one cooldown of it are valued. */
+    /**
+     * First tick the next window can counter a cast worth countering. Only releases are candidates:
+     * a cast cancelled or still in progress at the end of the fight deals nothing, so it is not worth
+     * a Counterspell. Releases from `opens` up to one cooldown later are valued.
+     */
     let opens: number | null = null
-    const counterableAt = (record: CastRecord) => {
+    const measure = (record: CastRecord) => {
         const at = record.start + reaction
-        const eligible = ready !== null && at >= ready && at <= totalTicks && at <= battle.state.gameTick
-        if (eligible && opens === null) opens = at
-        return eligible && at < opens! + cooldown
+        if (ready === null || at < ready || at > battle.state.gameTick) return
+        if (opens !== null && at >= opens + cooldown) return
+        record.value = releaseValue(battle, totalTicks)
+        if (record.value > 0 && opens === null) opens = at
     }
 
     const track = () => {
         const { gameTick } = battle.state
         const player = battle.state[CASTER]
         if (open && (player.cast === null || player.castStartingTick !== open.start)) {
-            counterableAt(open)
             open.end = gameTick
             open = null
         }
@@ -178,7 +183,7 @@ const run = (
         if (player.cast !== null) {
             const spell = player.spells[player.cast]
             if (gameTick < player.castStartingTick! + spell.castTime) return
-            if (open && counterableAt(open)) open.value = releaseValue(battle, totalTicks)
+            if (open) measure(open)
             battle.stopCast(CASTER, player.cast)
             track()
             collect() // count the release before deciding what to start next (maxCasts)
@@ -237,7 +242,7 @@ const sumCenti = (damage: Map<SpellId, number>) => {
  *
  * Choosing the most valuable cast needs lookahead, done deterministically, one window at a time:
  *   1. run the fight with the interrupts chosen so far (none at first);
- *   2. eligible casts are those counterable at or after the tick the Counterspell is ready; the
+ *   2. eligible casts are releases worth > 0 damage, counterable at or after the tick the Counterspell is ready; the
  *      window opens at the first eligible interrupt tick and spans one `COOLDOWN` (the enemy does
  *      not hold Counterspell longer than that);
  *   3. counter the cast in the window whose release adds the most damage (measured by forking the
@@ -260,7 +265,7 @@ export const simulate = (input: SimInput): SimResult => {
     while (true) {
         const eligible = pressured.records.filter(r => {
             const at = r.start + reaction
-            return at >= ready && at <= totalTicks && (r.end === null || at <= r.end)
+            return r.value > 0 && at >= ready && at <= totalTicks && r.end !== null && at <= r.end
         })
         if (eligible.length === 0) break
         const opens = Math.min(...eligible.map(r => r.start + reaction))
@@ -330,9 +335,13 @@ export const parseSimInput = (raw: unknown): SimInput => {
         const { reactionSeconds } = pressure as Record<string, unknown>
         if (
             reactionSeconds !== undefined &&
-            !(typeof reactionSeconds === 'number' && Number.isFinite(reactionSeconds) && reactionSeconds >= 0)
+            !(
+                typeof reactionSeconds === 'number' &&
+                Number.isFinite(reactionSeconds) &&
+                secondsToTicks(reactionSeconds) >= 1
+            )
         )
-            throw new Error('"pressure.reactionSeconds" must be a finite non-negative number')
+            throw new Error('"pressure.reactionSeconds" must be a finite number of at least one tick (0.05s)')
     }
     return {
         loadout,

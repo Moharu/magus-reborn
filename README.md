@@ -49,7 +49,7 @@ Spell ids are case-insensitive and the `SPELL_` prefix is optional. `--policy` d
 Every run also reports `dpsUnderPressure` and `risk = dps - dpsUnderPressure`, plus `pressure: { reactionSeconds, totalDamage, interrupts }` listing each countered cast. The model:
 
 - The dummy holds the engine's real Counterspell. It is ready at 0 s and again `COOLDOWN` (11.7 s, from `spells/general/counterspell.ts`) after each use.
-- A cast can be countered `reactionSeconds` (R, default 0.4 s) after it starts, if it is still in progress. Casts shorter than R, and instants, are never countered.
+- A cast can be countered `reactionSeconds` (R, default 0.4 s, at least one 50 ms tick) after it starts, if it is still in progress. Casts shorter than R, and instants, are never countered. Neither is a cast that would deal nothing (for example one that would only land after the fight ends).
 - Interrupts run the engine's Counterspell reducer: the cast's progress is lost (no damage) and `lockedUntil` locks the caster for the full 3 s.
 - In each ready window the dummy counters the most valuable eligible cast: the one whose release adds the most damage by the end of the fight, measured by forking the engine at the release (DoTs and Combustion included). Ties go to the earliest cast. The window opens at the first counterable cast and lasts one cooldown.
 - Lookahead is deterministic: simulate with the interrupts chosen so far, pick the next window's target, add it, re-simulate from 0, repeat until no eligible cast is left.
