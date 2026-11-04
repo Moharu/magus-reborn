@@ -1,0 +1,20 @@
+name = "magus-reborn"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+# Comma separated origins allowed to connect, e.g. "https://magus-reborn.vercel.app".
+# "*" allows any origin.
+ALLOWED_ORIGINS = "*"
+
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "LobbyRoom"
+
+[[durable_objects.bindings]]
+name = "REGISTRY"
+class_name = "LobbyRegistry"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["LobbyRoom", "LobbyRegistry"]
