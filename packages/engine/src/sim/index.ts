@@ -4,6 +4,7 @@ import { secondsToTicks, ticksToSeconds } from '../constants'
 import { COOLDOWN as COUNTERSPELL_COOLDOWN } from '../spells/general/counterspell'
 import type { BattleState, PlayerKey, SpellId } from '../types'
 import { fromCenti, toCenti } from '../utils'
+import { conditionHolds, parsePolicyEntry, toRule, type PolicyEntry } from './policy'
 
 /**
  * Far more than any loadout deals in a fight (hundreds per minute), so the dummy never reaches 0
@@ -21,8 +22,11 @@ export interface SimPressure {
 export interface SimInput {
     /** Spells equipped by the caster, in slot order. */
     loadout: SpellId[]
-    /** Ordered priority list. Each tick the first spell the engine accepts is started. */
-    policy: SpellId[]
+    /**
+     * Ordered rules. Each tick the first rule whose conditions hold and whose spell the engine accepts is
+     * started. A bare spell id is an unconditional rule. See `PolicyCondition`.
+     */
+    policy: PolicyEntry[]
     durationSeconds?: number
     /** Optional cap on releases per spell; a capped spell is no longer castable for the policy. */
     maxCasts?: Partial<Record<SpellId, number>>
@@ -54,12 +58,21 @@ export interface SimResult {
     durationSeconds: number
     /** Unpressured breakdown. */
     perSpell: Partial<Record<SpellId, SimSpellResult>>
-    pressure: { reactionSeconds: number; totalDamage: number; interrupts: SimInterrupt[] }
+    pressure: {
+        reactionSeconds: number
+        totalDamage: number
+        interrupts: SimInterrupt[]
+        /** Breakdown of the pressured run (countered casts are not releases, so they don't count). */
+        perSpell: Partial<Record<SpellId, SimSpellResult>>
+    }
 }
 
 const CASTER: PlayerKey = 'player1'
 const DUMMY: PlayerKey = 'player2'
-/** The dummy's only spell: the engine's real Counterspell, used by the pressure model. */
+/**
+ * The dummy's only spell in the pressured run: the engine's real Counterspell. In the unpressured run
+ * the dummy has no spells at all, so there is no Counterspell threat (`enemyCounterspellOnCooldown` holds).
+ */
 const DUMMY_SPELLS: SpellId[] = ['SPELL_COUNTERSPELL']
 
 /** A cast-time spell the caster started. `end` is the tick it was released, cancelled or countered. */
@@ -105,8 +118,9 @@ const releaseValue = (battle: Battle, totalTicks: number) => {
 }
 
 const validate = ({ loadout, policy, durationSeconds = 60, maxCasts = {}, pressure = {} }: SimInput) => {
-    for (const id of [...loadout, ...policy]) if (!isSpellId(id)) throw new Error(`unknown spell id: ${id}`)
-    for (const id of policy) if (!loadout.includes(id)) throw new Error(`policy spell ${id} is not in the loadout`)
+    for (const id of loadout) if (!isSpellId(id)) throw new Error(`unknown spell id: ${id}`)
+    const spells = policy.map(entry => toRule(parsePolicyEntry(entry)).spell)
+    for (const id of spells) if (!loadout.includes(id)) throw new Error(`policy spell ${id} is not in the loadout`)
     if (!(Number.isFinite(durationSeconds) && durationSeconds > 0))
         throw new Error('durationSeconds must be a finite positive number')
     for (const [id, cap] of Object.entries(maxCasts)) {
@@ -133,10 +147,10 @@ const run = (
     reaction: number,
     cooldown: number,
 ): RunResult => {
-    const order = policy.map(id => loadout.indexOf(id))
+    const rules = policy.map(toRule).map(rule => ({ ...rule, index: loadout.indexOf(rule.spell) }))
     const battle = new Battle(
         { name: 'Caster', spells: loadout },
-        { name: 'Dummy', spells: DUMMY_SPELLS, hp: DUMMY_HP },
+        { name: 'Dummy', spells: ready === null ? [] : DUMMY_SPELLS, hp: DUMMY_HP },
     )
     const totalTicks = secondsToTicks(durationSeconds)
     /** In centi-HP, so totals are exact sums of the engine's 0.01-grid events. */
@@ -188,9 +202,10 @@ const run = (
             track()
             collect() // count the release before deciding what to start next (maxCasts)
         }
-        for (const index of order) {
-            const cap = maxCasts[loadout[index]]
-            if (cap !== undefined && (casts.get(loadout[index]) ?? 0) >= cap) continue
+        for (const { spell, when = [], index } of rules) {
+            const cap = maxCasts[spell]
+            if (cap !== undefined && (casts.get(spell) ?? 0) >= cap) continue
+            if (!when.every(c => conditionHolds(battle.state, CASTER, DUMMY, c))) continue
             if (battle.startCast(CASTER, index)) break
         }
         track()
@@ -229,7 +244,8 @@ const sumCenti = (damage: Map<SpellId, number>) => {
 
 /**
  * Drives the real engine (`Battle.startCast` / `stopCast` / `tick`) against a passive dummy:
- * once untouched (`dps`, `perSpell`) and once under Counterspell pressure (`dpsUnderPressure`).
+ * once untouched, with no spells on the dummy (`dps`, `perSpell`), and once under Counterspell pressure
+ * (`dpsUnderPressure`, `pressure.perSpell`).
  * Damage comes from the engine's attributed HpEvents, so effect ticks (Ignite, Living Bomb) count
  * toward the spell that applied them.
  *
@@ -281,14 +297,19 @@ export const simulate = (input: SimInput): SimResult => {
         pressured = run(input, interrupts, ready, reaction, cooldown)
     }
 
-    const totalDamage = fromCenti(sumCenti(base.damage))
-    const perSpell: SimResult['perSpell'] = {}
-    for (const id of input.loadout) {
-        const dmg = fromCenti(base.damage.get(id) ?? 0)
-        const n = base.casts.get(id) ?? 0
-        if (dmg === 0 && n === 0) continue
-        perSpell[id] = { damage: round(dmg), casts: n, share: totalDamage > 0 ? round(dmg / totalDamage) : 0 }
+    const breakdown = ({ damage, casts }: RunResult) => {
+        const total = fromCenti(sumCenti(damage))
+        const out: SimResult['perSpell'] = {}
+        for (const id of input.loadout) {
+            const dmg = fromCenti(damage.get(id) ?? 0)
+            const n = casts.get(id) ?? 0
+            if (dmg === 0 && n === 0) continue
+            out[id] = { damage: round(dmg), casts: n, share: total > 0 ? round(dmg / total) : 0 }
+        }
+        return out
     }
+    const totalDamage = fromCenti(sumCenti(base.damage))
+    const perSpell = breakdown(base)
     const seconds = ticksToSeconds(totalTicks)
     const pressuredDamage = fromCenti(sumCenti(pressured.damage))
     const dps = round(totalDamage / seconds)
@@ -300,7 +321,12 @@ export const simulate = (input: SimInput): SimResult => {
         risk: round(dps - dpsUnderPressure),
         durationSeconds: seconds,
         perSpell,
-        pressure: { reactionSeconds, totalDamage: round(pressuredDamage), interrupts: chosen },
+        pressure: {
+            reactionSeconds,
+            totalDamage: round(pressuredDamage),
+            interrupts: chosen,
+            perSpell: breakdown(pressured),
+        },
     }
 }
 
@@ -309,12 +335,26 @@ const round = (n: number) => Math.round(n * 1e6) / 1e6
 
 const isIdList = (v: unknown): v is SpellId[] => Array.isArray(v) && v.every(isSpellId)
 
+const parsePolicy = (v: unknown): PolicyEntry[] => {
+    if (!Array.isArray(v) || v.length === 0)
+        throw new Error('"policy" must be a non-empty array of spell ids or { spell, when } rules')
+    return v.map((entry, i) => {
+        try {
+            return parsePolicyEntry(entry)
+        } catch (error) {
+            throw new Error(`"policy[${i}]": ${error instanceof Error ? error.message : String(error)}`)
+        }
+    })
+}
+
 /** Validates untrusted input (e.g. a CLI JSON file), throwing a readable error. */
 export const parseSimInput = (raw: unknown): SimInput => {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) throw new Error('input must be a JSON object')
     const { loadout, policy, durationSeconds, maxCasts, pressure } = raw as Record<string, unknown>
     if (!isIdList(loadout) || loadout.length === 0) throw new Error('"loadout" must be a non-empty array of spell ids')
-    if (!isIdList(policy) || policy.length === 0) throw new Error('"policy" must be a non-empty array of spell ids')
+    const rules = parsePolicy(policy)
+    const stray = rules.map(entry => toRule(entry).spell).find(id => !loadout.includes(id))
+    if (stray) throw new Error(`"policy" spell ${stray} is not in the loadout`)
     if (
         durationSeconds !== undefined &&
         !(typeof durationSeconds === 'number' && Number.isFinite(durationSeconds) && durationSeconds > 0)
@@ -345,7 +385,7 @@ export const parseSimInput = (raw: unknown): SimInput => {
     }
     return {
         loadout,
-        policy,
+        policy: rules,
         ...(durationSeconds !== undefined ? { durationSeconds } : {}),
         ...(maxCasts !== undefined ? { maxCasts: maxCasts as SimInput['maxCasts'] } : {}),
         ...(pressure !== undefined
