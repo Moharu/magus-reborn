@@ -28,7 +28,7 @@ npm run dev:web      # vite on http://localhost:5173
 The web app connects to `http://localhost:8787` unless `VITE_SERVER_URL` is set (see `apps/web/.env.example`). The training room works without the server.
 
 ```sh
-npm test             # engine + lobby unit tests
+npm test             # engine + lobby unit tests, and Worker/Durable Object tests in workerd
 npm run typecheck
 npm run format
 ```
