@@ -3,7 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2026-10-01"
 
 [vars]
-# Comma separated origins allowed to connect, e.g. "https://magus-reborn.vercel.app".
+# Comma separated origins allowed to connect, e.g. "https://magus-reborn.pages.dev".
 # "*" allows any origin.
 ALLOWED_ORIGINS = "*"
 

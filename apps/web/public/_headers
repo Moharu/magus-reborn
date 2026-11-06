@@ -1,0 +1,4 @@
+# Cloudflare Pages response headers (copied to dist/ by Vite).
+# Files in /assets/ have a content hash in their name, so they never change.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
