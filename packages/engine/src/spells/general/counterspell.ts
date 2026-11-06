@@ -16,6 +16,13 @@ export const Counterspell: SpellDefinition = {
     reducer: (state, { target }) => {
         const player = state[target]
         if (!isCasting(player)) return
+        state.log.push({
+            type: 'INTERRUPTED',
+            player: target,
+            spellIndex: player.cast!,
+            tick: state.gameTick,
+            source: 'SPELL_COUNTERSPELL',
+        })
         player.cast = null
         player.castStartingTick = null
         player.lockedUntil = state.gameTick + secondsToTicks(LOCK_DURATION)

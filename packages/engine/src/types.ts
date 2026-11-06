@@ -97,8 +97,13 @@ export type LogEntry =
     | { type: 'SPELL_RELEASE'; caster: PlayerKey; spellIndex: number; tick: number }
     | { type: 'START_CAST'; caster: PlayerKey; spellIndex: number; tick: number }
     | { type: 'STOP_CAST'; caster: PlayerKey; tick: number }
-    /** The caster's own cast was cancelled by using an instant mid-cast. */
+    /** The caster's own cast was cancelled by using an instant mid-cast or replaced by starting a new cast. */
     | { type: 'CANCEL_CAST'; caster: PlayerKey; spellIndex: number; tick: number }
+    /**
+     * `player`'s cast of the spell in `spellIndex` was interrupted by the enemy's `source` spell. Written right
+     * after that spell's SPELL_RELEASE, whose `caster` is the interrupter; only when a cast was really interrupted.
+     */
+    | { type: 'INTERRUPTED'; player: PlayerKey; spellIndex: number; tick: number; source: SpellId }
 
 export type Winner = PlayerKey | 'draw' | null
 
