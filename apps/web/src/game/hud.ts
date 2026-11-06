@@ -1,13 +1,6 @@
 import { Container, Graphics, Sprite, Text } from 'pixi.js'
-import {
-    cooldownRemaining,
-    HOTKEYS,
-    lockRemaining,
-    SPELLS,
-    ticksToSeconds,
-    type PlayerState,
-    type SpellState,
-} from '@magus/engine'
+import { HOTKEYS, SPELLS, ticksToSeconds, type PlayerState } from '@magus/engine'
+import { buttonState, type ButtonState } from './button-state'
 import { TEXT_FONT, WIDTH, type Side } from './layout'
 import { iconTexture } from './textures'
 
@@ -219,9 +212,7 @@ export class ActionBar extends Container {
             }
             this.drawButton(
                 b,
-                spell,
-                tick,
-                lockRemaining(player, spell, tick),
+                buttonState(player, spell, tick),
                 player.cast === i,
                 keysDown.has(i) || this.pressed.has(i),
             )
@@ -230,25 +221,20 @@ export class ActionBar extends Container {
 
     private drawButton(
         b: ActionBar['buttons'][number],
-        spell: SpellState,
-        tick: number,
-        lockTicks: number,
+        { fader, locked, timer }: ButtonState,
         casting: boolean,
         down: boolean,
     ) {
-        const remaining = cooldownRemaining(spell, tick)
         const o = b.overlay.clear()
-        if (remaining > 0 || lockTicks > 0) {
-            const fraction = remaining > 0 ? remaining / spell.cooldown : 1
+        if (fader > 0) {
             const c = BUTTON / 2
             o.moveTo(c, c)
-                .arc(c, c, BUTTON, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fraction)
+                .arc(c, c, BUTTON, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fader)
                 .lineTo(c, c)
                 .fill({ color: 0x000000, alpha: 0.62 })
-            if (lockTicks > 0) o.roundRect(0, 0, BUTTON, BUTTON, 14).fill({ color: 0x0c8599, alpha: 0.35 })
         }
-        const shown = Math.max(remaining, lockTicks)
-        setText(b.center, shown > 0 ? ticksToSeconds(shown).toFixed(1) : '')
+        if (locked) o.roundRect(0, 0, BUTTON, BUTTON, 14).fill({ color: 0x0c8599, alpha: 0.35 })
+        setText(b.center, timer > 0 ? ticksToSeconds(timer).toFixed(1) : '')
         b.frame
             .clear()
             .roundRect(0, 0, BUTTON, BUTTON, 14)
