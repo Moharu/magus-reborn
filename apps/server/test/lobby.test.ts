@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SpellId } from '@magus/engine'
+import { GAME_TICK_INTERVAL, type SpellId } from '@magus/engine'
 import type { LobbyListing, ServerMessage } from '@magus/engine/protocol'
 import { Lobby, RECONNECT_GRACE, type LobbyTransport } from '../src/lobby'
 
@@ -67,9 +67,10 @@ const toBattle = (lobby: Lobby) => {
     expect(lobby.phase).toBe('battle')
 }
 
+/** The first tick decides the winner, the next one ends that tick and with it the round. */
 const killPlayer2 = (lobby: Lobby) => {
     lobby.battle!.state.player2.hp = 0
-    vi.advanceTimersByTime(50)
+    vi.advanceTimersByTime(100)
 }
 
 beforeEach(() => vi.useFakeTimers())
@@ -310,6 +311,62 @@ describe('match flow', () => {
         lobby.battle!.state.player2.hp = 0
         vi.advanceTimersByTime(50)
         expect(lobby.info()).toMatchObject({ phase: 'round_over', player1: { wins: 0 }, player2: { wins: 0 } })
+    })
+
+    /** Player 2 holds a Fireball (slot 0) that is ready to release, and player 1 is low enough for it to kill. */
+    const toReadyFireball = (lobby: Lobby) => {
+        lobby.message('c2', { t: 'set_spells', spells: FIRE })
+        toBattle(lobby)
+        const battle = lobby.battle!
+        lobby.message('c2', { t: 'start_cast', i: 0 })
+        vi.advanceTimersByTime(battle.state.player2.spells[0].castTime * GAME_TICK_INTERVAL)
+        battle.state.player1.hp = 1
+        return battle
+    }
+
+    it('a same-tick release after a winner decided inside the tick makes the round a draw', () => {
+        const { lobby } = startMatch()
+        const battle = toReadyFireball(lobby)
+        battle.state.player2.hp = 0
+        vi.advanceTimersByTime(50)
+        expect(battle.state.winner).toBe('player1')
+        expect(lobby.phase).toBe('battle')
+
+        lobby.message('c2', { t: 'stop_cast', i: 0 })
+        expect(battle.state.winner).toBe('draw')
+        vi.advanceTimersByTime(50)
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['draw'])
+        expect(lobby.info()).toMatchObject({ phase: 'round_over', player1: { wins: 0 }, player2: { wins: 0 } })
+    })
+
+    it('a same-tick instant after a winner decided inside the tick makes the round a draw', () => {
+        const { lobby } = startMatch()
+        lobby.message('c2', { t: 'set_spells', spells: FIRE })
+        toBattle(lobby)
+        const battle = lobby.battle!
+        battle.state.player2.spells[0].castTime = 0 // no catalog spell is both instant and damaging
+        battle.state.player1.hp = 1
+        battle.state.player2.hp = 0
+        vi.advanceTimersByTime(50)
+        expect(battle.state.winner).toBe('player1')
+
+        lobby.message('c2', { t: 'start_cast', i: 0 })
+        expect(battle.state.winner).toBe('draw')
+        vi.advanceTimersByTime(50)
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['draw'])
+    })
+
+    it('an action after the tick the winner was decided in changes nothing', () => {
+        const { lobby } = startMatch()
+        const battle = toReadyFireball(lobby)
+        battle.state.player2.hp = 0
+        vi.advanceTimersByTime(100)
+        expect(lobby.phase).toBe('round_over')
+
+        lobby.message('c2', { t: 'stop_cast', i: 0 })
+        expect(battle.state.winner).toBe('player1')
+        expect(battle.state.player1.hp).toBe(1)
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
     })
 
     it('skips set up after round 1 when spell changes are not allowed', () => {

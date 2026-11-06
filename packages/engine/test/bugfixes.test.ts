@@ -121,7 +121,7 @@ describe('fixed original bugs', () => {
         expect(b.state.player1.hp).toBe(hp)
     })
 
-    it('no spells can be cast once the battle has a winner', () => {
+    it('no spells can be cast once the tick that decided the winner has ended', () => {
         const b = setup(FIRE, GENERAL)
         b.state.player2.hp = 5
         castFull(b, 'player1', 'SPELL_FIREBALL')
