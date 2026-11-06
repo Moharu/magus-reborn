@@ -443,6 +443,171 @@ describe('disconnects during a match', () => {
         expect(transport.wasClosed).toBe(true)
     })
 
+    it('a forfeit with no decided winner records no round', () => {
+        const { lobby } = startMatch({ bestOf: 1 })
+        toBattle(lobby)
+        vi.advanceTimersByTime(500)
+        lobby.disconnect('c1')
+        seconds(RECONNECT_GRACE)
+        expect(lobby.info()).toMatchObject({
+            phase: 'match_over',
+            matchWinner: 'player2',
+            rounds: [],
+            player1: { wins: 0 },
+            player2: { wins: 0 },
+        })
+    })
+
+    /** Player 2 dies inside `tick()`: player 1 has won, but the round only ends on the next tick. */
+    const winInsideTick = (lobby: Lobby) => {
+        toBattle(lobby)
+        lobby.battle!.state.player2.hp = 0
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+        expect(lobby.battle!.state.winner).toBe('player1')
+        expect(lobby.phase).toBe('battle')
+    }
+
+    /** Draw decided by an action in the winner's tick, so the phase is still 'battle' when the disconnect pauses it. */
+    const drawByAction = (lobby: Lobby) => {
+        lobby.message('c2', { t: 'set_spells', spells: FIRE })
+        toBattle(lobby)
+        const battle = lobby.battle!
+        lobby.message('c2', { t: 'start_cast', i: 0 })
+        vi.advanceTimersByTime(battle.state.player2.spells[0].castTime * GAME_TICK_INTERVAL)
+        battle.state.player1.hp = 1
+        battle.state.player2.hp = 0
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+        lobby.message('c2', { t: 'stop_cast', i: 0 })
+        expect(battle.state.winner).toBe('draw')
+        expect(lobby.phase).toBe('battle')
+    }
+
+    it('gives the match to the actual winner when they disconnect inside the winning tick', () => {
+        const { lobby } = startMatch({ bestOf: 1 })
+        winInsideTick(lobby)
+        lobby.disconnect('c1')
+        seconds(RECONNECT_GRACE)
+        expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1', player1: { wins: 1 } })
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
+    })
+
+    it('records the round when the loser disconnects inside the winning tick', () => {
+        const { lobby } = startMatch({ bestOf: 1 })
+        winInsideTick(lobby)
+        lobby.disconnect('c2')
+        seconds(RECONNECT_GRACE)
+        expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1', player1: { wins: 1 } })
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
+    })
+
+    it('still gives the match to the actual winner when both players disconnect inside the winning tick', () => {
+        const { lobby, transport } = startMatch({ bestOf: 1 })
+        winInsideTick(lobby)
+        lobby.disconnect('c1')
+        lobby.disconnect('c2')
+        seconds(RECONNECT_GRACE)
+        expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1', player1: { wins: 1 } })
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
+        expect(transport.wasClosed).toBe(true)
+    })
+
+    it('gives the match to the actual winner of a kill made by an action, and shows it to the opponent', () => {
+        const { lobby, transport } = startMatch({ bestOf: 1 })
+        lobby.message('c1', { t: 'set_spells', spells: FIRE })
+        toBattle(lobby)
+        const battle = lobby.battle!
+        lobby.message('c1', { t: 'start_cast', i: 0 })
+        vi.advanceTimersByTime(battle.state.player1.spells[0].castTime * GAME_TICK_INTERVAL)
+        battle.state.player2.hp = 1
+        lobby.message('c1', { t: 'stop_cast', i: 0 })
+        expect(battle.state.winner).toBe('player1')
+        lobby.disconnect('c1')
+        const before = transport.broadcasts.length
+
+        seconds(RECONNECT_GRACE)
+        expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1' })
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
+        const finalBattle = transport.broadcasts.slice(before).find(m => m.t === 'battle')
+        expect(finalBattle).toMatchObject({ snap: { winner: 'player1', player2: { hp: 0 } } })
+    })
+
+    it('when the decided round does not end the match, records it and then forfeits', () => {
+        const { lobby } = startMatch({ bestOf: 3 })
+        winInsideTick(lobby)
+        lobby.disconnect('c1')
+        seconds(RECONNECT_GRACE)
+        expect(lobby.info()).toMatchObject({
+            phase: 'match_over',
+            matchWinner: 'player2',
+            player1: { wins: 1 },
+            player2: { wins: 0 },
+        })
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
+        // the next round's countdown must not outlive the match
+        expect(vi.getTimerCount()).toBe(0)
+        expect(lobby.info().countdown).toBeNull()
+    })
+
+    it('ends a decided round exactly once when the player reconnects in time', () => {
+        const { lobby } = startMatch({ bestOf: 1 })
+        winInsideTick(lobby)
+        lobby.disconnect('c1')
+        seconds(5)
+        expect(lobby.rounds).toEqual([])
+        lobby.connect('c9', 'alice-id', 'Alice')
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+        expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1' })
+        seconds(RECONNECT_GRACE)
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
+    })
+
+    it('a draw decided inside the tick is not recorded twice when a disconnect follows', () => {
+        const { lobby } = startMatch({ bestOf: 1 })
+        toBattle(lobby)
+        const battle = lobby.battle!
+        battle.state.player1.hp = 0
+        battle.state.player2.hp = 0
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+        // the draw ended the round at once, so no further tick ran
+        expect(lobby.phase).toBe('round_over')
+        expect(battle.finished).toBe(false)
+
+        lobby.disconnect('c1')
+        seconds(RECONNECT_GRACE)
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['draw'])
+        expect(lobby.info()).toMatchObject({
+            phase: 'match_over',
+            matchWinner: 'player2',
+            player1: { wins: 0 },
+            player2: { wins: 0 },
+        })
+    })
+
+    it('a draw decided by an action is recorded before the forfeit when a disconnect follows', () => {
+        const { lobby } = startMatch({ bestOf: 1 })
+        drawByAction(lobby)
+        lobby.disconnect('c1')
+        seconds(RECONNECT_GRACE)
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['draw'])
+        expect(lobby.info()).toMatchObject({
+            phase: 'match_over',
+            matchWinner: 'player2',
+            player1: { wins: 0 },
+            player2: { wins: 0 },
+        })
+    })
+
+    it('a draw decided by an action leaves no match winner when both players disconnect', () => {
+        const { lobby, transport } = startMatch({ bestOf: 1 })
+        drawByAction(lobby)
+        lobby.disconnect('c1')
+        lobby.disconnect('c2')
+        seconds(RECONNECT_GRACE)
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['draw'])
+        expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: null })
+        expect(transport.wasClosed).toBe(true)
+    })
+
     it('a second tab for the same player replaces the first', () => {
         const { lobby, transport } = setup()
         lobby.connect('c1', 'a', 'A')

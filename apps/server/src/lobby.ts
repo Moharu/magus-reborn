@@ -398,9 +398,19 @@ export class Lobby {
         if (this.forfeitHandle) return
         this.forfeitHandle = setTimeout(() => {
             this.forfeitHandle = null
+            this.settleDecidedRound()
+            if (this.phase === 'match_over') return
             const connected = SEATS.filter(key => this.seats[key]?.connId)
             this.endMatch(connected.length === 1 ? connected[0] : null)
         }, RECONNECT_GRACE * 1000)
+    }
+
+    /**
+     * The pause held back the tick that would end a round whose result is already decided, so run it now. Checks
+     * the phase rather than `battle.finished`, which stays false after a draw that ended its round inside `tick()`.
+     */
+    private settleDecidedRound() {
+        if (this.phase === 'battle' && this.battle?.state.winner) this.onTick()
     }
 
     // timers
