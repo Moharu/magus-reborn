@@ -336,7 +336,8 @@ export class Lobby {
         const battle = this.battle!
         battle.tick()
         this.transport.broadcast(this.battleMessage(this.logSent))
-        if (battle.state.winner) this.endRound()
+        // a win waits for its tick to end, since actions in that tick can still turn it into a draw; a draw can't change
+        if (battle.finished || battle.state.winner === 'draw') this.endRound()
     }
 
     private endRound() {

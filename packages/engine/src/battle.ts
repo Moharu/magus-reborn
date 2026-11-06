@@ -68,7 +68,7 @@ export const lockRemaining = (player: PlayerState, spell: SpellState, gameTick: 
 export class Battle {
     state: BattleState
     private events: HpEvent[] = []
-    private winnerTick: number | null = null
+    private resultFinal = false
 
     constructor(player1: PlayerInit, player2: PlayerInit) {
         this.state = {
@@ -81,9 +81,18 @@ export class Battle {
         }
     }
 
+    /** True once the tick the winner was decided in has ended: the result can't change and every action is rejected. */
+    get finished() {
+        return this.resultFinal
+    }
+
     tick() {
         const state = this.state
-        if (state.winner) return
+        if (state.winner) {
+            // gameTick stops at the winner's tick, so this call is what ends that tick
+            this.resultFinal = true
+            return
+        }
         state.gameTick += 1
 
         for (const [target, enemy] of PAIRS) {
@@ -114,11 +123,12 @@ export class Battle {
         this.resolveDeaths()
     }
 
-    /** Clamps HP at 0 and sets `winner`; both dead at once is a draw. Runs after every tick and cast. */
+    /**
+     * Clamps HP at 0 and sets `winner`; both dead at once is a draw. Runs after every tick and cast, so a
+     * winner decided earlier in this same tick can still become a draw until the next `tick()` call ends it.
+     */
     private resolveDeaths() {
         const state = this.state
-        // a winner decided earlier in this same tick can still become a draw
-        if (state.winner && this.winnerTick !== state.gameTick) return
         const p1Dead = state.player1.hp <= 0
         const p2Dead = state.player2.hp <= 0
         if (p1Dead) state.player1.hp = 0
@@ -126,13 +136,12 @@ export class Battle {
         if (p1Dead && p2Dead) state.winner = 'draw'
         else if (p1Dead) state.winner = 'player2'
         else if (p2Dead) state.winner = 'player1'
-        if (state.winner && this.winnerTick === null) this.winnerTick = state.gameTick
     }
 
     startCast(caster: PlayerKey, spellIndex: number): boolean {
         const state = this.state
         const player = state[caster]
-        if (state.winner) return false
+        if (this.resultFinal) return false
 
         const spell = player.spells[spellIndex]
         if (!spell) return false
@@ -159,6 +168,7 @@ export class Battle {
     stopCast(caster: PlayerKey, spellIndex: number): boolean {
         const state = this.state
         const player = state[caster]
+        if (this.resultFinal) return false
         if (player.cast !== spellIndex) return false
         this.log({ type: 'STOP_CAST', caster, tick: state.gameTick })
         let released = false

@@ -9,7 +9,7 @@ describe('HP clamp and immediate death resolution', () => {
         expect(b.state.player2.hp).toBe(0)
     })
 
-    it('an instant lethal cast sets HP to 0 and winner immediately, and the next startCast returns false', () => {
+    it('an instant lethal cast sets HP to 0 and winner immediately, and startCast returns false after that tick', () => {
         const b = setup(FIRE, GENERAL, { p2hp: 10 })
         const meteor = slot(b, 'player1', 'SPELL_METEOR')
         b.state.player1.spells[meteor].castTime = 0
@@ -17,6 +17,7 @@ describe('HP clamp and immediate death resolution', () => {
         expect(b.state.player2.hp).toBe(0)
         expect(b.state.winner).toBe('player1')
         expect(b.snapshot().player2.hp).toBe(0)
+        b.tick()
         expect(b.startCast('player2', slot(b, 'player2', 'SPELL_BLUR'))).toBe(false)
         expect(b.startCast('player1', slot(b, 'player1', 'SPELL_FIREBALL'))).toBe(false)
     })
@@ -26,6 +27,7 @@ describe('HP clamp and immediate death resolution', () => {
         castFull(b, 'player1', 'SPELL_COMBUSTION')
         expect(b.state.player2.hp).toBe(0)
         expect(b.state.winner).toBe('player1')
+        b.tick()
         expect(b.startCast('player2', slot(b, 'player2', 'SPELL_BLUR'))).toBe(false)
     })
 
