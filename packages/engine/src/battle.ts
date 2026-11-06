@@ -158,6 +158,9 @@ export class Battle {
             this.castSpell(caster, spellIndex)
             return true
         }
+        if (player.cast !== null) {
+            this.log({ type: 'CANCEL_CAST', caster, spellIndex: player.cast, tick: state.gameTick })
+        }
         this.log({ type: 'START_CAST', caster, spellIndex, tick: state.gameTick })
         player.cast = spellIndex
         player.castStartingTick = state.gameTick
