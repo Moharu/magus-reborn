@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GAME_TICK_INTERVAL, type SpellId } from '@magus/engine'
-import type { LobbyListing, ServerMessage } from '@magus/engine/protocol'
+import { GAME_TICK_INTERVAL, LOADOUT_SIZE, type SpellId } from '@magus/engine'
+import {
+    DEFAULT_SETTINGS,
+    MAX_SPECTATORS,
+    SETUP_TIME_MIN,
+    type LobbyListing,
+    type LobbySettings,
+    type ServerMessage,
+} from '@magus/engine/protocol'
 import { Lobby, RECONNECT_GRACE, type LobbyTransport } from '../src/lobby'
 
 const FIRE: SpellId[] = [
@@ -150,16 +157,59 @@ describe('settings', () => {
         expect(lobby.settings.bestOf).toBe(5)
     })
 
-    it('clamps and ignores invalid values', () => {
+    it('clamps numbers to the allowed range', () => {
         const { lobby } = setup()
         lobby.connect('c1', 'a', 'A')
-        lobby.message('c1', {
-            t: 'settings',
-            settings: { bestOf: 4, setupTime: 0, maxSpectators: 99, allowSpellChange: 'yes' },
+        lobby.message('c1', { t: 'settings', settings: { setupTime: 0, maxSpectators: 99 } })
+        expect(lobby.settings).toEqual({
+            ...DEFAULT_SETTINGS,
+            setupTime: SETUP_TIME_MIN,
+            maxSpectators: MAX_SPECTATORS,
         })
-        expect(lobby.settings).toEqual({ bestOf: 3, setupTime: 10, allowSpellChange: true, maxSpectators: 8 })
-        lobby.message('c1', { t: 'settings', settings: { setupTime: Number.NaN } })
-        expect(lobby.settings.setupTime).toBe(10)
+    })
+
+    /** Two seated players, with the non-admin ready and the transport's record cleared. */
+    const adminAndReadyOpponent = () => {
+        const ctx = setup()
+        ctx.lobby.connect('c1', 'a', 'A')
+        ctx.lobby.connect('c2', 'b', 'B')
+        ctx.lobby.message('c2', { t: 'ready' })
+        ctx.transport.broadcasts = []
+        ctx.transport.listings = []
+        return ctx
+    }
+
+    it.each<[string, unknown]>([
+        ['no settings', undefined],
+        ['settings that are null', null],
+        ['settings that are a string', 'nope'],
+        ['settings that are a list', [{ bestOf: 5 }]],
+        ['an unknown setting', { nope: 1 }],
+        ['a best-of that is not an option', { bestOf: 4 }],
+        ['a set up time that is not a number', { setupTime: '60' }],
+        ['a set up time that is not finite', { setupTime: Number.NaN }],
+        ['a spell change flag that is not a boolean', { allowSpellChange: 'yes' }],
+        ['a spectator limit that is not a number', { maxSpectators: null }],
+        ['a good setting next to a bad one', { bestOf: 5, setupTime: '60' }],
+    ])('ignores a message with %s: no state change and no broadcast', (_, settings) => {
+        const { lobby, transport } = adminAndReadyOpponent()
+        lobby.message('c1', { t: 'settings', settings } as never)
+        expect(lobby.settings).toEqual(DEFAULT_SETTINGS)
+        expect(lobby.info().player2!.ready).toBe(true)
+        expect(transport.broadcasts).toEqual([])
+        expect(transport.listings).toEqual([])
+    })
+
+    it.each<[string, Partial<LobbySettings>]>([
+        ['an empty patch', {}],
+        ['the current value', { bestOf: DEFAULT_SETTINGS.bestOf }],
+        ['a value that rounds to the current one', { maxSpectators: DEFAULT_SETTINGS.maxSpectators + 0.2 }],
+    ])('keeps players ready and broadcasts nothing for %s', (_, settings) => {
+        const { lobby, transport } = adminAndReadyOpponent()
+        lobby.message('c1', { t: 'settings', settings })
+        expect(lobby.settings).toEqual(DEFAULT_SETTINGS)
+        expect(lobby.info().player2!.ready).toBe(true)
+        expect(transport.broadcasts).toEqual([])
     })
 
     it('un-readies both players when changed', () => {
@@ -228,6 +278,22 @@ describe('match flow', () => {
         expect(transport.to('c1').filter(m => m.t === 'error')).toHaveLength(4)
     })
 
+    it('rejects a loadout of names every object inherits', () => {
+        const { lobby, transport } = startMatch()
+        const before = lobby.seats.player1!.spells
+        const spells = ['toString', 'constructor', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', '__proto__']
+        lobby.message('c1', { t: 'set_spells', spells } as never)
+        expect(lobby.seats.player1!.spells).toEqual(before)
+        expect(transport.to('c1').at(-1)).toEqual({ t: 'error', message: 'Invalid spell selection' })
+    })
+
+    it('does not answer an invalid loadout from a spectator', () => {
+        const { lobby, transport } = startMatch()
+        lobby.connect('c3', 'carol', 'Carol')
+        lobby.message('c3', { t: 'set_spells', spells: 'x' } as never)
+        expect(transport.to('c3').filter(m => m.t === 'error')).toEqual([])
+    })
+
     it('relays casts to the battle and broadcasts state every tick', () => {
         const { lobby, transport } = startMatch()
         toBattle(lobby)
@@ -252,6 +318,63 @@ describe('match flow', () => {
         lobby.message('c1', { t: 'start_cast', i: 99 })
         expect(lobby.battle!.state.player1.cast).toBeNull()
         expect(lobby.battle!.state.log).toEqual([])
+    })
+
+    describe('bad spell indexes during a battle', () => {
+        const BAD_INDEXES: [string, unknown][] = [
+            ['just below the range', -1],
+            ['just above the range', LOADOUT_SIZE],
+            ['far above the range', 99],
+            ['not an integer', 1.5],
+            ['not finite', Number.POSITIVE_INFINITY],
+            ['a numeric string', '0'],
+            ['null', null],
+            ['a list', [0]],
+            ['missing', undefined],
+        ]
+
+        /** A live battle with player 1 holding a cast of slot 0, which a bad message must leave running. */
+        const liveBattle = () => {
+            const { lobby, transport } = startMatch()
+            toBattle(lobby)
+            const battle = lobby.battle!
+            battle.startCast('player1', 0)
+            transport.sent = []
+            return {
+                lobby,
+                transport,
+                battle,
+                log: [...battle.state.log],
+                startCast: vi.spyOn(battle, 'startCast'),
+                stopCast: vi.spyOn(battle, 'stopCast'),
+            }
+        }
+
+        it.each(BAD_INDEXES)('start_cast with an index that is %s is dropped', (_, i) => {
+            const { lobby, transport, battle, log, startCast } = liveBattle()
+            lobby.message('c1', { t: 'start_cast', i } as never)
+            expect(startCast).not.toHaveBeenCalled()
+            expect(battle.state.player1.cast).toBe(0)
+            expect(battle.state.log).toEqual(log)
+            expect(transport.sent).toEqual([])
+        })
+
+        it.each(BAD_INDEXES)('stop_cast with an index that is %s is dropped', (_, i) => {
+            const { lobby, transport, battle, log, stopCast } = liveBattle()
+            lobby.message('c1', { t: 'stop_cast', i } as never)
+            expect(stopCast).not.toHaveBeenCalled()
+            expect(battle.state.player1.cast).toBe(0)
+            expect(battle.state.log).toEqual(log)
+            expect(transport.sent).toEqual([])
+        })
+
+        it.each([0, LOADOUT_SIZE - 1])('slot %i, at the edge of the range, still reaches the battle', i => {
+            const { lobby, startCast, stopCast } = liveBattle()
+            lobby.message('c2', { t: 'start_cast', i })
+            lobby.message('c2', { t: 'stop_cast', i })
+            expect(startCast).toHaveBeenCalledWith('player2', i)
+            expect(stopCast).toHaveBeenCalledWith('player2', i)
+        })
     })
 
     it('spectators cannot act', () => {

@@ -4,6 +4,7 @@ export * from './catalog'
 export * from './utils'
 export { Battle, cooldownRemaining, createSpellState, gcdRemaining, lockRemaining, type PlayerInit } from './battle'
 export { DamageMeter, type MeterRow, type MeterSummary } from './meter'
+export { parseClientMessage } from './parse-client-message'
 export {
     simulate,
     parseSimInput,
