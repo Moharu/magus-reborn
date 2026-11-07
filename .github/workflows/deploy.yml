@@ -97,6 +97,7 @@ jobs:
             # a pages.dev subdomain other than the project name.
             - name: Check the client
               env:
+                  VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
                   WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
               run: |
                   url="$(node -e '
@@ -126,3 +127,9 @@ jobs:
                       echo "${missing}"
                       exit 1
                   fi
+
+                  # The server must accept this project's real production URL, which may differ from the project name.
+                  # Assumes the deployment URL is https://<hash>.<subdomain>.pages.dev.
+                  production_origin="https://${url#https://*.}"
+                  fetch -o /dev/null -X OPTIONS -H "Origin: ${production_origin}" "${VITE_SERVER_URL%/}/api/lobbies" \
+                      || { echo "::error::The server did not accept a preflight from ${production_origin}. Check ALLOWED_ORIGINS in apps/server/wrangler.toml."; exit 1; }

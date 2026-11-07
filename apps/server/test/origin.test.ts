@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { unstable_readConfig } from 'wrangler'
 import { allowedOrigin, corsHeaders } from '../src/origin'
@@ -59,9 +60,10 @@ describe('corsHeaders', () => {
     })
 })
 
-// The root vitest config is the only one that runs this file, so paths are relative to the repository root.
-const config = (env?: string) => unstable_readConfig({ config: 'apps/server/wrangler.toml', env })
-const originsOf = (env?: string) => String(config(env).vars.ALLOWED_ORIGINS)
+const WRANGLER_TOML = fileURLToPath(new URL('../wrangler.toml', import.meta.url).href)
+// An empty env is the top level, as in the deploy script. Leaving it undefined would read CLOUDFLARE_ENV instead.
+const config = (env = '') => unstable_readConfig({ config: WRANGLER_TOML, env })
+const originsOf = (env = '') => String(config(env).vars.ALLOWED_ORIGINS)
 
 describe('wrangler.toml', () => {
     describe('production', () => {

@@ -184,7 +184,9 @@ A request with a missing or disallowed `Origin` gets a 403 and no CORS headers. 
 
 Per-deployment URLs such as `https://<hash>.magus-reborn.pages.dev` are refused on purpose, so only the production URL can use online features. Those URLs still load the client and the training room.
 
-**If Cloudflare gave the Pages project a suffixed subdomain** (see [Deploying](#deploying)), the production value is wrong and every online feature will fail in production, even though the deploy's checks pass. Set it to the real URL and release again.
+**If Cloudflare gave the Pages project a suffixed subdomain** (see [Deploying](#deploying)), the production value is wrong and every online feature will fail in production. The last deploy check catches this by sending the server a preflight from the project's real production URL, and it fails the run. It runs after both deploys, so that release is already live when the run fails. Set `ALLOWED_ORIGINS` to the real URL and release again.
+
+That check works out the production URL by removing the first label from the deployment URL, so it assumes the form `https://<hash>.<subdomain>.pages.dev`. No real deploy has confirmed that form yet. If the check fails, compare the origin in its error message with the URL on the Pages project before changing `ALLOWED_ORIGINS`.
 
 The `Origin` check only stops other websites from using the server through a visitor's browser. A non-browser client can send any `Origin`, so it isn't authentication or abuse protection.
 
