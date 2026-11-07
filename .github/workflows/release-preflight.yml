@@ -1,0 +1,30 @@
+name: Release preflight
+
+# Runs the deploy's release tag check on PRs into main, so untagged code goes red before the merge
+# instead of after it. It is read-only: no secrets, no environment, and it deploys nothing.
+# `Refuse untagged code` in deploy.yml stays the last gate.
+#
+# On this event the checkout is the PR's merge result, so the script checks the tree that would
+# land on main. A new commit on the PR's head fires `synchronize`, which re-runs the check.
+# A tag push doesn't fire anything, so a check that went red stays red after a new tag.
+
+on:
+    pull_request:
+        branches: [main]
+
+jobs:
+    release-preflight:
+        name: release-preflight
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  # Full history and tags, for the release tag check.
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Check the release tag
+              run: bash .github/scripts/check-release-tag.sh

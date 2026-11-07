@@ -12,13 +12,20 @@ export const Counterspell: SpellDefinition = {
     description: "Counters current opponent's cast, disabling all spells for a short time if successfully interrupted.",
     advancedDescription: `Counters current opponent's cast, disabling all spells for ${LOCK_DURATION} seconds if successfully interrupted.`,
     cooldownSeconds: COOLDOWN,
-    globalCooldownTicks: 0,
+    offGlobalCooldown: true,
     reducer: (state, { target }) => {
         const player = state[target]
         if (!isCasting(player)) return
+        state.log.push({
+            type: 'INTERRUPTED',
+            player: target,
+            spellIndex: player.cast!,
+            tick: state.gameTick,
+            source: 'SPELL_COUNTERSPELL',
+        })
         player.cast = null
         player.castStartingTick = null
-        player.globalCooldown = state.gameTick + secondsToTicks(LOCK_DURATION)
+        player.lockedUntil = state.gameTick + secondsToTicks(LOCK_DURATION)
         simpleDebuff<CounterspellDebuff>(state, target, {
             id: 'DEBUFF_COUNTERSPELL',
             label: 'Spell cast disabled.',

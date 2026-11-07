@@ -2,10 +2,11 @@ name = "magus-reborn"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
 
+# The top level is production: `npm run deploy:server` deploys it.
 [vars]
-# Comma separated origins allowed to connect, e.g. "https://magus-reborn.vercel.app".
-# "*" allows any origin.
-ALLOWED_ORIGINS = "*"
+# Comma separated origins allowed to connect, matched exactly, with no wildcards. This is only the production URL of the
+# Pages project, so per-deployment `<hash>.magus-reborn.pages.dev` URLs are refused on purpose.
+ALLOWED_ORIGINS = "https://magus-reborn.pages.dev"
 
 [[durable_objects.bindings]]
 name = "LOBBY"
@@ -18,3 +19,17 @@ class_name = "LobbyRegistry"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["LobbyRoom", "LobbyRegistry"]
+
+# Local development: `npm run dev:server` runs with `--env dev`. Nothing deploys this environment.
+[env.dev.vars]
+# The URLs of the Vite dev server on its default port.
+ALLOWED_ORIGINS = "http://localhost:5173, http://127.0.0.1:5173"
+
+# Environments don't inherit bindings from the top level.
+[[env.dev.durable_objects.bindings]]
+name = "LOBBY"
+class_name = "LobbyRoom"
+
+[[env.dev.durable_objects.bindings]]
+name = "REGISTRY"
+class_name = "LobbyRegistry"

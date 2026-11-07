@@ -2,6 +2,10 @@ import { DurableObject } from 'cloudflare:workers'
 import type { ServerMessage } from '@magus/engine/protocol'
 import { registryOf, type Env } from './env'
 import { Lobby } from './lobby'
+import { ConnectionLimiter } from './rate-limit'
+
+/** The WebSocket close code for a policy violation. */
+const CLOSE_POLICY_VIOLATION = 1008
 
 /**
  * One instance per lobby code. Holds the lobby in memory; the battle ticks every 50ms
@@ -31,8 +35,24 @@ export class LobbyRoom extends DurableObject<Env> {
         }
 
         const connId = crypto.randomUUID()
+        const limiter = new ConnectionLimiter()
         this.sockets.set(connId, server)
+        const onGone = () => {
+            if (!this.sockets.delete(connId)) return
+            this.lobby?.disconnect(connId)
+        }
         server.addEventListener('message', event => {
+            // frames can still be in flight after this socket was closed from here
+            if (!this.sockets.has(connId)) return
+            // ahead of the size and JSON checks, so a frame they'd throw away still counts
+            const verdict = limiter.check()
+            if (verdict === 'close') {
+                // onGone has to run first, or the lobby would keep a seat for a socket it no longer has
+                onGone()
+                server.close(CLOSE_POLICY_VIOLATION, 'Too many messages')
+                return
+            }
+            if (verdict === 'drop') return
             if (typeof event.data !== 'string' || event.data.length > 2048) return
             let parsed: unknown
             try {
@@ -42,10 +62,6 @@ export class LobbyRoom extends DurableObject<Env> {
             }
             this.lobby?.message(connId, parsed)
         })
-        const onGone = () => {
-            if (!this.sockets.delete(connId)) return
-            this.lobby?.disconnect(connId)
-        }
         server.addEventListener('close', onGone)
         server.addEventListener('error', onGone)
 

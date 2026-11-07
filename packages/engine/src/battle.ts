@@ -1,5 +1,5 @@
 import { EFFECT_REDUCERS, SPELLS } from './catalog'
-import { DEFAULT_GLOBAL_COOLDOWN, ENGINE_VERSION, MAX_HP, secondsToTicks } from './constants'
+import { ENGINE_VERSION, GLOBAL_COOLDOWN, MAX_HP, secondsToTicks } from './constants'
 import type {
     BattleSnapshot,
     BattleState,
@@ -12,7 +12,8 @@ import type {
     SpellId,
     SpellState,
 } from './types'
-import { enemyOf, isCasting } from './utils'
+import { flushMagicEater } from './spells/general/magic-eater'
+import { enemyOf, fromCenti, isCasting, toCenti } from './utils'
 
 export interface PlayerInit {
     name: string
@@ -30,8 +31,9 @@ export const createSpellState = (id: SpellId): SpellState => {
     return {
         id,
         castTime: def.castSeconds ? secondsToTicks(def.castSeconds) : 0,
+        castSeconds: def.castSeconds ?? 0,
         cooldown: def.cooldownSeconds ? secondsToTicks(def.cooldownSeconds) : 0,
-        globalCooldown: def.globalCooldownTicks ?? DEFAULT_GLOBAL_COOLDOWN,
+        globalCooldown: def.castSeconds || def.offGlobalCooldown ? 0 : GLOBAL_COOLDOWN,
         lastCast: null,
     }
 }
@@ -42,7 +44,8 @@ const createPlayer = ({ name, spells, hp = MAX_HP }: PlayerInit): PlayerState =>
     effects: [],
     cast: null,
     castStartingTick: null,
-    globalCooldown: 0,
+    gcdUntil: 0,
+    lockedUntil: 0,
     spells: spells.map(createSpellState),
 })
 
@@ -50,9 +53,23 @@ const createPlayer = ({ name, spells, hp = MAX_HP }: PlayerInit): PlayerState =>
 export const cooldownRemaining = (spell: SpellState, gameTick: number) =>
     spell.lastCast !== null && spell.cooldown ? Math.max(0, spell.lastCast + spell.cooldown - gameTick) : 0
 
+/** Ticks remaining on the player's GCD, 0 if free. */
+export const gcdRemaining = (player: PlayerState, gameTick: number) => Math.max(0, player.gcdUntil - gameTick)
+
+/**
+ * Ticks remaining until the player may start `spell` because of the GCD or a Counterspell lock, 0 if free.
+ * A lock blocks every spell; the GCD blocks on-GCD spells and cast-time spells, but not off-GCD spells.
+ */
+export const lockRemaining = (player: PlayerState, spell: SpellState, gameTick: number) => {
+    const locked = Math.max(0, player.lockedUntil - gameTick)
+    const gcd = SPELLS[spell.id].offGlobalCooldown ? 0 : gcdRemaining(player, gameTick)
+    return Math.max(locked, gcd)
+}
+
 export class Battle {
     state: BattleState
     private events: HpEvent[] = []
+    private resultFinal = false
 
     constructor(player1: PlayerInit, player2: PlayerInit) {
         this.state = {
@@ -65,9 +82,18 @@ export class Battle {
         }
     }
 
+    /** True once the tick the winner was decided in has ended: the result can't change and every action is rejected. */
+    get finished() {
+        return this.resultFinal
+    }
+
     tick() {
         const state = this.state
-        if (state.winner) return
+        if (state.winner) {
+            // gameTick stops at the winner's tick, so this call is what ends that tick
+            this.resultFinal = true
+            return
+        }
         state.gameTick += 1
 
         for (const [target, enemy] of PAIRS) {
@@ -81,12 +107,29 @@ export class Battle {
             }
         }
 
+        // after both players' effects, before expiry: identical timing for both, last-tick damage included
+        for (const [key] of PAIRS) {
+            for (const effect of state[key].effects) {
+                if (effect.id !== 'BUFF_MAGIC_EATER') continue
+                this.measure(effect.source, 'effect', () => flushMagicEater(state, key, effect))
+            }
+        }
+
         for (const [key] of PAIRS) {
             state[key].effects = state[key].effects.filter(
                 effect => state.gameTick < effect.startingTick + effect.duration,
             )
         }
 
+        this.resolveDeaths()
+    }
+
+    /**
+     * Clamps HP at 0 and sets `winner`; both dead at once is a draw. Runs after every tick and cast, so a
+     * winner decided earlier in this same tick can still become a draw until the next `tick()` call ends it.
+     */
+    private resolveDeaths() {
+        const state = this.state
         const p1Dead = state.player1.hp <= 0
         const p2Dead = state.player2.hp <= 0
         if (p1Dead) state.player1.hp = 0
@@ -99,16 +142,25 @@ export class Battle {
     startCast(caster: PlayerKey, spellIndex: number): boolean {
         const state = this.state
         const player = state[caster]
-        if (state.winner) return false
-        if (state.gameTick < player.globalCooldown) return false
+        if (this.resultFinal) return false
 
         const spell = player.spells[spellIndex]
         if (!spell) return false
+        // checked before cancelling: a spell rejected by the GCD leaves the current cast alone
+        if (lockRemaining(player, spell, state.gameTick) > 0) return false
         if (cooldownRemaining(spell, state.gameTick) > 0) return false
 
         if (!spell.castTime) {
+            if (player.cast !== null && !SPELLS[spell.id].usableWhileCasting) {
+                this.log({ type: 'CANCEL_CAST', caster, spellIndex: player.cast, tick: state.gameTick })
+                player.cast = null
+                player.castStartingTick = null
+            }
             this.castSpell(caster, spellIndex)
             return true
+        }
+        if (player.cast !== null) {
+            this.log({ type: 'CANCEL_CAST', caster, spellIndex: player.cast, tick: state.gameTick })
         }
         this.log({ type: 'START_CAST', caster, spellIndex, tick: state.gameTick })
         player.cast = spellIndex
@@ -120,6 +172,7 @@ export class Battle {
     stopCast(caster: PlayerKey, spellIndex: number): boolean {
         const state = this.state
         const player = state[caster]
+        if (this.resultFinal) return false
         if (player.cast !== spellIndex) return false
         this.log({ type: 'STOP_CAST', caster, tick: state.gameTick })
         let released = false
@@ -152,9 +205,12 @@ export class Battle {
         this.log({ type: 'SPELL_RELEASE', caster, spellIndex, tick: state.gameTick })
         const spell = state[caster].spells[spellIndex]
         spell.lastCast = state.gameTick
-        state[caster].globalCooldown = state.gameTick + spell.globalCooldown
+        // never shortens a longer GCD already running; the Counterspell lock (lockedUntil) is separate
+        if (spell.globalCooldown)
+            state[caster].gcdUntil = Math.max(state[caster].gcdUntil, state.gameTick + spell.globalCooldown)
         const def = SPELLS[spell.id]
         this.measure(spell.id, 'spell', () => def.reducer(state, { caster, target: enemyOf(caster) }))
+        this.resolveDeaths()
     }
 
     private log(entry: LogEntry) {
@@ -167,8 +223,9 @@ export class Battle {
         const before2 = state.player2.hp
         run()
         const tick = state.gameTick
-        const d1 = state.player1.hp - before1
-        const d2 = state.player2.hp - before2
+        // differences on the centi-HP grid, so event amounts are exact (e.g. -13.3, never -13.299999999999997)
+        const d1 = fromCenti(toCenti(state.player1.hp) - toCenti(before1))
+        const d2 = fromCenti(toCenti(state.player2.hp) - toCenti(before2))
         if (d1 !== 0) this.events.push({ tick, player: 'player1', amount: d1, source, kind })
         if (d2 !== 0) this.events.push({ tick, player: 'player2', amount: d2, source, kind })
     }

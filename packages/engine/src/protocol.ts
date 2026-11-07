@@ -1,3 +1,4 @@
+import { ENGINE_VERSION } from './constants'
 import type { BattleSnapshot, HpEvent, LogEntry, PlayerKey, SpellId, Winner } from './types'
 
 export type BestOf = 1 | 3 | 5
@@ -26,6 +27,14 @@ export const NAME_MAX_LENGTH = 15
 export const LOBBY_CODE_LENGTH = 6
 export const LOBBY_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 export const LOBBY_CODE_PATTERN = new RegExp(`^[${LOBBY_CODE_ALPHABET}]{${LOBBY_CODE_LENGTH}}$`)
+
+/** The query parameter that carries the client's `ENGINE_VERSION` when it creates or joins a lobby. */
+export const VERSION_PARAM = 'v'
+/** `VERSION_PARAM` set to this build's version, ready to go in a URL. */
+export const VERSION_QUERY = `${VERSION_PARAM}=${encodeURIComponent(ENGINE_VERSION)}`
+/** The stable code the server answers a missing or different version with. */
+export const VERSION_MISMATCH = 'version_mismatch'
+export const NEW_VERSION_MESSAGE = 'A new version is available, please refresh'
 
 export const gamesToWin = (bestOf: BestOf) => Math.ceil(bestOf / 2)
 
@@ -99,7 +108,7 @@ export type ServerMessage =
           logFrom: number
           events: HpEvent[]
       }
-    | { t: 'error'; message: string; fatal?: boolean }
+    | { t: 'error'; message: string; fatal?: boolean; code?: typeof VERSION_MISMATCH }
     | { t: 'pong'; at: number }
 
 export type RegistryMessage = { t: 'lobbies'; lobbies: LobbyListing[] }
@@ -108,6 +117,7 @@ export const sanitizeName = (name: unknown, fallback: string) => {
     if (typeof name !== 'string') return fallback
     // drop control characters, collapse whitespace
     const clean = name
+        // eslint-disable-next-line no-control-regex -- matching control characters is this regex's purpose
         .replace(/[\u0000-\u001f\u007f]/g, '')
         .replace(/\s+/g, ' ')
         .trim()

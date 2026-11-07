@@ -50,7 +50,14 @@ export interface BlurBuff extends EffectBase {
 export interface MagicEaterBuff extends EffectBase {
     id: 'BUFF_MAGIC_EATER'
     healingPercentage: number
-    lastTargetHp: number
+    /** Damage the buff owner dealt since the last heal, healed on the next buff tick. */
+    pendingDamage: number
+    /**
+     * Heal owed but not yet given, in ten-thousandths of HP an integer.
+     * Its magnitude is at most half a centi-HP (50), and it can be negative when a tick's heal was rounded up.
+     * Carried between ticks so small per-tick heals still sum to exactly the percentage of damage dealt.
+     */
+    healCarry: number
 }
 export interface TemporalShieldBuff extends EffectBase {
     id: 'BUFF_TEMPORAL_SHIELD'
@@ -66,8 +73,11 @@ export interface SpellState {
     id: SpellId
     /** In ticks. 0 means instant. */
     castTime: number
+    /** The unmodified cast time in seconds, 0 for instants. Haste changes `castTime`, never this. */
+    castSeconds: number
     /** In ticks. 0 means no cooldown. */
     cooldown: number
+    /** In ticks: the GCD this spell starts on release. 0 for cast-time and off-GCD spells. */
     globalCooldown: number
     lastCast: number | null
 }
@@ -78,7 +88,10 @@ export interface PlayerState {
     effects: EffectState[]
     cast: number | null
     castStartingTick: number | null
-    globalCooldown: number
+    /** Tick until which the GCD blocks on-GCD and cast-time spells. Written only by casting. */
+    gcdUntil: number
+    /** Tick until which a Counterspell lock blocks every spell. Independent of effects: cleansing does not clear it. */
+    lockedUntil: number
     spells: SpellState[]
 }
 
@@ -86,6 +99,13 @@ export type LogEntry =
     | { type: 'SPELL_RELEASE'; caster: PlayerKey; spellIndex: number; tick: number }
     | { type: 'START_CAST'; caster: PlayerKey; spellIndex: number; tick: number }
     | { type: 'STOP_CAST'; caster: PlayerKey; tick: number }
+    /** The caster's own cast was cancelled by using an instant mid-cast or replaced by starting a new cast. */
+    | { type: 'CANCEL_CAST'; caster: PlayerKey; spellIndex: number; tick: number }
+    /**
+     * `player`'s cast of the spell in `spellIndex` was interrupted by the enemy's `source` spell. Written right
+     * after that spell's SPELL_RELEASE, whose `caster` is the interrupter; only when a cast was really interrupted.
+     */
+    | { type: 'INTERRUPTED'; player: PlayerKey; spellIndex: number; tick: number; source: SpellId }
 
 export type Winner = PlayerKey | 'draw' | null
 
@@ -129,7 +149,10 @@ export interface SpellDefinition {
     advancedDescription: string
     castSeconds?: number
     cooldownSeconds?: number
-    globalCooldownTicks?: number
+    /** Instants only: if true, it neither starts nor is blocked by the GCD. Cast-time spells never start one. */
+    offGlobalCooldown?: boolean
+    /** Instants only: if true, using it mid-cast keeps the current cast going. Default false (cancels it). */
+    usableWhileCasting?: boolean
     reducer: (state: BattleState, ctx: CastContext) => void
 }
 

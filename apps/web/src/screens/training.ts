@@ -4,6 +4,7 @@ import type { BattleView } from '../game/battle-view'
 import { iconUrl } from '../game/icons'
 import { getLoadout, getName, setLoadout } from '../identity'
 import { spellPicker } from '../ui/spell-picker'
+import { loadBattleChunk, newVersionPanel } from './battle-chunk'
 
 /** Big enough that nothing in the game can kill it; shown as ∞. */
 const DUMMY_HP = 1e9
@@ -153,8 +154,8 @@ export const trainingScreen = (root: HTMLElement) => {
         ),
     )
 
-    import('../game/battle-view')
-        .then(({ BattleView }) =>
+    loadBattleChunk(() => import('../game/battle-view'), {
+        onLoaded: ({ BattleView }) =>
             BattleView.create(stage, {
                 me: 'player1',
                 onPress: i => {
@@ -165,15 +166,16 @@ export const trainingScreen = (root: HTMLElement) => {
                     battle.stopCast('player1', i)
                     flush()
                 },
+            }).then(v => {
+                if (disposed) return v.destroy()
+                view = v
+                view.update(battle.state, [], [])
+                last = performance.now()
+                raf = requestAnimationFrame(loop)
             }),
-        )
-        .then(v => {
-            if (disposed) return v.destroy()
-            view = v
-            view.update(battle.state, [], [])
-            last = performance.now()
-            raf = requestAnimationFrame(loop)
-        })
+        isCurrent: () => !disposed,
+        onFailed: () => stage.replaceChildren(newVersionPanel()),
+    })
 
     return () => {
         disposed = true

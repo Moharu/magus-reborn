@@ -1,9 +1,18 @@
-import { LOBBY_CODE_PATTERN, NAME_MAX_LENGTH, type LobbyListing, type RegistryMessage } from '@magus/engine/protocol'
+import {
+    LOBBY_CODE_PATTERN,
+    NAME_MAX_LENGTH,
+    NEW_VERSION_MESSAGE,
+    VERSION_MISMATCH,
+    VERSION_QUERY,
+    type LobbyListing,
+    type RegistryMessage,
+} from '@magus/engine/protocol'
 import { SERVER_URL, WS_URL } from '../config'
 import { h } from '../dom'
 import { getName, setName } from '../identity'
 import { connect } from '../net'
 import { navigate } from '../router'
+import { newVersionPanel } from './battle-chunk'
 
 export const phaseLabel = (lobby: Pick<LobbyListing, 'phase' | 'round'>) => {
     switch (lobby.phase) {
@@ -22,8 +31,9 @@ export const phaseLabel = (lobby: Pick<LobbyListing, 'phase' | 'round'>) => {
 }
 
 export const createLobby = async () => {
-    const res = await fetch(`${SERVER_URL}/api/lobbies`, { method: 'POST' })
-    const body = (await res.json().catch(() => ({}))) as { code?: string; error?: string }
+    const res = await fetch(`${SERVER_URL}/api/lobbies?${VERSION_QUERY}`, { method: 'POST' })
+    const body = (await res.json().catch(() => ({}))) as { code?: string; error?: string; errorCode?: string }
+    if (body.errorCode === VERSION_MISMATCH) throw new Error(NEW_VERSION_MESSAGE)
     if (!res.ok || !body.code) throw new Error(body.error ?? 'Could not create a lobby')
     return body.code
 }
@@ -45,6 +55,8 @@ export const homeScreen = (root: HTMLElement) => {
     const list = h('ul', { class: 'lobby-list' })
     const error = h('p', { class: 'error', role: 'alert' })
 
+    /** Set when the router leaves this screen, which can happen while a create request is still out. */
+    let left = false
     const createButton = h(
         'button',
         {
@@ -56,10 +68,19 @@ export const homeScreen = (root: HTMLElement) => {
                 try {
                     code = await createLobby()
                 } catch (e) {
+                    // the root belongs to another screen once this one is left
+                    if (left) return
+                    if (e instanceof Error && e.message === NEW_VERSION_MESSAGE) {
+                        socket.close()
+                        root.replaceChildren(newVersionPanel())
+                        return
+                    }
                     error.textContent = e instanceof Error ? e.message : 'Could not reach the server'
                     createButton.disabled = false
                     return
                 }
+                // a lobby nobody waits for any more is released when its reservation expires
+                if (left) return
                 navigate(`/lobby/${code}`)
             },
         },
@@ -168,5 +189,8 @@ export const homeScreen = (root: HTMLElement) => {
         ),
     )
 
-    return () => socket.close()
+    return () => {
+        left = true
+        socket.close()
+    }
 }

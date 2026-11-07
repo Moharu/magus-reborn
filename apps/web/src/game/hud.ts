@@ -1,5 +1,6 @@
 import { Container, Graphics, Sprite, Text } from 'pixi.js'
-import { cooldownRemaining, HOTKEYS, SPELLS, ticksToSeconds, type PlayerState, type SpellState } from '@magus/engine'
+import { HOTKEYS, SPELLS, ticksToSeconds, type PlayerState, type SpellId } from '@magus/engine'
+import { buttonState, type ButtonState } from './button-state'
 import { TEXT_FONT, WIDTH, type Side } from './layout'
 import { iconTexture } from './textures'
 
@@ -21,6 +22,9 @@ export const setText = (text: Text, value: string) => {
     if (text.text !== value) text.text = value
 }
 
+/** How long the cast bar flashes after an interrupt, in seconds. */
+const INTERRUPT_FLASH = 0.9
+
 const hpColor = (hp: number) => (hp > 65 ? 0x2fb344 : hp > 30 ? 0xf08c00 : 0xe03131)
 
 /** HP bar, cast bar and effect icons for one side. */
@@ -33,6 +37,7 @@ export class PlayerHud extends Container {
     private readonly effectIcons = new Container()
     private effectKey = ''
     private shownHp = 100
+    private interrupt: { spell: SpellId; color: number; left: number } | null = null
     private readonly x0: number
     private readonly w = 430
 
@@ -51,6 +56,11 @@ export class PlayerHud extends Container {
         this.addChild(this.bars, this.nameText, this.hpText, this.castIcon, this.castText, this.effectIcons)
     }
 
+    /** Flashes the cast bar with the spell that was interrupted. */
+    showInterrupted(spell: SpellId, color: number) {
+        this.interrupt = { spell, color, left: INTERRUPT_FLASH }
+    }
+
     update(player: PlayerState, tick: number, dt: number) {
         setText(this.nameText, player.name)
         const infinite = player.hp >= INFINITE_HP
@@ -65,10 +75,11 @@ export class PlayerHud extends Container {
             color: 0xffffff,
             alpha: 0.15,
         })
-        setText(this.hpText, infinite ? '∞' : `${Math.max(0, player.hp).toFixed(2)} %`)
+        setText(this.hpText, infinite ? '∞' : `${formatHp(player.hp)} %`)
 
         g.roundRect(x0, 76, w, 26, 5).fill({ color: 0x000000, alpha: 0.55 })
         if (player.cast !== null && player.castStartingTick !== null) {
+            this.interrupt = null
             const spell = player.spells[player.cast]
             const elapsed = Math.max(0, tick - player.castStartingTick)
             const done = elapsed >= spell.castTime
@@ -76,21 +87,45 @@ export class PlayerHud extends Container {
             const barW = (w - 28) * progress
             const barX = this.side === 'left' ? x0 + 26 : x0 + w - 26 - barW
             g.roundRect(barX, 78, barW, 22, 4).fill(done ? 0x2fb344 : 0x4c6ef5)
-            this.castIcon.texture = iconTexture(spell.id)
-            this.castIcon.width = this.castIcon.height = 22
-            this.castIcon.visible = true
+            this.showCastLabel(spell.id, 1)
             const total = ticksToSeconds(spell.castTime)
             setText(
                 this.castText,
                 `${SPELLS[spell.id].label}  ${Math.min(ticksToSeconds(elapsed), total).toFixed(1)} / ${total.toFixed(1)}`,
             )
-            this.castText.visible = true
+        } else if (this.interrupt && this.interrupt.left > dt) {
+            this.drawInterrupt(this.interrupt, dt)
         } else {
+            this.interrupt = null
             this.castIcon.visible = false
             this.castText.visible = false
         }
 
         this.updateEffects(player, tick)
+    }
+
+    private showCastLabel(spell: SpellId, alpha: number) {
+        this.castIcon.texture = iconTexture(spell)
+        this.castIcon.width = this.castIcon.height = 22
+        this.castIcon.visible = true
+        this.castIcon.alpha = alpha
+        this.castText.visible = true
+        this.castText.alpha = alpha
+    }
+
+    /** A full-width flash with an outline that grows as it fades. There is no cast progress to show. */
+    private drawInterrupt(interrupt: NonNullable<PlayerHud['interrupt']>, dt: number) {
+        interrupt.left -= dt
+        const k = interrupt.left / INTERRUPT_FLASH
+        const grow = (1 - k) * 6
+        const { x0, w } = this
+        this.bars
+            .roundRect(x0 + 2, 78, w - 4, 22, 4)
+            .fill({ color: interrupt.color, alpha: k * 0.8 })
+            .roundRect(x0 - grow, 76 - grow, w + grow * 2, 26 + grow * 2, 5 + grow)
+            .stroke({ width: 2, color: interrupt.color, alpha: k })
+        this.showCastLabel(interrupt.spell, Math.min(1, k * 2))
+        setText(this.castText, `${SPELLS[interrupt.spell].label} interrupted!`)
     }
 
     private updateEffects(player: PlayerState, tick: number) {
@@ -201,7 +236,6 @@ export class ActionBar extends Container {
     }
 
     update(player: PlayerState, tick: number, keysDown: Set<number>) {
-        const locked = player.globalCooldown > tick
         player.spells.forEach((spell, i) => {
             const b = this.buttons[i]
             if (b.spellId !== spell.id) {
@@ -212,9 +246,7 @@ export class ActionBar extends Container {
             }
             this.drawButton(
                 b,
-                spell,
-                tick,
-                locked ? player.globalCooldown - tick : 0,
+                buttonState(player, spell, tick),
                 player.cast === i,
                 keysDown.has(i) || this.pressed.has(i),
             )
@@ -223,25 +255,20 @@ export class ActionBar extends Container {
 
     private drawButton(
         b: ActionBar['buttons'][number],
-        spell: SpellState,
-        tick: number,
-        lockTicks: number,
+        { fader, locked, timer }: ButtonState,
         casting: boolean,
         down: boolean,
     ) {
-        const remaining = cooldownRemaining(spell, tick)
         const o = b.overlay.clear()
-        if (remaining > 0 || lockTicks > 0) {
-            const fraction = remaining > 0 ? remaining / spell.cooldown : 1
+        if (fader > 0) {
             const c = BUTTON / 2
             o.moveTo(c, c)
-                .arc(c, c, BUTTON, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fraction)
+                .arc(c, c, BUTTON, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fader)
                 .lineTo(c, c)
                 .fill({ color: 0x000000, alpha: 0.62 })
-            if (lockTicks > 0) o.roundRect(0, 0, BUTTON, BUTTON, 14).fill({ color: 0x0c8599, alpha: 0.35 })
         }
-        const shown = Math.max(remaining, lockTicks)
-        setText(b.center, shown > 0 ? ticksToSeconds(shown).toFixed(1) : '')
+        if (locked) o.roundRect(0, 0, BUTTON, BUTTON, 14).fill({ color: 0x0c8599, alpha: 0.35 })
+        setText(b.center, timer > 0 ? ticksToSeconds(timer).toFixed(1) : '')
         b.frame
             .clear()
             .roundRect(0, 0, BUTTON, BUTTON, 14)
@@ -249,3 +276,9 @@ export class ActionBar extends Container {
         b.root.scale.set(down ? 0.94 : 1)
     }
 }
+
+/**
+ * One decimal, rounded up so a living player never reads 0.0. Goes through integer hundredths
+ * (engine HP is on a 0.01 grid) so float noise like 86.7 * 10 = 867.0000000000001 cannot bump it.
+ */
+export const formatHp = (hp: number) => (Math.ceil(Math.round(Math.max(0, hp) * 100) / 10) / 10).toFixed(1)

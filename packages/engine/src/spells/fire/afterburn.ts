@@ -14,7 +14,6 @@ export const Afterburn: SpellDefinition = {
     description: 'Deals damage according to the number of fireballs cast recently.',
     advancedDescription: `Deals ${BASE_DAMAGE} damage plus ${DAMAGE_PER_STACK} times the number of Fireballs cast in the last ${LOOKBACK_TIME} seconds.`,
     castSeconds: CAST,
-    globalCooldownTicks: 0,
     reducer: (state, { caster, target }) => {
         const fireballIndex = state[caster].spells.findIndex(spell => spell.id === 'SPELL_FIREBALL')
         const fromTick = Math.max(state.gameTick - secondsToTicks(LOOKBACK_TIME), 0)
@@ -25,6 +24,6 @@ export const Afterburn: SpellDefinition = {
                 log.spellIndex === fireballIndex &&
                 log.tick >= fromTick,
         )
-        simpleDamage(state, target, BASE_DAMAGE + DAMAGE_PER_STACK * fireballsCast.length)
+        simpleDamage(state, target, BASE_DAMAGE + DAMAGE_PER_STACK * fireballsCast.length, caster)
     },
 }

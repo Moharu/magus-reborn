@@ -50,7 +50,7 @@ export const DEFAULT_SPELLS: SpellId[] = [
 export const LOADOUT_SIZE = 6
 export const HOTKEYS = ['Q', 'W', 'E', 'A', 'S', 'D'] as const
 
-export const isSpellId = (id: unknown): id is SpellId => typeof id === 'string' && id in SPELLS
+export const isSpellId = (id: unknown): id is SpellId => typeof id === 'string' && Object.hasOwn(SPELLS, id)
 
 export const isValidLoadout = (spells: unknown): spells is SpellId[] =>
     Array.isArray(spells) &&

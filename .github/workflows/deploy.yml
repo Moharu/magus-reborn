@@ -1,0 +1,135 @@
+name: Deploy
+
+# Deploys tagged releases to Cloudflare: the server to Workers, the client to Pages.
+# The only trigger is a push to main. Pushes to dev, tag pushes and pull requests never match it.
+
+on:
+    push:
+        branches: [main]
+
+permissions:
+    contents: read
+
+# Only one deploy runs at a time, and a running deploy is never cancelled halfway.
+# GitHub keeps one pending run per group, so a newer run replaces an older pending one.
+concurrency:
+    group: deploy-production
+    cancel-in-progress: false
+
+env:
+    PAGES_PROJECT: magus-reborn
+
+jobs:
+    deploy:
+        name: deploy
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        environment: production
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  # Full history and tags, for the release tag check.
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Refuse untagged code
+              run: bash .github/scripts/check-release-tag.sh
+
+            # Without this the client would silently build against the wrong server.
+            - name: Check VITE_SERVER_URL
+              env:
+                  VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
+              run: |
+                  if [[ ! "${VITE_SERVER_URL}" =~ ^https://[a-z0-9-]+\.[a-z0-9-]+\.workers\.dev/?$ ]]; then
+                      echo "::error::Set the repo variable VITE_SERVER_URL to https://magus-reborn.<account-subdomain>.workers.dev"
+                      exit 1
+                  fi
+
+            # wrangler 4 requires Node 22 or newer.
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 22
+                  cache: npm
+
+            - run: npm ci
+
+            - run: npm test
+
+            # A non-interactive `wrangler pages deploy` can't create a missing project.
+            - name: Create the Pages project if it is missing
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+              run: |
+                  projects="$(npx --no-install wrangler pages project list --json)"
+                  if node -e 'process.exit(JSON.parse(process.argv[1]).some(p => p["Project Name"] === process.env.PAGES_PROJECT) ? 0 : 1)' "${projects}"; then
+                      echo "Pages project ${PAGES_PROJECT} already exists."
+                  else
+                      npx --no-install wrangler pages project create "${PAGES_PROJECT}" --production-branch=main
+                  fi
+
+            - name: Deploy the server
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+              run: npm run deploy:server
+
+            - name: Check the server health
+              env:
+                  VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
+              run: |
+                  health="$(curl -fsS --retry 10 --retry-delay 15 --retry-all-errors --max-time 20 "${VITE_SERVER_URL%/}/health")"
+                  node -e 'process.exit(JSON.parse(process.argv[1]).ok === true ? 0 : 1)' "${health}"
+
+            - name: Build the client
+              env:
+                  VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
+              run: npm run build
+
+            - name: Deploy the client
+              env:
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+              run: npx --no-install wrangler pages deploy apps/web/dist --project-name="${PAGES_PROJECT}" --branch=main
+
+            # Checks this deployment's own URL, so it also works if Cloudflare gave the project
+            # a pages.dev subdomain other than the project name.
+            - name: Check the client
+              env:
+                  VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL }}
+                  WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+              run: |
+                  url="$(node -e '
+                      const lines = require("node:fs").readFileSync(process.argv[1], "utf8").trim().split("\n")
+                      const deployment = lines.map(line => JSON.parse(line)).find(entry => entry.type === "pages-deploy-detailed")
+                      console.log(deployment?.url ?? "")
+                  ' "${WRANGLER_OUTPUT_FILE_PATH}")"
+                  test -n "${url}"
+                  echo "Deployment URL: ${url}"
+                  fetch() { curl -fsS --retry 10 --retry-delay 15 --retry-all-errors --max-time 20 "$@"; }
+
+                  # SPA fallback: a deep link must return index.html.
+                  page="$(fetch "${url}/lobby/ABC123")"
+                  grep -qi '<!doctype html' <<< "${page}"
+
+                  # Hashed assets must be cached as immutable.
+                  asset="$(ls apps/web/dist/assets | grep -v '^404\.html$' | head -n 1)"
+                  test -n "${asset}"
+                  headers="$(fetch -o /dev/null -D - "${url}/assets/${asset}")"
+                  grep -qi '^cache-control:.*immutable' <<< "${headers}"
+
+                  # A missing asset must be a real 404 that isn't cached as immutable, or a refresh can't recover
+                  # if that file name comes back. No -f here: the 404 is the expected answer.
+                  missing="$(curl -sS --retry 10 --retry-delay 15 --retry-all-errors --max-time 20 -o /dev/null -D - "${url}/assets/smoke-check-missing.js")"
+                  if ! grep -qiE '^HTTP/[0-9.]+ 404' <<< "${missing}" || grep -qi '^cache-control:.*immutable' <<< "${missing}"; then
+                      echo "::error::A missing asset must be a 404 that isn't immutable. Check apps/web/public/assets/404.html."
+                      echo "${missing}"
+                      exit 1
+                  fi
+
+                  # The server must accept this project's real production URL, which may differ from the project name.
+                  # Assumes the deployment URL is https://<hash>.<subdomain>.pages.dev.
+                  production_origin="https://${url#https://*.}"
+                  fetch -o /dev/null -X OPTIONS -H "Origin: ${production_origin}" "${VITE_SERVER_URL%/}/api/lobbies" \
+                      || { echo "::error::The server did not accept a preflight from ${production_origin}. Check ALLOWED_ORIGINS in apps/server/wrangler.toml."; exit 1; }

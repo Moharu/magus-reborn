@@ -1,6 +1,6 @@
 import { secondsToTicks } from '../../constants'
 import type { EffectReducer, IgniteDebuff, SpellDefinition } from '../../types'
-import { simpleDamage, simpleDebuff } from '../../utils'
+import { simpleDamage, simpleDebuff, tickShare } from '../../utils'
 
 export const CAST = 1.6
 export const DEBUFF_TOTAL_DAMAGE = 13.3
@@ -13,7 +13,6 @@ export const Ignite: SpellDefinition = {
     description: 'Deals damage over time.',
     advancedDescription: `Deals ${DEBUFF_TOTAL_DAMAGE} damage over ${DEBUFF_DURATION} seconds.`,
     castSeconds: CAST,
-    globalCooldownTicks: 0,
     reducer: (state, { target }) =>
         simpleDebuff<IgniteDebuff>(state, target, {
             id: 'DEBUFF_IGNITE',
@@ -24,5 +23,5 @@ export const Ignite: SpellDefinition = {
         }),
 }
 
-export const igniteDebuffReducer: EffectReducer<IgniteDebuff> = (state, { target }, debuff) =>
-    simpleDamage(state, target, debuff.damage / debuff.duration)
+export const igniteDebuffReducer: EffectReducer<IgniteDebuff> = (state, { target, enemy }, debuff) =>
+    simpleDamage(state, target, tickShare(debuff.damage, debuff.duration, state.gameTick - debuff.startingTick), enemy)

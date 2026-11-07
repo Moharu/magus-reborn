@@ -1,4 +1,11 @@
-import { Battle, DEFAULT_SPELLS, GAME_TICK_INTERVAL, isValidLoadout, type PlayerKey, type SpellId } from '@magus/engine'
+import {
+    Battle,
+    DEFAULT_SPELLS,
+    GAME_TICK_INTERVAL,
+    parseClientMessage,
+    type PlayerKey,
+    type SpellId,
+} from '@magus/engine'
 import {
     BEST_OF_OPTIONS,
     DEFAULT_SETTINGS,
@@ -7,7 +14,6 @@ import {
     sanitizeName,
     SETUP_TIME_MAX,
     SETUP_TIME_MIN,
-    type ClientMessage,
     type LobbyInfo,
     type LobbyListing,
     type LobbyPlayerInfo,
@@ -23,8 +29,6 @@ export const READY_SETUP_COUNTDOWN = 3
 export const BATTLE_COUNTDOWN = 3
 export const ROUND_OVER_COUNTDOWN = 10
 export const RECONNECT_GRACE = 30
-/** Messages per second a connection may send before the rest are dropped. */
-export const RATE_LIMIT = 40
 
 export interface LobbyTransport {
     send(connId: string, message: ServerMessage): void
@@ -49,8 +53,6 @@ interface Connection {
     playerId: string
     role: Role
     name: string
-    budget: number
-    budgetSecond: number
 }
 
 const SEATS: PlayerKey[] = ['player1', 'player2']
@@ -138,13 +140,13 @@ export class Lobby {
         }
 
         const name = role === 'spectator' ? sanitizeName(rawName, 'Spectator') : this.seats[role]!.name
-        this.connections.set(connId, { playerId, role, name, budget: RATE_LIMIT, budgetSecond: 0 })
+        this.connections.set(connId, { playerId, role, name })
         this.transport.send(connId, {
             t: 'welcome',
             role,
             spells: role === 'spectator' ? null : this.seats[role]!.spells,
         })
-        if (this.battle) this.transport.send(connId, this.battleMessage(0))
+        if (this.battle) this.transport.send(connId, this.battleCatchUp())
 
         if (role !== 'spectator' && this.paused && this.bothConnected()) this.resume()
         this.changed()
@@ -184,17 +186,23 @@ export class Lobby {
 
     message(connId: string, raw: unknown) {
         const conn = this.connections.get(connId)
-        if (!conn || !this.withinRateLimit(conn)) return
-        if (typeof raw !== 'object' || raw === null) return
-        const msg = raw as ClientMessage
-        if (msg.t === 'ping') {
-            if (typeof msg.at === 'number') this.transport.send(connId, { t: 'pong', at: msg.at })
+        if (!conn) return
+        const msg = parseClientMessage(raw)
+        if (msg?.t === 'ping') {
+            this.transport.send(connId, { t: 'pong', at: msg.at })
             return
         }
         if (conn.role === 'spectator') return
         const key = conn.role
         const seat = this.seats[key]
         if (!seat) return
+        if (!msg) {
+            // the one rejection a player hears about; everything else invalid is dropped silently
+            if ((raw as { t?: unknown } | null)?.t === 'set_spells') {
+                this.transport.send(connId, { t: 'error', message: 'Invalid spell selection' })
+            }
+            return
+        }
 
         switch (msg.t) {
             case 'ready':
@@ -206,27 +214,26 @@ export class Lobby {
                 }
                 return
             case 'set_spells':
-                if (!isValidLoadout(msg.spells)) {
-                    this.transport.send(connId, { t: 'error', message: 'Invalid spell selection' })
-                    return
-                }
                 if (!this.canChangeSpells(seat)) return
                 seat.spells = [...msg.spells]
                 this.transport.send(connId, { t: 'loadout', spells: seat.spells })
                 return
             case 'start_cast':
-                if (this.canCast() && Number.isInteger(msg.i)) this.battle!.startCast(key, msg.i)
+                if (this.canCast()) this.battle!.startCast(key, msg.i)
                 return
             case 'stop_cast':
-                if (this.canCast() && Number.isInteger(msg.i)) this.battle!.stopCast(key, msg.i)
+                if (this.canCast()) this.battle!.stopCast(key, msg.i)
                 return
-            case 'settings':
+            case 'settings': {
                 if (this.admin !== key || this.matchStarted) return
-                this.settings = sanitizeSettings(this.settings, msg.settings)
+                const settings = sanitizeSettings(this.settings, msg.settings)
+                if (JSON.stringify(settings) === JSON.stringify(this.settings)) return
+                this.settings = settings
                 // nobody should be locked in to settings they didn't see
                 for (const s of SEATS) if (this.seats[s]) this.seats[s]!.ready = false
                 this.changed()
                 return
+            }
         }
     }
 
@@ -321,7 +328,7 @@ export class Lobby {
         this.phase = 'battle_countdown'
         this.battle = new Battle({ name: p1.name, spells: p1.spells }, { name: p2.name, spells: p2.spells })
         this.logSent = 0
-        this.transport.broadcast(this.battleMessage(0))
+        this.transport.broadcast(this.battleBroadcast())
         this.countdown(BATTLE_COUNTDOWN, () => this.enterBattle())
         this.changed()
     }
@@ -335,8 +342,9 @@ export class Lobby {
     private onTick() {
         const battle = this.battle!
         battle.tick()
-        this.transport.broadcast(this.battleMessage(this.logSent))
-        if (battle.state.winner) this.endRound()
+        this.transport.broadcast(this.battleBroadcast())
+        // a win waits for its tick to end, since actions in that tick can still turn it into a draw; a draw can't change
+        if (battle.finished || battle.state.winner === 'draw') this.endRound()
     }
 
     private endRound() {
@@ -397,9 +405,19 @@ export class Lobby {
         if (this.forfeitHandle) return
         this.forfeitHandle = setTimeout(() => {
             this.forfeitHandle = null
+            this.settleDecidedRound()
+            if (this.phase === 'match_over') return
             const connected = SEATS.filter(key => this.seats[key]?.connId)
             this.endMatch(connected.length === 1 ? connected[0] : null)
         }, RECONNECT_GRACE * 1000)
+    }
+
+    /**
+     * The pause held back the tick that would end a round whose result is already decided, so run it now. Checks
+     * the phase rather than `battle.finished`, which stays false after a draw that ended its round inside `tick()`.
+     */
+    private settleDecidedRound() {
+        if (this.phase === 'battle' && this.battle?.state.winner) this.onTick()
     }
 
     // timers
@@ -443,11 +461,22 @@ export class Lobby {
 
     // helpers
 
-    private battleMessage(logFrom: number): ServerMessage {
+    /** The next part of the stream every client follows. It moves the stream on, so it must go to all of them. */
+    private battleBroadcast(): ServerMessage {
         const battle = this.battle!
+        const logFrom = this.logSent
         const log = battle.state.log.slice(logFrom)
         this.logSent = battle.state.log.length
         return { t: 'battle', snap: battle.snapshot(), log, logFrom, events: battle.drainEvents() }
+    }
+
+    /**
+     * The battle so far, for one connection that just joined. It leaves the stream alone: whatever is pending goes
+     * to everyone in the next broadcast, the joiner included, which is why the events aren't repeated here.
+     */
+    private battleCatchUp(): ServerMessage {
+        const battle = this.battle!
+        return { t: 'battle', snap: battle.snapshot(), log: battle.state.log.slice(), logFrom: 0, events: [] }
     }
 
     private canCast() {
@@ -475,15 +504,6 @@ export class Lobby {
         let count = 0
         for (const conn of this.connections.values()) if (conn.role === 'spectator') count++
         return count
-    }
-
-    private withinRateLimit(conn: Connection) {
-        const second = Math.floor(Date.now() / 1000)
-        if (second !== conn.budgetSecond) {
-            conn.budgetSecond = second
-            conn.budget = RATE_LIMIT
-        }
-        return conn.budget-- > 0
     }
 
     private reject(connId: string, message: string) {

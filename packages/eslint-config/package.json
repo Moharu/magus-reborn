@@ -1,0 +1,15 @@
+{
+    "name": "@magus/eslint-config",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./index.js"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "eslint-config-prettier": "^10.1.8",
+        "typescript": "~6.0.3",
+        "typescript-eslint": "^8.72.1"
+    }
+}

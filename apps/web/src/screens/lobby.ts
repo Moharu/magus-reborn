@@ -2,8 +2,11 @@ import { SPELLS, ticksToSeconds, type BattleSnapshot, type PlayerKey, type Spell
 import {
     BEST_OF_OPTIONS,
     MAX_SPECTATORS,
+    NEW_VERSION_MESSAGE,
     SETUP_TIME_MAX,
     SETUP_TIME_MIN,
+    VERSION_MISMATCH,
+    VERSION_QUERY,
     type LobbyInfo,
     type LobbyPlayerInfo,
     type LobbySettings,
@@ -17,6 +20,7 @@ import { getLoadout, getName, playerId, setLoadout } from '../identity'
 import { connect, type Socket } from '../net'
 import { navigate } from '../router'
 import { spellPicker, type SpellPicker } from '../ui/spell-picker'
+import { loadBattleChunk, newVersionPanel } from './battle-chunk'
 import { nameField } from './home'
 
 type Mode = 'connecting' | 'lobby' | 'setup' | 'watch-setup' | 'battle' | 'over' | 'error'
@@ -132,6 +136,11 @@ const startLobby = (root: HTMLElement, code: string) => {
                     h('div', { class: 'center' }, h('p', { class: 'muted' }, 'Connecting to lobby…')),
                 )
             case 'error':
+                if (fatal === NEW_VERSION_MESSAGE) {
+                    return content.replaceChildren(
+                        newVersionPanel(h('a', { class: 'btn', href: '/', 'data-link': true }, 'Back home')),
+                    )
+                }
                 return content.replaceChildren(
                     h(
                         'div',
@@ -386,21 +395,29 @@ const startLobby = (root: HTMLElement, code: string) => {
             if (!view && !viewPending) {
                 viewPending = true
                 const mine = me()
-                import('../game/battle-view')
-                    .then(({ BattleView }) =>
+                loadBattleChunk(() => import('../game/battle-view'), {
+                    onLoaded: ({ BattleView }) =>
                         BattleView.create(stage, {
                             me: mine,
                             onPress: i => send({ t: 'start_cast', i }),
                             onRelease: i => send({ t: 'stop_cast', i }),
+                        }).then(created => {
+                            if (!viewPending || mode !== 'battle') return created.destroy()
+                            viewPending = false
+                            view = created
+                            if (battleSnap) view.update(battleSnap, [], [], false)
+                            decorate(info)
                         }),
-                    )
-                    .then(created => {
-                        if (!viewPending || mode !== 'battle') return created.destroy()
-                        viewPending = false
-                        view = created
-                        if (battleSnap) view.update(battleSnap, [], [], false)
-                        decorate(info)
-                    })
+                    isCurrent: () => viewPending,
+                    onFailed: () => {
+                        // A connected player who can't see the battle would leave the opponent fighting someone idle.
+                        // Leaving pauses the match, and the server holds the seat for its reconnect grace period.
+                        socket?.close()
+                        netStatus.remove()
+                        fatal = NEW_VERSION_MESSAGE
+                        render()
+                    },
+                })
             }
         }
         if (view) decorate(info)
@@ -510,7 +527,7 @@ const startLobby = (root: HTMLElement, code: string) => {
 
     socket = connect<ServerMessage>({
         url: () =>
-            `${WS_URL}/api/lobbies/${code}?playerId=${encodeURIComponent(playerId)}&name=${encodeURIComponent(getName())}`,
+            `${WS_URL}/api/lobbies/${code}?playerId=${encodeURIComponent(playerId)}&name=${encodeURIComponent(getName())}&${VERSION_QUERY}`,
         isFatal: m => m.t === 'error' && !!m.fatal,
         onStatus: status => {
             connection = status
@@ -541,7 +558,10 @@ const startLobby = (root: HTMLElement, code: string) => {
                     return
                 }
                 case 'error':
-                    if (message.fatal) fatal = message.message
+                    if (message.code === VERSION_MISMATCH) {
+                        netStatus.remove()
+                        fatal = NEW_VERSION_MESSAGE
+                    } else if (message.fatal) fatal = message.message
                     else flash(message.message)
                     break
                 case 'pong':

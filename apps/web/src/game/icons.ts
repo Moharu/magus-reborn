@@ -237,7 +237,8 @@ const DRAW: Record<SpellId, (ctx: Ctx) => void> = {
             const r = 6 + t * 40
             const x = 64 + Math.cos(a) * r
             const y = 64 + Math.sin(a) * r
-            i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)
+            if (i) ctx.lineTo(x, y)
+            else ctx.moveTo(x, y)
         }
         ctx.stroke()
         orb(ctx, 64, 64, 10, [
