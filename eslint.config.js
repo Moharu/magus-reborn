@@ -3,7 +3,7 @@ import { js, prettier, tseslint } from '@magus/eslint-config'
 
 export default defineConfig(
     // `.claude/` holds agent worktrees, which are separate checkouts of this repo.
-    globalIgnores(['**/dist/', '**/.wrangler/', '**/node_modules/', '.claude/']),
+    globalIgnores(['**/dist/', '**/.wrangler/', '**/.vercel/', '**/node_modules/', '.claude/']),
     js.configs.recommended,
     tseslint.configs.recommended,
     {
