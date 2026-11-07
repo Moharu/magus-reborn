@@ -221,6 +221,53 @@ describe('creating a lobby', () => {
         leave()
     })
 
+    describe('when the player leaves the home screen before the server answers', () => {
+        /** A create request the test answers by hand, after the router has moved on to another screen. */
+        const leaveMidRequest = async (status: number, body: unknown) => {
+            let answer!: () => void
+            vi.stubGlobal(
+                'fetch',
+                vi.fn(
+                    () =>
+                        new Promise<Response>(resolve => {
+                            answer = () => resolve(new Response(JSON.stringify(body), { status }))
+                        }),
+                ),
+            )
+            const pushState = vi.fn()
+            vi.stubGlobal('history', { pushState, replaceState: vi.fn() })
+            const { root, leave } = await clickCreate()
+
+            // what the router does on following the Training room link
+            leave()
+            const training = new FakeElement('div')
+            root.replaceChildren(training)
+            answer()
+            await settle()
+
+            return { root, training, pushState }
+        }
+
+        it('leaves the next screen alone when the version is refused', async () => {
+            const { root, training, pushState } = await leaveMidRequest(409, {
+                error: MESSAGE,
+                errorCode: 'version_mismatch',
+            })
+
+            expect(root.children).toEqual([training])
+            expect(alert(root)).toBeNull()
+            expect(pushState).not.toHaveBeenCalled()
+            expect(reload).not.toHaveBeenCalled()
+        })
+
+        it('does not navigate to the lobby it created', async () => {
+            const { root, training, pushState } = await leaveMidRequest(201, { code: 'ABC234' })
+
+            expect(root.children).toEqual([training])
+            expect(pushState).not.toHaveBeenCalled()
+        })
+    })
+
     it('still shows other errors in place', async () => {
         stubFetch(503, { error: 'Too many open lobbies, try again later' })
 

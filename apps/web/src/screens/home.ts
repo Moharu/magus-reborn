@@ -55,6 +55,8 @@ export const homeScreen = (root: HTMLElement) => {
     const list = h('ul', { class: 'lobby-list' })
     const error = h('p', { class: 'error', role: 'alert' })
 
+    /** Set when the router leaves this screen, which can happen while a create request is still out. */
+    let left = false
     const createButton = h(
         'button',
         {
@@ -66,6 +68,8 @@ export const homeScreen = (root: HTMLElement) => {
                 try {
                     code = await createLobby()
                 } catch (e) {
+                    // the root belongs to another screen once this one is left
+                    if (left) return
                     if (e instanceof Error && e.message === NEW_VERSION_MESSAGE) {
                         socket.close()
                         root.replaceChildren(newVersionPanel())
@@ -75,6 +79,8 @@ export const homeScreen = (root: HTMLElement) => {
                     createButton.disabled = false
                     return
                 }
+                // a lobby nobody waits for any more is released when its reservation expires
+                if (left) return
                 navigate(`/lobby/${code}`)
             },
         },
@@ -183,5 +189,8 @@ export const homeScreen = (root: HTMLElement) => {
         ),
     )
 
-    return () => socket.close()
+    return () => {
+        left = true
+        socket.close()
+    }
 }
