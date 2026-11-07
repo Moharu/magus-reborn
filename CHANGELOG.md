@@ -51,14 +51,14 @@ This is the first release deployed to Cloudflare: the client on Pages, the serve
 
 - **Counterspell tell.** When Counterspell interrupts a cast, both players see it: the interrupted cast bar flashes with "_Spell_ interrupted!", the interrupted wizard is hit by a cyan burst, and the caster sees "Interrupted!". ([#60](https://github.com/Moharu/magus-reborn/pull/60), closes [#39](https://github.com/Moharu/magus-reborn/issues/39))
 - **Global cooldown on the action bar.** Buttons show the global cooldown, separately from the Counterspell lockout and from each spell's own cooldown. ([#55](https://github.com/Moharu/magus-reborn/pull/55), closes [#38](https://github.com/Moharu/magus-reborn/issues/38))
-- **Refresh prompt.** If the game is updated while your tab is open and the battle screen can't load, you now see "A new version is available, please refresh" with a Refresh button instead of an empty screen. The client also shows this when the server reports a version mismatch. ([#68](https://github.com/Moharu/magus-reborn/pull/68), closes [#66](https://github.com/Moharu/magus-reborn/issues/66); [#72](https://github.com/Moharu/magus-reborn/pull/72))
+- **Refresh prompt.** If the game is updated while your tab is open and the battle screen can't load, you now see "A new version is available, please refresh" with a Refresh button. The client also shows this message when the server reports a version mismatch. It doesn't cover every failure yet: if one of the renderer's own files fails to load, the screen can still go blank (see Known issues). ([#68](https://github.com/Moharu/magus-reborn/pull/68), closes [#66](https://github.com/Moharu/magus-reborn/issues/66); [#72](https://github.com/Moharu/magus-reborn/pull/72))
 
 ### Simulator and balance tools
 
 #### Added
 
-- **Damage simulator.** `npm run sim` plays a loadout and a spell priority against a training dummy on the real engine and reports damage and DPS per spell. ([#29](https://github.com/Moharu/magus-reborn/pull/29), closes [#5](https://github.com/Moharu/magus-reborn/issues/5))
-- **Counterspell pressure.** Each result also reports the DPS against an opponent who interrupts as well as possible, and the difference as a risk index. ([#49](https://github.com/Moharu/magus-reborn/pull/49), closes [#42](https://github.com/Moharu/magus-reborn/issues/42))
+- **Damage simulator.** `npm run sim -w @magus/engine` plays a loadout and a spell priority against a training dummy on the real engine and reports damage and DPS per spell. ([#29](https://github.com/Moharu/magus-reborn/pull/29), closes [#5](https://github.com/Moharu/magus-reborn/issues/5))
+- **Counterspell pressure.** Each result also reports the DPS against an enemy who casts Counterspell every 11.7 seconds with a 0.4-second reaction time, interrupting your most valuable cast in each cooldown window, and the difference as a risk index. The enemy doesn't fake-cast to bait Counterspells. ([#49](https://github.com/Moharu/magus-reborn/pull/49), closes [#42](https://github.com/Moharu/magus-reborn/issues/42))
 - **Smarter rotations.** Rotations can have conditions, such as "Ignite only below 3 stacks", and `npm run sim:search` searches loadouts and rotations within set limits. ([#51](https://github.com/Moharu/magus-reborn/pull/51), closes [#6](https://github.com/Moharu/magus-reborn/issues/6))
 
 ### Infrastructure and CI
@@ -74,6 +74,12 @@ This is the first release deployed to Cloudflare: the client on Pages, the serve
 
 #### Changed
 
-- CI runs on Node 22 with a 10-minute job timeout. Development needs Node 22.13 or newer, 24, or 26 and up. ([#62](https://github.com/Moharu/magus-reborn/pull/62), closes [#28](https://github.com/Moharu/magus-reborn/issues/28))
+- CI runs on Node 22 with a 10-minute job timeout. Development needs Node 22.13 or a later 22.x release, Node 24, or Node 26 and up (`^22.13.0 || ^24.0.0 || >=26.0.0`). Node 23 and 25 aren't supported. ([#62](https://github.com/Moharu/magus-reborn/pull/62), closes [#28](https://github.com/Moharu/magus-reborn/issues/28))
+
+### Known issues
+
+- The server logs an invalid WebSocket close code (1006) when a connection drops. ([#74](https://github.com/Moharu/magus-reborn/issues/74))
+- The per-connection rate limit starts again from full when a client reconnects. ([#75](https://github.com/Moharu/magus-reborn/issues/75))
+- The game screen can go blank if one of the renderer's files fails to load, for example after an update while the tab is open, and no refresh prompt appears. ([#76](https://github.com/Moharu/magus-reborn/issues/76))
 
 [0.1.0]: https://github.com/Moharu/magus-reborn/tree/v0.1.0
