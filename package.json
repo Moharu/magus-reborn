@@ -16,12 +16,14 @@
         "test:watch": "vitest",
         "typecheck": "npm run typecheck --workspaces --if-present",
         "format": "prettier --write .",
-        "format:check": "prettier --check ."
+        "format:check": "prettier --check .",
+        "lint": "eslint ."
     },
     "engines": {
-        "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+        "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
     },
     "devDependencies": {
+        "eslint": "^10.14.0",
         "prettier": "^3.9.10",
         "typescript": "^7.0.2",
         "vitest": "^5.1.0"
@@ -29,5 +31,20 @@
     "allowScripts": {
         "esbuild@0.28.2": true,
         "workerd@1.20261103.1": true
-    }
+    },
+    "overrides": {
+        "ts-api-utils": {
+            "typescript": "~6.0.3"
+        },
+        "eslint": {
+            "minimatch": "^11.0.5"
+        },
+        "@eslint/config-array": {
+            "minimatch": "^11.0.5"
+        },
+        "@typescript-eslint/typescript-estree": {
+            "minimatch": "^11.0.5"
+        }
+    },
+    "//": "overrides: the minimatch entries patch GHSA-g3hv-75wg-m249 in the lint toolchain; drop them once eslint, @eslint/config-array and @typescript-eslint/typescript-estree depend on minimatch ^11. The ts-api-utils entry keeps it next to TypeScript 6 in packages/eslint-config (see its index.js)."
 }

@@ -117,6 +117,7 @@ export const sanitizeName = (name: unknown, fallback: string) => {
     if (typeof name !== 'string') return fallback
     // drop control characters, collapse whitespace
     const clean = name
+        // eslint-disable-next-line no-control-regex -- matching control characters is this regex's purpose
         .replace(/[\u0000-\u001f\u007f]/g, '')
         .replace(/\s+/g, ' ')
         .trim()
