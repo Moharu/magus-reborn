@@ -140,6 +140,8 @@ If `dev` no longer matches the tag, don't open the PR. If the deploy has already
 
 The workflow runs the tests, creates the Pages project if it is missing, deploys the server, builds the client against `VITE_SERVER_URL`, deploys the client, then checks both deployments.
 
+The client and server each bundle their own copy of the engine, so the server refuses to create or join a lobby for a client whose `ENGINE_VERSION` differs from its own, and that player is asked to refresh. The release manager decides when to bump it; see `.claude/agents/release-manager.md`. Because the server deploys first, a release that bumps it blocks online play until the client deploy finishes, and a refresh in that window still loads the old client. If the client deploy fails, online play stays blocked until a client on the new version is live. A rollback has to restore both.
+
 It needs the following in the GitHub repo settings:
 
 | Name                    | Type     | Value                                                                                |

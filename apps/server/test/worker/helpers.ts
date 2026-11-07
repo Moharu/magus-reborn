@@ -1,10 +1,21 @@
 import { exports } from 'cloudflare:workers'
-import type { ClientMessage, LobbyInfo, RegistryMessage, ServerMessage } from '@magus/engine/protocol'
+import { ENGINE_VERSION } from '@magus/engine'
+import {
+    VERSION_PARAM,
+    VERSION_QUERY,
+    type ClientMessage,
+    type LobbyInfo,
+    type RegistryMessage,
+    type ServerMessage,
+} from '@magus/engine/protocol'
 
 /** In ALLOWED_ORIGINS for these tests; see vitest.config.ts. */
 export const ALLOWED_ORIGIN = 'https://allowed.example'
 export const ALSO_ALLOWED_ORIGIN = 'https://also-allowed.example'
 export const DISALLOWED_ORIGIN = 'https://evil.example'
+
+/** The path the web client posts to, with its version. */
+export const CREATE_LOBBY_PATH = `/api/lobbies?${VERSION_QUERY}`
 
 /** Shorter than Vitest's 5 s test timeout, so a missing message fails with the list of what did arrive. */
 const WAIT_TIMEOUT_MS = 3000
@@ -23,7 +34,7 @@ export const upgrade = (path: string, origin: string | null = ALLOWED_ORIGIN) =>
     workerFetch(path, { headers: { Upgrade: 'websocket' } }, origin)
 
 export const createLobby = async () => {
-    const res = await workerFetch('/api/lobbies', { method: 'POST' })
+    const res = await workerFetch(CREATE_LOBBY_PATH, { method: 'POST' })
     if (res.status !== 201) throw new Error(`creating a lobby returned ${res.status}`)
     const { code } = await res.json<{ code: string }>()
     return code
@@ -185,7 +196,7 @@ export const lobbyClientFrom = (res: Response) => track(new LobbyClient(accepted
 
 /** Upgrades a connection to the lobby without waiting for any message. */
 export const connect = async (code: string, playerId?: string, name?: string) => {
-    const params = new URLSearchParams()
+    const params = new URLSearchParams({ [VERSION_PARAM]: ENGINE_VERSION })
     if (playerId !== undefined) params.set('playerId', playerId)
     if (name !== undefined) params.set('name', name)
     return lobbyClientFrom(await upgrade(`/api/lobbies/${code}?${params}`))

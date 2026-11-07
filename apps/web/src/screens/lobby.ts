@@ -2,8 +2,11 @@ import { SPELLS, ticksToSeconds, type BattleSnapshot, type PlayerKey, type Spell
 import {
     BEST_OF_OPTIONS,
     MAX_SPECTATORS,
+    NEW_VERSION_MESSAGE,
     SETUP_TIME_MAX,
     SETUP_TIME_MIN,
+    VERSION_MISMATCH,
+    VERSION_QUERY,
     type LobbyInfo,
     type LobbyPlayerInfo,
     type LobbySettings,
@@ -17,7 +20,7 @@ import { getLoadout, getName, playerId, setLoadout } from '../identity'
 import { connect, type Socket } from '../net'
 import { navigate } from '../router'
 import { spellPicker, type SpellPicker } from '../ui/spell-picker'
-import { loadBattleChunk, NEW_VERSION_MESSAGE, newVersionPanel } from './battle-chunk'
+import { loadBattleChunk, newVersionPanel } from './battle-chunk'
 import { nameField } from './home'
 
 type Mode = 'connecting' | 'lobby' | 'setup' | 'watch-setup' | 'battle' | 'over' | 'error'
@@ -524,7 +527,7 @@ const startLobby = (root: HTMLElement, code: string) => {
 
     socket = connect<ServerMessage>({
         url: () =>
-            `${WS_URL}/api/lobbies/${code}?playerId=${encodeURIComponent(playerId)}&name=${encodeURIComponent(getName())}`,
+            `${WS_URL}/api/lobbies/${code}?playerId=${encodeURIComponent(playerId)}&name=${encodeURIComponent(getName())}&${VERSION_QUERY}`,
         isFatal: m => m.t === 'error' && !!m.fatal,
         onStatus: status => {
             connection = status
@@ -555,7 +558,10 @@ const startLobby = (root: HTMLElement, code: string) => {
                     return
                 }
                 case 'error':
-                    if (message.fatal) fatal = message.message
+                    if (message.code === VERSION_MISMATCH) {
+                        netStatus.remove()
+                        fatal = NEW_VERSION_MESSAGE
+                    } else if (message.fatal) fatal = message.message
                     else flash(message.message)
                     break
                 case 'pong':
