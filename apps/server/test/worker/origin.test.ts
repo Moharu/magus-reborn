@@ -72,4 +72,108 @@ describe('lobby creation origin check', () => {
 
         expect(res.status).toBe(403)
     })
+
+    it('refuses a missing origin with a 403', async () => {
+        const res = await workerFetch('/api/lobbies', { method: 'POST' }, null)
+
+        expect(res.status).toBe(403)
+    })
+})
+
+describe('CORS headers', () => {
+    const expectNoCors = (res: Response) => {
+        const cors = [...res.headers.keys()].filter(name => name.startsWith('access-control-'))
+        expect(cors).toEqual([])
+        expect(res.headers.get('Vary')).toBe('Origin')
+    }
+    const expectCorsFor = (res: Response, origin: string) => {
+        expect(res.headers.get('Access-Control-Allow-Origin')).toBe(origin)
+        expect(res.headers.get('Vary')).toBe('Origin')
+    }
+
+    const refusedOrigins: [string, string | null][] = [
+        ['a disallowed origin', DISALLOWED_ORIGIN],
+        ['a missing origin', null],
+    ]
+
+    describe.each(refusedOrigins)('from %s', (_, origin) => {
+        it('refuses a preflight with a 403 and no CORS headers', async () => {
+            const res = await workerFetch('/api/lobbies', { method: 'OPTIONS' }, origin)
+
+            expect(res.status).toBe(403)
+            expectNoCors(res)
+        })
+
+        it('refuses a preflight to /health with a 403 and no CORS headers', async () => {
+            const res = await workerFetch('/health', { method: 'OPTIONS' }, origin)
+
+            expect(res.status).toBe(403)
+            expectNoCors(res)
+        })
+
+        it('sends no CORS headers on a refused POST', async () => {
+            const res = await workerFetch('/api/lobbies', { method: 'POST' }, origin)
+
+            expect(res.status).toBe(403)
+            expect(await res.json()).toEqual({ error: 'Origin not allowed' })
+            expectNoCors(res)
+        })
+
+        it('sends no CORS headers on a refused upgrade', async () => {
+            const res = await upgrade('/api/lobbies', origin)
+
+            expect(res.status).toBe(403)
+            expectNoCors(res)
+        })
+
+        it('refuses an unknown path with a 403 rather than a 404', async () => {
+            const res = await workerFetch('/nope', {}, origin)
+
+            expect(res.status).toBe(403)
+            expectNoCors(res)
+        })
+
+        it('still answers /health, with no CORS headers', async () => {
+            const res = await workerFetch('/health', {}, origin)
+
+            expect(res.status).toBe(200)
+            expect(await res.json()).toEqual({ ok: true })
+            expectNoCors(res)
+        })
+    })
+
+    describe.each([
+        ['the first allowed origin', ALLOWED_ORIGIN],
+        ['a later allowed origin', ALSO_ALLOWED_ORIGIN],
+    ])('from %s', (_, origin) => {
+        it('answers a preflight with its own origin only', async () => {
+            const res = await workerFetch('/api/lobbies', { method: 'OPTIONS' }, origin)
+
+            expect(res.status).toBe(204)
+            expectCorsFor(res, origin)
+            expect(res.headers.get('Access-Control-Allow-Methods')).toBe('GET, POST, OPTIONS')
+            expect(res.headers.get('Access-Control-Allow-Headers')).toBe('Content-Type')
+        })
+
+        it('lets the client read a created lobby', async () => {
+            const res = await workerFetch('/api/lobbies', { method: 'POST' }, origin)
+
+            expect(res.status).toBe(201)
+            expectCorsFor(res, origin)
+        })
+
+        it('lets the client read an error', async () => {
+            const res = await workerFetch('/nope', {}, origin)
+
+            expect(res.status).toBe(404)
+            expectCorsFor(res, origin)
+        })
+
+        it('answers /health with its own origin', async () => {
+            const res = await workerFetch('/health', {}, origin)
+
+            expect(res.status).toBe(200)
+            expectCorsFor(res, origin)
+        })
+    })
 })

@@ -1,22 +1,9 @@
 import { LOBBY_CODE_PATTERN } from '@magus/engine/protocol'
 import { lobbyOf, registryOf, type Env } from './env'
+import { allowedOrigin, corsHeaders } from './origin'
 
 export { LobbyRegistry } from './registry'
 export { LobbyRoom } from './lobby-room'
-
-const originAllowed = (request: Request, env: Env) => {
-    const allowed = env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-    if (allowed.includes('*')) return true
-    const origin = request.headers.get('Origin')
-    return origin !== null && allowed.includes(origin)
-}
-
-const corsHeaders = (request: Request, env: Env): Record<string, string> => ({
-    'Access-Control-Allow-Origin': env.ALLOWED_ORIGINS.includes('*') ? '*' : (request.headers.get('Origin') ?? ''),
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    Vary: 'Origin',
-})
 
 const json = (body: unknown, status: number, headers: Record<string, string>) =>
     new Response(JSON.stringify(body), { status, headers: { ...headers, 'Content-Type': 'application/json' } })
@@ -24,12 +11,14 @@ const json = (body: unknown, status: number, headers: Record<string, string>) =>
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url)
-        const cors = corsHeaders(request, env)
+        const origin = allowedOrigin(request.headers.get('Origin'), env.ALLOWED_ORIGINS)
+        const cors = corsHeaders(origin)
         const isUpgrade = request.headers.get('Upgrade')?.toLowerCase() === 'websocket'
 
+        // Open to any origin, because the deploy workflow checks it with curl, which sends no Origin.
+        if (url.pathname === '/health' && request.method !== 'OPTIONS') return json({ ok: true }, 200, cors)
+        if (origin === null) return json({ error: 'Origin not allowed' }, 403, cors)
         if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors })
-        if (url.pathname === '/health') return json({ ok: true }, 200, cors)
-        if (!originAllowed(request, env)) return json({ error: 'Origin not allowed' }, 403, cors)
 
         if (url.pathname === '/api/lobbies') {
             if (isUpgrade) return registryOf(env).fetch(request)
