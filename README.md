@@ -130,7 +130,11 @@ The free Workers plan is enough. Durable Objects on the free plan allow 100k req
 
 ### Automatic deploys
 
-`.github/workflows/deploy.yml` runs on every push to `main` and on nothing else, so merging into `dev` never deploys. It stops before deploying anything unless the code matches a `vX.Y.Z` tag exactly. If commits reach `dev` after the tag is created, create a new release tag before merging into `main`.
+`.github/workflows/deploy.yml` runs on every push to `main` and on nothing else, so merging into `dev` never deploys. It stops before deploying anything unless the code matches a `vX.Y.Z` tag exactly.
+
+To keep a release matching its tag, `dev` is frozen from the moment of the tag until the release PR is merged, and no PRs merge into `dev` in that window. Before opening the `dev` -> `main` PR, check that `dev` still matches the tag. Merge the PR with **Create a merge commit**, never squash, because a squash makes later releases differ from their tags.
+
+If `dev` no longer matches the tag, don't open the PR. If the deploy has already refused a merge, nothing was deployed and production stays on the previous release, but `main` now holds untagged code. Both cases need a new release: a version bump PR, a new tag and its own balance run. Don't move the existing tag, and don't tag the current code just to make the deploy pass, because that code had no balance run.
 
 The workflow runs the tests, creates the Pages project if it is missing, deploys the server, builds the client against `VITE_SERVER_URL`, deploys the client, then checks both deployments.
 
@@ -163,7 +167,7 @@ VITE_SERVER_URL=https://magus-reborn.<your-subdomain>.workers.dev npm run build
 npx wrangler pages deploy apps/web/dist --project-name=magus-reborn --branch=main
 ```
 
-Don't run `wrangler pages deploy` or `wrangler pages project create` from an AI coding agent session while the Pages project doesn't exist. In that situation wrangler 4 switches to a Workers deploy named after the project, and `magus-reborn` is also the server's Worker name.
+While the Pages project doesn't exist, don't run `wrangler pages project create`, or `wrangler pages deploy` without `--branch`, from an AI coding agent session. In that situation wrangler 4.157 switches to a Workers deploy named after the project, and `magus-reborn` is also the server's Worker name. A non-interactive session with no wrangler config stops rather than overwriting the server, but an interactive session or a run from `apps/server` can overwrite it. The command above passes `--branch`, so it doesn't switch.
 
 ### Allowed origins
 

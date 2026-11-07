@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Exits 0 only if the checked-out code is exactly a tagged release (vX.Y.Z).
 #
-# Releases are tagged on dev and then merged into main, so the commit on main is usually a
-# new merge commit that carries no tag itself. Comparing trees accepts a merge, squash or
-# fast-forward of the tagged code, and refuses anything that differs from it by even one file,
-# such as commits that reached dev after the tag was created.
+# Releases are tagged on dev and then merged into main with a merge commit, which carries no
+# tag itself. Comparing trees accepts that commit, and refuses anything that differs from the
+# tagged code by even one file, such as commits that reached dev after the tag was created.
 set -euo pipefail
 
 head_tree="$(git rev-parse 'HEAD^{tree}')"

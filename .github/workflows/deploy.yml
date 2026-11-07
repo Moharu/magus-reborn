@@ -10,7 +10,8 @@ on:
 permissions:
     contents: read
 
-# Deploys queue up one at a time. A running deploy is never cancelled halfway.
+# Only one deploy runs at a time, and a running deploy is never cancelled halfway.
+# GitHub keeps one pending run per group, so a newer run replaces an older pending one.
 concurrency:
     group: deploy-production
     cancel-in-progress: false
