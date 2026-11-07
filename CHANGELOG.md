@@ -1,0 +1,79 @@
+# Changelog
+
+All notable changes to Magus Reborn are listed here. Versions follow [semantic versioning](https://semver.org/). Each release is tagged `vX.Y.Z` on `dev` and then merged into `main`, which deploys it.
+
+## [0.1.0] - 2026-11-07
+
+The first release of Magus Reborn, a fast 1v1 wizard duel for the browser. Pick six spells from the grimoire, hold a key to charge a spell, and release it once the cast bar turns green. Practise in the training room against a dummy, or play online 1v1 through the public lobby list or an invite link, with spectators and best-of-1/3/5 matches.
+
+This is the first release deployed to Cloudflare: the client on Pages, the server on Workers. It includes every pull request merged into `dev` so far, [#1](https://github.com/Moharu/magus-reborn/pull/1) to [#73](https://github.com/Moharu/magus-reborn/pull/73).
+
+**Engine version:** `ENGINE_VERSION` changes from `reborn-1.0.0` to `reborn-0.1.0`, to match this release. The engine has changed in every way that calls for a new version: the battle state, the messages between client and server, and how battles play out. This is the first deployed version, and nothing was ever deployed before it. It is also the first release in which the server checks the version: it refuses to create or join a lobby for a client on any other version, and that player is asked to refresh.
+
+### Gameplay and engine
+
+#### Changed
+
+- **Global cooldown.** Haste, Temporal Shield and Magic Eater now start a 1-second global cooldown, which also stops you from starting a cast. Counterspell and Blur are off the global cooldown, so you can use them during it. Spells with a cast time never start it. ([#36](https://github.com/Moharu/magus-reborn/pull/36), closes [#7](https://github.com/Moharu/magus-reborn/issues/7))
+- **Instants cancel your cast.** Using an instant spell while you are charging a cast cancels that cast. An instant that can't be used yet (cooldown, global cooldown or Counterspell lockout) leaves your cast alone. ([#33](https://github.com/Moharu/magus-reborn/pull/33), closes [#25](https://github.com/Moharu/magus-reborn/issues/25))
+- **Counterspell lockout.** The 3-second lockout is now tracked separately from the global cooldown. It still blocks every spell, including Counterspell and Blur, and it still can't be cleansed. ([#44](https://github.com/Moharu/magus-reborn/pull/44), closes [#37](https://github.com/Moharu/magus-reborn/issues/37))
+- **Haste.** The hasted cast time is now worked out from the spell's base cast time in seconds. No cast time changes at the current tick rate. ([#61](https://github.com/Moharu/magus-reborn/pull/61), closes [#12](https://github.com/Moharu/magus-reborn/issues/12))
+
+#### Fixed
+
+- **Magic Eater** heals you only for damage you dealt yourself (40% of it). The heal lands at the end of the tick, the same way for both players. ([#32](https://github.com/Moharu/magus-reborn/pull/32), closes [#8](https://github.com/Moharu/magus-reborn/issues/8))
+- **Death is final.** HP never goes below 0, a death caused by an instant spell is detected straight away, and nothing heals or brings back a player at 0 HP. ([#31](https://github.com/Moharu/magus-reborn/pull/31), closes [#10](https://github.com/Moharu/magus-reborn/issues/10); [#32](https://github.com/Moharu/magus-reborn/pull/32))
+- **The deciding tick.** Every action in the tick that decides a duel still counts, so two lethal hits in the same tick are a draw. After that tick the result is final and no further spells go through. ([#52](https://github.com/Moharu/magus-reborn/pull/52), closes [#22](https://github.com/Moharu/magus-reborn/issues/22))
+- **Combustion** now deals its damage like every other spell, so the damage meter, Magic Eater and the death check all see it. As before, it doesn't consume your Ignites. ([#30](https://github.com/Moharu/magus-reborn/pull/30), closes [#9](https://github.com/Moharu/magus-reborn/issues/9))
+- **Damage over time adds up exactly.** All HP math now works in exact hundredths, so Ignite and Living Bomb ticks no longer drift from their listed totals. ([#40](https://github.com/Moharu/magus-reborn/pull/40), closes [#11](https://github.com/Moharu/magus-reborn/issues/11))
+
+#### Added
+
+- The battle log now records when a new cast replaces the one in progress, and when Counterspell interrupts a cast. ([#56](https://github.com/Moharu/magus-reborn/pull/56), closes [#34](https://github.com/Moharu/magus-reborn/issues/34) and [#35](https://github.com/Moharu/magus-reborn/issues/35))
+
+### Server and online play
+
+#### Added
+
+- **Version check.** The server refuses to create or join a lobby for a client on a different engine version, and the player is asked to refresh. ([#72](https://github.com/Moharu/magus-reborn/pull/72), closes [#41](https://github.com/Moharu/magus-reborn/issues/41))
+- **Message validation.** The server checks every message from a client and silently drops anything malformed, such as unknown message types or spell slots that don't exist. ([#63](https://github.com/Moharu/magus-reborn/pull/63), closes [#14](https://github.com/Moharu/magus-reborn/issues/14))
+- **Rate limiting.** Each connection can send up to 40 messages per second. Extra messages are dropped, and a client that keeps flooding the server is disconnected. ([#67](https://github.com/Moharu/magus-reborn/pull/67), closes [#15](https://github.com/Moharu/magus-reborn/issues/15))
+- **Allowed sites.** The production server only accepts connections from the official client at `https://magus-reborn.pages.dev`. Local development allows the Vite dev server only. ([#69](https://github.com/Moharu/magus-reborn/pull/69), closes [#13](https://github.com/Moharu/magus-reborn/issues/13))
+
+#### Fixed
+
+- A disconnect in the same tick that decides a round no longer lets the forfeit timer give the match to the wrong player, or to nobody. The round is settled first. ([#54](https://github.com/Moharu/magus-reborn/pull/54), closes [#53](https://github.com/Moharu/magus-reborn/issues/53))
+- A spectator or reconnecting player joining mid-battle no longer swallows battle effects that everyone else should have seen. ([#70](https://github.com/Moharu/magus-reborn/pull/70), closes [#57](https://github.com/Moharu/magus-reborn/issues/57))
+
+### Web client
+
+#### Added
+
+- **Counterspell tell.** When Counterspell interrupts a cast, both players see it: the interrupted cast bar flashes with "_Spell_ interrupted!", the interrupted wizard is hit by a cyan burst, and the caster sees "Interrupted!". ([#60](https://github.com/Moharu/magus-reborn/pull/60), closes [#39](https://github.com/Moharu/magus-reborn/issues/39))
+- **Global cooldown on the action bar.** Buttons show the global cooldown, separately from the Counterspell lockout and from each spell's own cooldown. ([#55](https://github.com/Moharu/magus-reborn/pull/55), closes [#38](https://github.com/Moharu/magus-reborn/issues/38))
+- **Refresh prompt.** If the game is updated while your tab is open and the battle screen can't load, you now see "A new version is available, please refresh" with a Refresh button instead of an empty screen. The client also shows this when the server reports a version mismatch. ([#68](https://github.com/Moharu/magus-reborn/pull/68), closes [#66](https://github.com/Moharu/magus-reborn/issues/66); [#72](https://github.com/Moharu/magus-reborn/pull/72))
+
+### Simulator and balance tools
+
+#### Added
+
+- **Damage simulator.** `npm run sim` plays a loadout and a spell priority against a training dummy on the real engine and reports damage and DPS per spell. ([#29](https://github.com/Moharu/magus-reborn/pull/29), closes [#5](https://github.com/Moharu/magus-reborn/issues/5))
+- **Counterspell pressure.** Each result also reports the DPS against an opponent who interrupts as well as possible, and the difference as a risk index. ([#49](https://github.com/Moharu/magus-reborn/pull/49), closes [#42](https://github.com/Moharu/magus-reborn/issues/42))
+- **Smarter rotations.** Rotations can have conditions, such as "Ignite only below 3 stacks", and `npm run sim:search` searches loadouts and rotations within set limits. ([#51](https://github.com/Moharu/magus-reborn/pull/51), closes [#6](https://github.com/Moharu/magus-reborn/issues/6))
+
+### Infrastructure and CI
+
+#### Added
+
+- **Automatic deploys.** Merging a tagged release into `main` deploys the server to Cloudflare Workers and the client to Cloudflare Pages, then checks both. Code that doesn't match a release tag is refused. ([#58](https://github.com/Moharu/magus-reborn/pull/58), closes [#24](https://github.com/Moharu/magus-reborn/issues/24); part of [#17](https://github.com/Moharu/magus-reborn/issues/17) and [#18](https://github.com/Moharu/magus-reborn/issues/18))
+- **Release preflight.** Pull requests into `main` run the same release tag check before they merge. ([#71](https://github.com/Moharu/magus-reborn/pull/71), closes [#64](https://github.com/Moharu/magus-reborn/issues/64))
+- **CI** on pull requests into `dev`: tests, typecheck, format check and build ([#26](https://github.com/Moharu/magus-reborn/pull/26), closes [#2](https://github.com/Moharu/magus-reborn/issues/2)), and ESLint ([#73](https://github.com/Moharu/magus-reborn/pull/73), closes [#3](https://github.com/Moharu/magus-reborn/issues/3) and [#4](https://github.com/Moharu/magus-reborn/issues/4)).
+- **Secret scan.** gitleaks scans every pull request into `dev`. ([#46](https://github.com/Moharu/magus-reborn/pull/46), closes [#19](https://github.com/Moharu/magus-reborn/issues/19))
+- **Server tests.** The Worker and its Durable Objects are tested inside workerd with real WebSockets. ([#59](https://github.com/Moharu/magus-reborn/pull/59), closes [#16](https://github.com/Moharu/magus-reborn/issues/16))
+- **Contributor docs.** `AGENTS.md` with the code review rules and product invariants ([#48](https://github.com/Moharu/magus-reborn/pull/48), closes [#47](https://github.com/Moharu/magus-reborn/issues/47)), and the Claude Code agent definitions ([#1](https://github.com/Moharu/magus-reborn/pull/1), [#50](https://github.com/Moharu/magus-reborn/pull/50)).
+
+#### Changed
+
+- CI runs on Node 22 with a 10-minute job timeout. Development needs Node 22.13 or newer, 24, or 26 and up. ([#62](https://github.com/Moharu/magus-reborn/pull/62), closes [#28](https://github.com/Moharu/magus-reborn/issues/28))
+
+[0.1.0]: https://github.com/Moharu/magus-reborn/tree/v0.1.0
