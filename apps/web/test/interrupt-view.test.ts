@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
+import type { Graphics } from 'pixi.js'
 import { Battle, SPELLS, type LogEntry, type PlayerKey, type SpellId } from '@magus/engine'
 import { BattleView } from '../src/game/battle-view'
 import type { PlayerHud } from '../src/game/hud'
 import { GROUND_Y, SIDE_X, type Side } from '../src/game/layout'
+import { iconTexture } from '../src/game/textures'
 import type { Vfx } from '../src/game/vfx'
 import type { Wizard } from '../src/game/wizard'
 
@@ -15,22 +17,23 @@ vi.hoisted(() => {
 vi.mock('../src/game/textures', async () => {
     const { Texture } = await import('pixi.js')
     return {
-        iconTexture: () => Texture.EMPTY,
+        iconTexture: vi.fn(() => Texture.EMPTY),
         particleTexture: () => Texture.EMPTY,
         backdropTexture: () => Texture.EMPTY,
     }
 })
 
-const LOADOUT: SpellId[] = [
-    'SPELL_FIREBALL',
-    'SPELL_METEOR',
-    'SPELL_COUNTERSPELL',
-    'SPELL_BLUR',
-    'SPELL_HASTE',
-    'SPELL_IGNITE',
-]
+// a different order per seat, so reading the spell index from the wrong player names the wrong spell
+const LOADOUTS: Record<PlayerKey, SpellId[]> = {
+    player1: ['SPELL_FIREBALL', 'SPELL_METEOR', 'SPELL_COUNTERSPELL', 'SPELL_BLUR', 'SPELL_HASTE', 'SPELL_LIVING_BOMB'],
+    player2: ['SPELL_COUNTERSPELL', 'SPELL_BLUR', 'SPELL_METEOR', 'SPELL_FIREBALL', 'SPELL_LIVING_BOMB', 'SPELL_HASTE'],
+}
 const CYAN = 0x7ff3ff
+const FIREBALL_ORANGE = 0xff8a1f
+const LIVING_BOMB_PURPLE = 0xb15cff
 const FRAME = 1 / 60
+/** Long enough for the Counterspell projectile to land. */
+const AFTER_LANDING = 0.25
 
 /** The private parts of the view and HUD that show the tell. */
 interface ViewInternals {
@@ -43,9 +46,16 @@ interface ViewInternals {
         {
             showInterrupted: PlayerHud['showInterrupted']
             castText: { text: string; visible: boolean; alpha: number }
+            castIcon: { visible: boolean }
+            bars: Graphics
+            x0: number
+            w: number
         }
     >
 }
+
+const newBattle = () =>
+    new Battle({ name: 'Alice', spells: LOADOUTS.player1 }, { name: 'Bob', spells: LOADOUTS.player2 })
 
 const createView = (me: PlayerKey | null) => {
     const Ctor = BattleView as unknown as new (container: unknown, options: { me: PlayerKey | null }) => ViewInternals
@@ -57,11 +67,27 @@ const createView = (me: PlayerKey | null) => {
 }
 
 const press = (battle: Battle, player: PlayerKey, id: SpellId) =>
-    expect(battle.startCast(player, LOADOUT.indexOf(id))).toBe(true)
+    expect(battle.startCast(player, LOADOUTS[player].indexOf(id))).toBe(true)
 
 const runFrames = (view: ViewInternals, seconds: number) => {
     for (let t = 0; t < seconds; t += FRAME) view.frame(FRAME)
 }
+
+/** The highest screen shake seen over the given time. */
+const peakShake = (view: ViewInternals, seconds: number) => {
+    let peak = 0
+    for (let t = 0; t < seconds; t += FRAME) {
+        view.frame(FRAME)
+        peak = Math.max(peak, view.vfx.shake)
+    }
+    return peak
+}
+
+type Style = { color?: number; alpha?: number }
+
+/** The cyan styles recorded by a spy on a Graphics `fill` or `stroke`. */
+const cyanStyles = (spy: MockInstance) =>
+    spy.mock.calls.map(([style]) => style as Style).filter(style => style.color === CYAN)
 
 describe('BattleView interrupt tell (#39)', () => {
     let battle: Battle
@@ -75,7 +101,7 @@ describe('BattleView interrupt tell (#39)', () => {
     }
 
     beforeEach(() => {
-        battle = new Battle({ name: 'Alice', spells: LOADOUT }, { name: 'Bob', spells: LOADOUT })
+        battle = newBattle()
         for (let i = 0; i < 10; i++) battle.tick()
         seen = battle.state.log.length
     })
@@ -97,6 +123,53 @@ describe('BattleView interrupt tell (#39)', () => {
             expect(bar.visible).toBe(true)
             expect(bar.text).toBe(`${SPELLS.SPELL_FIREBALL.label} interrupted!`)
             expect(view.huds[casterSide].castText.visible).toBe(false)
+        })
+
+        it('shows the icon of the interrupted spell on the cast bar', () => {
+            const view = createView(me)
+            press(battle, 'player1', 'SPELL_FIREBALL')
+            press(battle, 'player2', 'SPELL_COUNTERSPELL')
+            feed(view)
+            vi.mocked(iconTexture).mockClear()
+            view.frame(FRAME)
+
+            expect(view.huds[interruptedSide].castIcon.visible).toBe(true)
+            expect(view.huds[casterSide].castIcon.visible).toBe(false)
+            expect(iconTexture).toHaveBeenCalledWith('SPELL_FIREBALL')
+        })
+
+        it('draws the flash across the whole cast bar, fading until it ends', () => {
+            const view = createView(me)
+            const hud = view.huds[interruptedSide]
+            const roundRect = vi.spyOn(hud.bars, 'roundRect')
+            const fill = vi.spyOn(hud.bars, 'fill')
+            const stroke = vi.spyOn(hud.bars, 'stroke')
+            const casterFill = vi.spyOn(view.huds[casterSide].bars, 'fill')
+            const casterStroke = vi.spyOn(view.huds[casterSide].bars, 'stroke')
+            press(battle, 'player1', 'SPELL_FIREBALL')
+            press(battle, 'player2', 'SPELL_COUNTERSPELL')
+            feed(view)
+            view.frame(FRAME)
+
+            expect(roundRect).toHaveBeenCalledWith(hud.x0 + 2, 78, hud.w - 4, 22, 4)
+            const [first] = cyanStyles(fill)
+            expect(first.alpha).toBeGreaterThan(0.5)
+            const [outline] = cyanStyles(stroke)
+            expect(outline.alpha).toBeGreaterThan(0.5)
+
+            fill.mockClear()
+            runFrames(view, 0.5)
+            expect(cyanStyles(fill).at(-1)!.alpha).toBeLessThan(first.alpha!)
+
+            runFrames(view, 0.5)
+            fill.mockClear()
+            stroke.mockClear()
+            view.frame(FRAME)
+            expect(cyanStyles(fill)).toEqual([])
+            expect(cyanStyles(stroke)).toEqual([])
+
+            expect(cyanStyles(casterFill)).toEqual([])
+            expect(cyanStyles(casterStroke)).toEqual([])
         })
 
         it('floats "Interrupted!" over the Counterspell caster', () => {
@@ -122,11 +195,65 @@ describe('BattleView interrupt tell (#39)', () => {
 
             view.frame(FRAME)
             expect(burst).not.toHaveBeenCalled()
-            runFrames(view, 0.25)
+            runFrames(view, AFTER_LANDING)
             expect(burst).toHaveBeenCalledTimes(1)
             expect(burst.mock.calls[0][0]).toEqual(view.wizards[interruptedSide].chestPoint)
             expect(burst.mock.calls[0][1]).toBe(CYAN)
         })
+
+        it('puts a ring and a spray on the Counterspell caster right away', () => {
+            const view = createView(me)
+            const ring = vi.spyOn(view.vfx, 'ring')
+            const spray = vi.spyOn(view.vfx, 'spray')
+            press(battle, 'player1', 'SPELL_FIREBALL')
+            press(battle, 'player2', 'SPELL_COUNTERSPELL')
+            feed(view)
+
+            // no frame has run yet, so the projectile hasn't added its own ring or trail
+            const chest = view.wizards[casterSide].chestPoint
+            expect(ring).toHaveBeenCalledTimes(1)
+            expect(ring.mock.calls[0].slice(0, 2)).toEqual([chest, CYAN])
+            expect(spray).toHaveBeenCalledTimes(1)
+            expect(spray.mock.calls[0].slice(0, 2)).toEqual([chest, CYAN])
+        })
+
+        it.each<[SpellId, number]>([
+            ['SPELL_FIREBALL', FIREBALL_ORANGE],
+            ['SPELL_LIVING_BOMB', LIVING_BOMB_PURPLE],
+        ])("sprays %s's color from the interrupted staff when the projectile lands", (id, color) => {
+            const view = createView(me)
+            const spray = vi.spyOn(view.vfx, 'spray')
+            const sparks = () => spray.mock.calls.filter(call => call[1] === color)
+            press(battle, 'player1', id)
+            press(battle, 'player2', 'SPELL_COUNTERSPELL')
+            feed(view)
+
+            view.frame(FRAME)
+            expect(sparks()).toEqual([])
+            runFrames(view, AFTER_LANDING)
+            expect(sparks()).toHaveLength(1)
+            expect(sparks()[0][0].x).toBe(view.wizards[interruptedSide].castPoint.x)
+        })
+
+        it('shakes the screen when the projectile lands', () => {
+            const view = createView(me)
+            press(battle, 'player1', 'SPELL_FIREBALL')
+            press(battle, 'player2', 'SPELL_COUNTERSPELL')
+            feed(view)
+
+            expect(peakShake(view, FRAME)).toBe(0)
+            expect(peakShake(view, AFTER_LANDING)).toBeGreaterThan(0)
+        })
+    })
+
+    it("names the spell from the interrupted player's own loadout", () => {
+        const view = createView('player1')
+        press(battle, 'player2', 'SPELL_METEOR')
+        press(battle, 'player1', 'SPELL_COUNTERSPELL')
+        feed(view)
+        view.frame(FRAME)
+
+        expect(view.huds.right.castText.text).toBe(`${SPELLS.SPELL_METEOR.label} interrupted!`)
     })
 
     it('shows the same tell to a spectator', () => {
@@ -161,15 +288,28 @@ describe('BattleView interrupt tell (#39)', () => {
         const floatText = vi.spyOn(view.vfx, 'floatText')
         const burst = vi.spyOn(view.vfx, 'burst')
         const projectile = vi.spyOn(view.vfx, 'projectile')
-        const flash = vi.spyOn(view.huds.right, 'showInterrupted')
+        const ring = vi.spyOn(view.vfx, 'ring')
+        const spray = vi.spyOn(view.vfx, 'spray')
+        // player 2 counters, so player 1's HUD on the left is the one an interrupt would flash
+        const flash = vi.spyOn(view.huds.left, 'showInterrupted')
+        const barFill = vi.spyOn(view.huds.left.bars, 'fill')
         press(battle, 'player2', 'SPELL_COUNTERSPELL')
         feed(view)
-        runFrames(view, 0.25)
+
+        // no frame has run yet: an interrupt would already have put its ring and spray on the caster
+        expect(ring).not.toHaveBeenCalled()
+        expect(spray).not.toHaveBeenCalled()
+
+        expect(peakShake(view, AFTER_LANDING)).toBe(0)
 
         expect(projectile).toHaveBeenCalledTimes(1)
         expect(flash).not.toHaveBeenCalled()
+        expect(cyanStyles(barFill)).toEqual([])
         expect(floatText).not.toHaveBeenCalled()
         expect(burst).not.toHaveBeenCalled()
+        // the existing ring, where the projectile lands
+        expect(ring).toHaveBeenCalledTimes(1)
+        expect(ring.mock.calls[0][0]).toEqual(view.wizards.left.chestPoint)
         expect(view.huds.left.castText.visible).toBe(false)
         expect(view.huds.right.castText.visible).toBe(false)
     })
@@ -195,7 +335,7 @@ describe('BattleView interrupt tell (#39)', () => {
         press(battle, 'player1', 'SPELL_FIREBALL')
         press(battle, 'player2', 'SPELL_COUNTERSPELL')
         feed(view, false)
-        runFrames(view, 0.25)
+        runFrames(view, AFTER_LANDING)
 
         expect(floatText).not.toHaveBeenCalled()
         expect(view.huds.left.castText.visible).toBe(false)
@@ -232,9 +372,9 @@ describe('BattleView interrupt tell (#39)', () => {
         runFrames(view, 0.1)
 
         // the lock and the round countdown keep this out of real play, so it takes another battle's state
-        const fresh = new Battle({ name: 'Alice', spells: LOADOUT }, { name: 'Bob', spells: LOADOUT })
+        const fresh = newBattle()
         fresh.tick()
-        fresh.startCast('player1', LOADOUT.indexOf('SPELL_METEOR'))
+        fresh.startCast('player1', LOADOUTS.player1.indexOf('SPELL_METEOR'))
         view.update(fresh.snapshot(), [], [])
         view.frame(FRAME)
 
@@ -244,7 +384,7 @@ describe('BattleView interrupt tell (#39)', () => {
         expect(bar.text).not.toContain('interrupted')
 
         // the flash had time left, but it must not come back when that cast ends
-        fresh.stopCast('player1', LOADOUT.indexOf('SPELL_METEOR'))
+        fresh.stopCast('player1', LOADOUTS.player1.indexOf('SPELL_METEOR'))
         view.update(fresh.snapshot(), [], [])
         view.frame(FRAME)
         expect(bar.visible).toBe(false)

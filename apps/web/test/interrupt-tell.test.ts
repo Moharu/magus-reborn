@@ -3,18 +3,15 @@ import { Battle, type LogEntry, type PlayerKey, type SpellId } from '@magus/engi
 import { interruptTells, type InterruptTell } from '../src/game/interrupt-tell'
 import { sidesFor } from '../src/game/layout'
 
-const LOADOUT: SpellId[] = [
-    'SPELL_FIREBALL',
-    'SPELL_METEOR',
-    'SPELL_COUNTERSPELL',
-    'SPELL_BLUR',
-    'SPELL_HASTE',
-    'SPELL_IGNITE',
-]
+// a different order per seat, so reading the spell index from the wrong player names the wrong spell
+const LOADOUTS: Record<PlayerKey, SpellId[]> = {
+    player1: ['SPELL_FIREBALL', 'SPELL_METEOR', 'SPELL_COUNTERSPELL', 'SPELL_BLUR', 'SPELL_HASTE', 'SPELL_LIVING_BOMB'],
+    player2: ['SPELL_COUNTERSPELL', 'SPELL_BLUR', 'SPELL_METEOR', 'SPELL_FIREBALL', 'SPELL_LIVING_BOMB', 'SPELL_HASTE'],
+}
 const SEATS = sidesFor('player1')
 
 const setup = () => {
-    const battle = new Battle({ name: 'Alice', spells: LOADOUT }, { name: 'Bob', spells: LOADOUT })
+    const battle = new Battle({ name: 'Alice', spells: LOADOUTS.player1 }, { name: 'Bob', spells: LOADOUTS.player2 })
     advance(battle, 10)
     return battle
 }
@@ -23,10 +20,11 @@ const advance = (battle: Battle, ticks: number) => {
     for (let i = 0; i < ticks; i++) battle.tick()
 }
 
-const press = (battle: Battle, player: PlayerKey, id: SpellId) => battle.startCast(player, LOADOUT.indexOf(id))
-const release = (battle: Battle, player: PlayerKey, id: SpellId) => battle.stopCast(player, LOADOUT.indexOf(id))
+const press = (battle: Battle, player: PlayerKey, id: SpellId) => battle.startCast(player, LOADOUTS[player].indexOf(id))
+const release = (battle: Battle, player: PlayerKey, id: SpellId) =>
+    battle.stopCast(player, LOADOUTS[player].indexOf(id))
 const castTicks = (battle: Battle, player: PlayerKey, id: SpellId) =>
-    battle.state[player].spells[LOADOUT.indexOf(id)].castTime
+    battle.state[player].spells[LOADOUTS[player].indexOf(id)].castTime
 
 const start = (battle: Battle, player: PlayerKey, id: SpellId) => expect(press(battle, player, id)).toBe(true)
 
@@ -146,7 +144,7 @@ describe('interruptTells (#39)', () => {
 
             start(battle, 'player1', 'SPELL_FIREBALL')
             expect(press(battle, 'player2', 'SPELL_COUNTERSPELL')).toBe(false)
-            expect(battle.state.player1.cast).toBe(LOADOUT.indexOf('SPELL_FIREBALL'))
+            expect(battle.state.player1.cast).toBe(LOADOUTS.player1.indexOf('SPELL_FIREBALL'))
             expect(interruptTells(battle.state, battle.state.log.slice(seen), SEATS)).toEqual([])
         })
     })
@@ -204,7 +202,7 @@ describe('interruptTells (#39)', () => {
         const entry: LogEntry = {
             type: 'INTERRUPTED',
             player: 'player1',
-            spellIndex: LOADOUT.length,
+            spellIndex: LOADOUTS.player1.length,
             tick: 0,
             source: 'SPELL_COUNTERSPELL',
         }
