@@ -136,7 +136,9 @@ The free Workers plan is enough. Durable Objects on the free plan allow 100k req
 
 To keep a release matching its tag, `dev` is frozen from the moment of the tag until the release PR is merged, and no PRs merge into `dev` in that window. Before opening the `dev` -> `main` PR, check that `dev` still matches the tag. Merge the PR with **Create a merge commit**, never squash, because a squash makes later releases differ from their tags.
 
-If `dev` no longer matches the tag, don't open the PR. If the deploy has already refused a merge, nothing was deployed and production stays on the previous release, but `main` now holds untagged code. Both cases need a new release: a version bump PR, a new tag and its own balance run. Don't move the existing tag, and don't tag the current code just to make the deploy pass, because that code had no balance run.
+`.github/workflows/release-preflight.yml` runs the same tag check on every PR into `main`, before the merge, and again whenever the PR's head moves. The `release-preflight` job is read-only and deploys nothing. A red check means the code that would land on `main` no longer matches any `vX.Y.Z` tag, usually because something reached `dev` after the tag, so don't merge that PR. `Refuse untagged code` in the deploy stays the last gate.
+
+If `dev` no longer matches the tag, don't open the PR. If `release-preflight` is red, don't merge the PR. If the deploy has already refused a merge, nothing was deployed and production stays on the previous release, but `main` now holds untagged code. All of these need a new release: a version bump PR, a new tag and its own balance run. Don't move the existing tag, and don't tag the current code just to make the check or the deploy pass, because that code had no balance run. A tag push doesn't re-run `release-preflight`, so close a red PR and open a new one after the new tag.
 
 The workflow runs the tests, creates the Pages project if it is missing, deploys the server, builds the client against `VITE_SERVER_URL`, deploys the client, then checks both deployments.
 
