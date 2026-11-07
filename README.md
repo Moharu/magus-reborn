@@ -9,7 +9,7 @@ A fast 1v1 wizard duel for the browser. Hold a key to charge a spell, release it
 
 ```
 packages/engine   Game rules: battle loop, spells, damage meter, network protocol types. No dependencies.
-apps/web          Vite + PixiJS client (static site, deployed to Vercel).
+apps/web          Vite + PixiJS client (static site, deployed to Cloudflare Pages).
 apps/server       Cloudflare Worker + Durable Objects running authoritative lobbies.
 ```
 
@@ -117,33 +117,61 @@ Keys are matched by physical position, so they work on AZERTY and other layouts.
 
 ## Deploying
 
-### 1. Server (Cloudflare Workers)
+Both apps run on the Cloudflare free tier, with no custom domain:
+
+| App                 | Hosting            | URL                                                 |
+| ------------------- | ------------------ | --------------------------------------------------- |
+| Client (`apps/web`) | Cloudflare Pages   | `https://magus-reborn.pages.dev`                    |
+| Server              | Cloudflare Workers | `https://magus-reborn.<your-subdomain>.workers.dev` |
+
+If another account already holds the `magus-reborn` subdomain on `pages.dev`, Cloudflare adds a suffix to it. The real URL is shown on the Pages project in the Cloudflare dashboard.
 
 The free Workers plan is enough. Durable Objects on the free plan allow 100k requests and 13,000 GB-s of duration per day, which is roughly 29 hours of active lobby time per day. Incoming WebSocket messages are billed at 20:1 and outgoing messages are free, and an idle lobby list costs nothing thanks to WebSocket hibernation. If the daily limit is reached, new connections fail until 00:00 UTC; nothing is billed.
 
+### Automatic deploys
+
+`.github/workflows/deploy.yml` runs on every push to `main` and on nothing else, so merging into `dev` never deploys. It stops before deploying anything unless the code matches a `vX.Y.Z` tag exactly.
+
+To keep a release matching its tag, `dev` is frozen from the moment of the tag until the release PR is merged, and no PRs merge into `dev` in that window. Before opening the `dev` -> `main` PR, check that `dev` still matches the tag. Merge the PR with **Create a merge commit**, never squash, because a squash makes later releases differ from their tags.
+
+If `dev` no longer matches the tag, don't open the PR. If the deploy has already refused a merge, nothing was deployed and production stays on the previous release, but `main` now holds untagged code. Both cases need a new release: a version bump PR, a new tag and its own balance run. Don't move the existing tag, and don't tag the current code just to make the deploy pass, because that code had no balance run.
+
+The workflow runs the tests, creates the Pages project if it is missing, deploys the server, builds the client against `VITE_SERVER_URL`, deploys the client, then checks both deployments.
+
+It needs the following in the GitHub repo settings:
+
+| Name                    | Type     | Value                                                                                |
+| ----------------------- | -------- | ------------------------------------------------------------------------------------ |
+| `CLOUDFLARE_API_TOKEN`  | Secret   | API token with Workers Scripts Edit, Cloudflare Pages Edit and Account Settings Read |
+| `CLOUDFLARE_ACCOUNT_ID` | Secret   | Cloudflare account ID                                                                |
+| `VITE_SERVER_URL`       | Variable | `https://magus-reborn.<your-subdomain>.workers.dev`                                  |
+
+The account also needs a `workers.dev` subdomain. Registering one is a one-time step in the Workers section of the Cloudflare dashboard, and CI can't answer the prompt to do it.
+
+### Client hosting
+
+`apps/web/public/_headers` marks `/assets/*` as immutable, and Vite copies it into the build. The SPA fallback is Pages' default behaviour for a site with no top-level `404.html`, so don't add one. Don't add a `/* /index.html 200` rule to a `_redirects` file either: wrangler treats it as an infinite loop and ignores it.
+
+`vercel.json` is no longer used for new deploys. It stays in the repository until the first Cloudflare deploy has been verified.
+
+### Manual deploys
+
+For recovery only, from a checkout of a tagged release, using Node 22 or newer. Let the workflow create the Pages project first.
+
 ```sh
-cd apps/server
 npx wrangler login
-npx wrangler deploy
+npm run deploy:server
+
+# From the repository root:
+VITE_SERVER_URL=https://magus-reborn.<your-subdomain>.workers.dev npm run build
+npx wrangler pages deploy apps/web/dist --project-name=magus-reborn --branch=main
 ```
 
-Note the deployed URL, e.g. `https://magus-reborn.<your-subdomain>.workers.dev`.
+While the Pages project doesn't exist, don't run `wrangler pages project create`, or `wrangler pages deploy` without `--branch`, from an AI coding agent session. In that situation wrangler 4.157 switches to a Workers deploy named after the project, and `magus-reborn` is also the server's Worker name. A non-interactive session with no wrangler config stops rather than overwriting the server, but an interactive session or a run from `apps/server` can overwrite it. The command above passes `--branch`, so it doesn't switch.
 
-To restrict which sites can connect, set `ALLOWED_ORIGINS` in `apps/server/wrangler.toml` to a comma separated list (e.g. `https://magus-reborn.vercel.app`) and redeploy.
+### Allowed origins
 
-### 2. Web (Vercel)
-
-Import the repository in Vercel with the **root directory left as the repository root**; `vercel.json` handles the install, build, output directory and SPA rewrites. Add one environment variable:
-
-```
-VITE_SERVER_URL = https://magus-reborn.<your-subdomain>.workers.dev
-```
-
-Or from the CLI:
-
-```sh
-npx vercel --prod
-```
+To restrict which sites can connect, set `ALLOWED_ORIGINS` in `apps/server/wrangler.toml` to a comma separated list (e.g. `https://magus-reborn.pages.dev`) and redeploy. Set it there rather than in the dashboard, because each deploy overwrites dashboard values with the ones in `wrangler.toml`.
 
 ## How a match flows
 
