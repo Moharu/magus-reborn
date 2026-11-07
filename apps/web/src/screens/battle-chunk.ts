@@ -1,7 +1,5 @@
+import { NEW_VERSION_MESSAGE } from '@magus/engine/protocol'
 import { h } from '../dom'
-
-/** Same wording as the version check in #41: a refresh fixes both. */
-export const NEW_VERSION_MESSAGE = 'A new version is available, please refresh'
 
 interface BattleChunkHandlers<M, R> {
     onLoaded: (module: M) => R | PromiseLike<R>
