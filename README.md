@@ -17,7 +17,7 @@ The same engine runs the training room in the browser and online matches on the 
 
 ## Development
 
-Requires Node 22.12+, 24 or 26+. CI runs on Node 22.
+Requires Node 22.13+, 24 or 26+. CI runs on Node 22.
 
 ```sh
 npm install
