@@ -204,6 +204,8 @@ describe('malformed messages', () => {
         ['an unknown type', '{"t":"self_destruct"}'],
         ['a type that is not a string', '{"t":1}'],
         ['a ping whose timestamp is not a number', '{"t":"ping","at":"soon"}'],
+        ['a ping whose timestamp is not finite', '{"t":"ping","at":1e999}'],
+        ['a type hidden behind the prototype key', '{"__proto__":{"t":"ready"}}'],
         ['a binary frame holding a valid message', new TextEncoder().encode('{"t":"ready"}').buffer as ArrayBuffer],
         ['a valid message over the size limit', readyOfLength(MAX_MESSAGE_LENGTH + 1)],
     ])('ignores %s and keeps the connection', async (_, frame) => {
@@ -236,6 +238,10 @@ describe('malformed messages', () => {
         ['an unknown spell', ['SPELL_NOPE', ...DEFAULT_SPELLS.slice(1)]],
         ['too few spells', DEFAULT_SPELLS.slice(1)],
         ['spells that are not a list', 'SPELL_FIREBALL'],
+        [
+            'names every object inherits',
+            ['toString', 'constructor', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', '__proto__'],
+        ],
     ])('answers a loadout with %s with a non-fatal error and keeps the old one', async (_, spells) => {
         const { code, alice, bob } = await lobbyWithTwoPlayers()
 
@@ -245,5 +251,59 @@ describe('malformed messages', () => {
         expect(await bob.sync()).toEqual([])
         const { welcome } = await join(code, 'alice-id')
         expect(welcome.spells).toEqual(DEFAULT_SPELLS)
+    })
+
+    describe('settings from the admin', () => {
+        /** Bob is ready, and each client has read everything up to that. */
+        const lobbyWithBobReady = async () => {
+            const { alice, bob } = await lobbyWithTwoPlayers()
+            bob.send({ t: 'ready' })
+            await alice.nextLobby(lobby => lobby.player2!.ready)
+            await bob.nextLobby(lobby => lobby.player2!.ready)
+            return { alice, bob }
+        }
+
+        it.each<[string, string]>([
+            ['with no settings', '{"t":"settings"}'],
+            ['whose settings are null', '{"t":"settings","settings":null}'],
+            ['whose settings are a list', '{"t":"settings","settings":[]}'],
+            ['with an unknown setting', '{"t":"settings","settings":{"nope":1}}'],
+            ['with a best-of that is not an option', '{"t":"settings","settings":{"bestOf":2}}'],
+            ['with a set up time of the wrong type', '{"t":"settings","settings":{"setupTime":"60"}}'],
+            ['with a set up time that is not finite', '{"t":"settings","settings":{"setupTime":1e999}}'],
+            ['with a good setting next to a bad one', '{"t":"settings","settings":{"bestOf":5,"setupTime":"60"}}'],
+        ])('ignores a message %s, leaving Bob ready and broadcasting nothing', async (_, frame) => {
+            const { alice, bob } = await lobbyWithBobReady()
+
+            alice.sendRaw(frame)
+
+            expect(await alice.sync()).toEqual([])
+            expect(await bob.sync()).toEqual([])
+            // the next real change shows the settings the frame left behind
+            alice.send({ t: 'settings', settings: { setupTime: 45 } })
+            expect(await bob.nextLobby(lobby => lobby.settings.setupTime === 45)).toMatchObject({
+                settings: { bestOf: 3, setupTime: 45 },
+                player2: { ready: false },
+            })
+        })
+
+        it('leaves Bob ready and broadcasts nothing when a valid message changes nothing', async () => {
+            const { alice, bob } = await lobbyWithBobReady()
+
+            alice.send({ t: 'settings', settings: { bestOf: 3 } })
+
+            expect(await alice.sync()).toEqual([])
+            expect(await bob.sync()).toEqual([])
+        })
+
+        it('still un-readies Bob and tells everyone when a setting changes', async () => {
+            const { alice, bob } = await lobbyWithBobReady()
+
+            alice.send({ t: 'settings', settings: { bestOf: 5 } })
+
+            expect(await bob.nextLobby(lobby => lobby.settings.bestOf === 5)).toMatchObject({
+                player2: { ready: false },
+            })
+        })
     })
 })

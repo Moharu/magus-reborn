@@ -1,4 +1,11 @@
-import { Battle, DEFAULT_SPELLS, GAME_TICK_INTERVAL, isValidLoadout, type PlayerKey, type SpellId } from '@magus/engine'
+import {
+    Battle,
+    DEFAULT_SPELLS,
+    GAME_TICK_INTERVAL,
+    parseClientMessage,
+    type PlayerKey,
+    type SpellId,
+} from '@magus/engine'
 import {
     BEST_OF_OPTIONS,
     DEFAULT_SETTINGS,
@@ -7,7 +14,6 @@ import {
     sanitizeName,
     SETUP_TIME_MAX,
     SETUP_TIME_MIN,
-    type ClientMessage,
     type LobbyInfo,
     type LobbyListing,
     type LobbyPlayerInfo,
@@ -185,16 +191,22 @@ export class Lobby {
     message(connId: string, raw: unknown) {
         const conn = this.connections.get(connId)
         if (!conn || !this.withinRateLimit(conn)) return
-        if (typeof raw !== 'object' || raw === null) return
-        const msg = raw as ClientMessage
-        if (msg.t === 'ping') {
-            if (typeof msg.at === 'number') this.transport.send(connId, { t: 'pong', at: msg.at })
+        const msg = parseClientMessage(raw)
+        if (msg?.t === 'ping') {
+            this.transport.send(connId, { t: 'pong', at: msg.at })
             return
         }
         if (conn.role === 'spectator') return
         const key = conn.role
         const seat = this.seats[key]
         if (!seat) return
+        if (!msg) {
+            // the one rejection a player hears about; everything else invalid is dropped silently
+            if ((raw as { t?: unknown } | null)?.t === 'set_spells') {
+                this.transport.send(connId, { t: 'error', message: 'Invalid spell selection' })
+            }
+            return
+        }
 
         switch (msg.t) {
             case 'ready':
@@ -206,27 +218,26 @@ export class Lobby {
                 }
                 return
             case 'set_spells':
-                if (!isValidLoadout(msg.spells)) {
-                    this.transport.send(connId, { t: 'error', message: 'Invalid spell selection' })
-                    return
-                }
                 if (!this.canChangeSpells(seat)) return
                 seat.spells = [...msg.spells]
                 this.transport.send(connId, { t: 'loadout', spells: seat.spells })
                 return
             case 'start_cast':
-                if (this.canCast() && Number.isInteger(msg.i)) this.battle!.startCast(key, msg.i)
+                if (this.canCast()) this.battle!.startCast(key, msg.i)
                 return
             case 'stop_cast':
-                if (this.canCast() && Number.isInteger(msg.i)) this.battle!.stopCast(key, msg.i)
+                if (this.canCast()) this.battle!.stopCast(key, msg.i)
                 return
-            case 'settings':
+            case 'settings': {
                 if (this.admin !== key || this.matchStarted) return
-                this.settings = sanitizeSettings(this.settings, msg.settings)
+                const settings = sanitizeSettings(this.settings, msg.settings)
+                if (JSON.stringify(settings) === JSON.stringify(this.settings)) return
+                this.settings = settings
                 // nobody should be locked in to settings they didn't see
                 for (const s of SEATS) if (this.seats[s]) this.seats[s]!.ready = false
                 this.changed()
                 return
+            }
         }
     }
 
