@@ -27,6 +27,8 @@ npm run dev:web      # vite on http://localhost:5173
 
 The web app connects to `http://localhost:8787` unless `VITE_SERVER_URL` is set (see `apps/web/.env.example`). The training room works without the server.
 
+`npm run dev:server` runs the `dev` environment from `apps/server/wrangler.toml`, which only allows the client on `http://localhost:5173` and `http://127.0.0.1:5173`. If Vite moves to another port because 5173 is taken, or you use `vite preview`, online features fail with a CORS error in the browser console. Free up port 5173 and use `npm run dev:web`.
+
 ```sh
 npm test             # engine + lobby unit tests, and Worker/Durable Object tests in workerd
 npm run typecheck
@@ -171,7 +173,22 @@ While the Pages project doesn't exist, don't run `wrangler pages project create`
 
 ### Allowed origins
 
-To restrict which sites can connect, set `ALLOWED_ORIGINS` in `apps/server/wrangler.toml` to a comma separated list (e.g. `https://magus-reborn.pages.dev`) and redeploy. Set it there rather than in the dashboard, because each deploy overwrites dashboard values with the ones in `wrangler.toml`.
+`ALLOWED_ORIGINS` in `apps/server/wrangler.toml` is a comma separated list of the origins allowed to connect, matched exactly. There are no wildcards. Change it there rather than in the dashboard, because each deploy overwrites dashboard values with the ones in `wrangler.toml`.
+
+| Environment                     | Used by                                                         | Allowed origins                                  |
+| ------------------------------- | --------------------------------------------------------------- | ------------------------------------------------ |
+| Production (top-level `[vars]`) | `npm run deploy:server`, which is what the deploy workflow runs | `https://magus-reborn.pages.dev`                 |
+| `dev` (`[env.dev.vars]`)        | `npm run dev:server`                                            | `http://localhost:5173`, `http://127.0.0.1:5173` |
+
+A request with a missing or disallowed `Origin` gets a 403 and no CORS headers. The one exception is `GET /health`, which answers anyone so the deploy workflow can check it, and it only returns `{"ok":true}`.
+
+Per-deployment URLs such as `https://<hash>.magus-reborn.pages.dev` are refused on purpose, so only the production URL can use online features. Those URLs still load the client and the training room.
+
+**If Cloudflare gave the Pages project a suffixed subdomain** (see [Deploying](#deploying)), the production value is wrong and every online feature will fail in production. The last deploy check catches this by sending the server a preflight from the project's real production URL, and it fails the run. It runs after both deploys, so that release is already live when the run fails. Set `ALLOWED_ORIGINS` to the real URL and release again.
+
+That check works out the production URL by removing the first label from the deployment URL, so it assumes the form `https://<hash>.<subdomain>.pages.dev`. No real deploy has confirmed that form yet. If the check fails, compare the origin in its error message with the URL on the Pages project before changing `ALLOWED_ORIGINS`.
+
+The `Origin` check only stops other websites from using the server through a visitor's browser. A non-browser client can send any `Origin`, so it isn't authentication or abuse protection.
 
 ## How a match flows
 
