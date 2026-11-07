@@ -73,6 +73,8 @@ export interface SpellState {
     id: SpellId
     /** In ticks. 0 means instant. */
     castTime: number
+    /** The unmodified cast time in seconds, 0 for instants. Haste changes `castTime`, never this. */
+    castSeconds: number
     /** In ticks. 0 means no cooldown. */
     cooldown: number
     /** In ticks: the GCD this spell starts on release. 0 for cast-time and off-GCD spells. */

@@ -31,6 +31,7 @@ export const createSpellState = (id: SpellId): SpellState => {
     return {
         id,
         castTime: def.castSeconds ? secondsToTicks(def.castSeconds) : 0,
+        castSeconds: def.castSeconds ?? 0,
         cooldown: def.cooldownSeconds ? secondsToTicks(def.cooldownSeconds) : 0,
         globalCooldown: def.castSeconds || def.offGlobalCooldown ? 0 : GLOBAL_COOLDOWN,
         lastCast: null,
