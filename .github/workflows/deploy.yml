@@ -110,7 +110,9 @@ jobs:
                   fetch() { curl -fsS --retry 10 --retry-delay 15 --retry-all-errors --max-time 20 "$@"; }
 
                   # SPA fallback: a deep link must return index.html.
-                  page="$(fetch "${url}/lobby/ABC123")"
+                  # The first request to a new deployment's subdomain can fail the TLS handshake for minutes
+                  # (about 1m45s on the first deploy) while its certificate is issued, so it gets a bigger budget.
+                  page="$(fetch --retry 20 "${url}/lobby/ABC123")"
                   grep -qi '<!doctype html' <<< "${page}"
 
                   # Hashed assets must be cached as immutable.
@@ -129,7 +131,7 @@ jobs:
                   fi
 
                   # The server must accept this project's real production URL, which may differ from the project name.
-                  # Assumes the deployment URL is https://<hash>.<subdomain>.pages.dev.
+                  # Deployment URLs have the form https://<hash>.<subdomain>.pages.dev.
                   production_origin="https://${url#https://*.}"
                   fetch -o /dev/null -X OPTIONS -H "Origin: ${production_origin}" "${VITE_SERVER_URL%/}/api/lobbies" \
                       || { echo "::error::The server did not accept a preflight from ${production_origin}. Check ALLOWED_ORIGINS in apps/server/wrangler.toml."; exit 1; }

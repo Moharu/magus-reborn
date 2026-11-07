@@ -122,12 +122,12 @@ Keys are matched by physical position, so they work on AZERTY and other layouts.
 
 Both apps run on the Cloudflare free tier, with no custom domain:
 
-| App                 | Hosting            | URL                                                 |
-| ------------------- | ------------------ | --------------------------------------------------- |
-| Client (`apps/web`) | Cloudflare Pages   | `https://magus-reborn.pages.dev`                    |
-| Server              | Cloudflare Workers | `https://magus-reborn.<your-subdomain>.workers.dev` |
+| App                 | Hosting            | URL                                       |
+| ------------------- | ------------------ | ----------------------------------------- |
+| Client (`apps/web`) | Cloudflare Pages   | `https://magus-reborn.pages.dev`          |
+| Server              | Cloudflare Workers | `https://magus-reborn.moharu.workers.dev` |
 
-If another account already holds the `magus-reborn` subdomain on `pages.dev`, Cloudflare adds a suffix to it. The real URL is shown on the Pages project in the Cloudflare dashboard.
+On a fork deployed to another account, the server URL is `https://magus-reborn.<account-subdomain>.workers.dev`, and if the `magus-reborn` subdomain on `pages.dev` is already taken, Cloudflare adds a suffix to it. The real URL is shown on the Pages project in the Cloudflare dashboard.
 
 The free Workers plan is enough. Durable Objects on the free plan allow 100k requests and 13,000 GB-s of duration per day, which is roughly 29 hours of active lobby time per day. Incoming WebSocket messages are billed at 20:1 and outgoing messages are free, and an idle lobby list costs nothing thanks to WebSocket hibernation. If the daily limit is reached, new connections fail until 00:00 UTC; nothing is billed.
 
@@ -151,15 +151,13 @@ It needs the following in the GitHub repo settings:
 | ----------------------- | -------- | ------------------------------------------------------------------------------------ |
 | `CLOUDFLARE_API_TOKEN`  | Secret   | API token with Workers Scripts Edit, Cloudflare Pages Edit and Account Settings Read |
 | `CLOUDFLARE_ACCOUNT_ID` | Secret   | Cloudflare account ID                                                                |
-| `VITE_SERVER_URL`       | Variable | `https://magus-reborn.<your-subdomain>.workers.dev`                                  |
+| `VITE_SERVER_URL`       | Variable | `https://magus-reborn.<account-subdomain>.workers.dev`                               |
 
 The account also needs a `workers.dev` subdomain. Registering one is a one-time step in the Workers section of the Cloudflare dashboard, and CI can't answer the prompt to do it.
 
 ### Client hosting
 
 `apps/web/public/_headers` marks `/assets/*` as immutable, and Vite copies it into the build. The SPA fallback is Pages' default behaviour for a site with no top-level `404.html`, so don't add one. `apps/web/public/assets/404.html` is different and has to stay: it makes a missing asset a real 404 instead of the fallback page, which the `/assets/*` rule would cache as immutable under that asset's name. A tab left open across a deploy asks for such names, and a refresh couldn't recover if the name came back in a rollback. Don't add a `/* /index.html 200` rule to a `_redirects` file either: wrangler treats it as an infinite loop and ignores it.
-
-`vercel.json` is no longer used for new deploys. It stays in the repository until the first Cloudflare deploy has been verified.
 
 ### Manual deploys
 
@@ -170,7 +168,8 @@ npx wrangler login
 npm run deploy:server
 
 # From the repository root:
-VITE_SERVER_URL=https://magus-reborn.<your-subdomain>.workers.dev npm run build
+# Use your own account's workers.dev URL; for this project it is https://magus-reborn.moharu.workers.dev.
+VITE_SERVER_URL=https://magus-reborn.<account-subdomain>.workers.dev npm run build
 npx wrangler pages deploy apps/web/dist --project-name=magus-reborn --branch=main
 ```
 
@@ -189,9 +188,9 @@ A request with a missing or disallowed `Origin` gets a 403 and no CORS headers. 
 
 Per-deployment URLs such as `https://<hash>.magus-reborn.pages.dev` are refused on purpose, so only the production URL can use online features. Those URLs still load the client and the training room.
 
-**If Cloudflare gave the Pages project a suffixed subdomain** (see [Deploying](#deploying)), the production value is wrong and every online feature will fail in production. The last deploy check catches this by sending the server a preflight from the project's real production URL, and it fails the run. It runs after both deploys, so that release is already live when the run fails. Set `ALLOWED_ORIGINS` to the real URL and release again.
+**If Cloudflare gave the Pages project a suffixed subdomain** (see [Deploying](#deploying)), which can happen on a fork but not on this project's `magus-reborn.pages.dev`, the production value is wrong and every online feature will fail in production. The last deploy check catches this by sending the server a preflight from the project's real production URL, and it fails the run. It runs after both deploys, so that release is already live when the run fails. Set `ALLOWED_ORIGINS` to the real URL and release again.
 
-That check works out the production URL by removing the first label from the deployment URL, so it assumes the form `https://<hash>.<subdomain>.pages.dev`. No real deploy has confirmed that form yet. If the check fails, compare the origin in its error message with the URL on the Pages project before changing `ALLOWED_ORIGINS`.
+That check works out the production URL by removing the first label from the deployment URL, which has the form `https://<hash>.<subdomain>.pages.dev`. If the check fails, compare the origin in its error message with the URL on the Pages project before changing `ALLOWED_ORIGINS`.
 
 The `Origin` check only stops other websites from using the server through a visitor's browser. A non-browser client can send any `Origin`, so it isn't authentication or abuse protection.
 
