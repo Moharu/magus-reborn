@@ -1,5 +1,5 @@
 import { Container, Graphics, Sprite, Text } from 'pixi.js'
-import { HOTKEYS, SPELLS, ticksToSeconds, type PlayerState } from '@magus/engine'
+import { HOTKEYS, SPELLS, ticksToSeconds, type PlayerState, type SpellId } from '@magus/engine'
 import { buttonState, type ButtonState } from './button-state'
 import { TEXT_FONT, WIDTH, type Side } from './layout'
 import { iconTexture } from './textures'
@@ -22,6 +22,9 @@ export const setText = (text: Text, value: string) => {
     if (text.text !== value) text.text = value
 }
 
+/** How long the cast bar flashes after an interrupt, in seconds. */
+const INTERRUPT_FLASH = 0.9
+
 const hpColor = (hp: number) => (hp > 65 ? 0x2fb344 : hp > 30 ? 0xf08c00 : 0xe03131)
 
 /** HP bar, cast bar and effect icons for one side. */
@@ -34,6 +37,7 @@ export class PlayerHud extends Container {
     private readonly effectIcons = new Container()
     private effectKey = ''
     private shownHp = 100
+    private interrupt: { spell: SpellId; color: number; left: number } | null = null
     private readonly x0: number
     private readonly w = 430
 
@@ -50,6 +54,11 @@ export class PlayerHud extends Container {
         this.castIcon.position.set(side === 'left' ? this.x0 + 1 : this.x0 + this.w - 23, 78)
         this.effectIcons.position.set(this.x0, 110)
         this.addChild(this.bars, this.nameText, this.hpText, this.castIcon, this.castText, this.effectIcons)
+    }
+
+    /** Flashes the cast bar with the spell that was interrupted. */
+    showInterrupted(spell: SpellId, color: number) {
+        this.interrupt = { spell, color, left: INTERRUPT_FLASH }
     }
 
     update(player: PlayerState, tick: number, dt: number) {
@@ -70,6 +79,7 @@ export class PlayerHud extends Container {
 
         g.roundRect(x0, 76, w, 26, 5).fill({ color: 0x000000, alpha: 0.55 })
         if (player.cast !== null && player.castStartingTick !== null) {
+            this.interrupt = null
             const spell = player.spells[player.cast]
             const elapsed = Math.max(0, tick - player.castStartingTick)
             const done = elapsed >= spell.castTime
@@ -77,21 +87,45 @@ export class PlayerHud extends Container {
             const barW = (w - 28) * progress
             const barX = this.side === 'left' ? x0 + 26 : x0 + w - 26 - barW
             g.roundRect(barX, 78, barW, 22, 4).fill(done ? 0x2fb344 : 0x4c6ef5)
-            this.castIcon.texture = iconTexture(spell.id)
-            this.castIcon.width = this.castIcon.height = 22
-            this.castIcon.visible = true
+            this.showCastLabel(spell.id, 1)
             const total = ticksToSeconds(spell.castTime)
             setText(
                 this.castText,
                 `${SPELLS[spell.id].label}  ${Math.min(ticksToSeconds(elapsed), total).toFixed(1)} / ${total.toFixed(1)}`,
             )
-            this.castText.visible = true
+        } else if (this.interrupt && this.interrupt.left > dt) {
+            this.drawInterrupt(this.interrupt, dt)
         } else {
+            this.interrupt = null
             this.castIcon.visible = false
             this.castText.visible = false
         }
 
         this.updateEffects(player, tick)
+    }
+
+    private showCastLabel(spell: SpellId, alpha: number) {
+        this.castIcon.texture = iconTexture(spell)
+        this.castIcon.width = this.castIcon.height = 22
+        this.castIcon.visible = true
+        this.castIcon.alpha = alpha
+        this.castText.visible = true
+        this.castText.alpha = alpha
+    }
+
+    /** A full-width flash with an outline that grows as it fades. There is no cast progress to show. */
+    private drawInterrupt(interrupt: NonNullable<PlayerHud['interrupt']>, dt: number) {
+        interrupt.left -= dt
+        const k = interrupt.left / INTERRUPT_FLASH
+        const grow = (1 - k) * 6
+        const { x0, w } = this
+        this.bars
+            .roundRect(x0 + 2, 78, w - 4, 22, 4)
+            .fill({ color: interrupt.color, alpha: k * 0.8 })
+            .roundRect(x0 - grow, 76 - grow, w + grow * 2, 26 + grow * 2, 5 + grow)
+            .stroke({ width: 2, color: interrupt.color, alpha: k })
+        this.showCastLabel(interrupt.spell, Math.min(1, k * 2))
+        setText(this.castText, `${SPELLS[interrupt.spell].label} interrupted!`)
     }
 
     private updateEffects(player: PlayerState, tick: number) {

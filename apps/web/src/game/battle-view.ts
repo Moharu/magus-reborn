@@ -10,6 +10,7 @@ import {
 } from '@magus/engine'
 import { ActionBar, INFINITE_HP, PlayerHud, setText } from './hud'
 import { GROUND_Y, HEIGHT, SIDE_X, sidesFor, TEXT_FONT, WIDTH, type Side } from './layout'
+import { interruptTells, type InterruptTell } from './interrupt-tell'
 import { backdropTexture, particleTexture } from './textures'
 import { Vfx } from './vfx'
 import { Wizard } from './wizard'
@@ -38,6 +39,9 @@ const SPELL_COLOR: Record<SpellId, number> = {
     SPELL_MAGIC_EATER: 0x7dffb0,
     SPELL_BLUR: 0xc9b8ff,
 }
+
+/** How long the Counterspell projectile flies, so the interrupt lands with it. */
+const COUNTERSPELL_FLIGHT = 0.18
 
 const formatTime = (ticks: number) => {
     const seconds = Math.floor((ticks * GAME_TICK_INTERVAL) / 1000)
@@ -201,6 +205,7 @@ export class BattleView {
         if (!fresh) return
         for (const entry of newLog)
             if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(snap, entry.caster, entry.spellIndex)
+        for (const tell of interruptTells(snap, newLog, this.sides)) this.onInterrupt(tell)
         for (const event of events) this.onHpEvent(event)
     }
 
@@ -450,7 +455,7 @@ export class BattleView {
                 break
             case 'SPELL_COUNTERSPELL':
                 this.vfx.projectile(from, to, color, {
-                    duration: 0.18,
+                    duration: COUNTERSPELL_FLIGHT,
                     arc: 8,
                     size: 0.9,
                     onHit: () => this.vfx.ring(to, color, 60, 0.4, 6),
@@ -463,6 +468,35 @@ export class BattleView {
                 this.vfx.spray(self, color, { count: 16, speed: 70, size: 0.5, life: 0.6 })
                 break
         }
+    }
+
+    private onInterrupt({ interruptedSide, casterSide, spell, source }: InterruptTell) {
+        const color = SPELL_COLOR[source]
+        const interrupted = this.wizards[interruptedSide]
+        const caster = this.wizards[casterSide]
+
+        // the cast bar is already gone from the snapshot, so its flash can't wait for the projectile
+        this.huds[interruptedSide].showInterrupted(spell, color)
+        this.delayed.push({
+            at: this.time + COUNTERSPELL_FLIGHT,
+            run: () => {
+                // the charge on the staff breaks apart in the interrupted spell's own color
+                this.vfx.spray(interrupted.castPoint, SPELL_COLOR[spell], {
+                    count: 24,
+                    speed: 200,
+                    size: 0.7,
+                    life: 0.5,
+                })
+                this.vfx.burst(interrupted.chestPoint, color, 1.3)
+                this.vfx.shake = 6
+            },
+        })
+
+        const head = caster.headPoint
+        // starts lower than other float text, to stay clear of the "Counter Spell!" label above the head
+        this.vfx.floatText({ x: head.x, y: head.y + 14 }, 'Interrupted!', color, 26)
+        this.vfx.ring(caster.chestPoint, color, 90, 0.5, 5)
+        this.vfx.spray(caster.chestPoint, color, { count: 16, speed: 130, size: 0.5, life: 0.5 })
     }
 
     private onHpEvent(event: HpEvent) {
