@@ -1,9 +1,11 @@
+import { VERSION_QUERY } from '@magus/engine/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
     ALLOWED_ORIGIN,
     ALSO_ALLOWED_ORIGIN,
     closeAllSockets,
     connectRegistry,
+    CREATE_LOBBY_PATH,
     createLobby,
     DISALLOWED_ORIGIN,
     join,
@@ -21,7 +23,7 @@ describe('WebSocket upgrade origin check', () => {
     ])('upgrades a lobby connection from %s', async (_, origin) => {
         const code = await createLobby()
 
-        const res = await upgrade(`/api/lobbies/${code}?playerId=alice-id`, origin)
+        const res = await upgrade(`/api/lobbies/${code}?playerId=alice-id&${VERSION_QUERY}`, origin)
 
         expect(res.status).toBe(101)
         expect(await lobbyClientFrom(res).next('welcome')).toMatchObject({ role: 'player1' })
@@ -35,7 +37,7 @@ describe('WebSocket upgrade origin check', () => {
     ])('refuses a lobby connection from %s with a 403', async (_, origin) => {
         const code = await createLobby()
 
-        const res = await upgrade(`/api/lobbies/${code}?playerId=intruder-id`, origin)
+        const res = await upgrade(`/api/lobbies/${code}?playerId=intruder-id&${VERSION_QUERY}`, origin)
 
         expect(res.status).toBe(403)
         expect(res.webSocket).toBeNull()
@@ -61,20 +63,20 @@ describe('WebSocket upgrade origin check', () => {
 
 describe('lobby creation origin check', () => {
     it('creates a lobby for an allowed origin', async () => {
-        const res = await workerFetch('/api/lobbies', { method: 'POST' })
+        const res = await workerFetch(CREATE_LOBBY_PATH, { method: 'POST' })
 
         expect(res.status).toBe(201)
         expect(await res.json()).toEqual({ code: expect.stringMatching(/^[A-Z2-9]{6}$/) })
     })
 
     it('refuses a disallowed origin with a 403', async () => {
-        const res = await workerFetch('/api/lobbies', { method: 'POST' }, DISALLOWED_ORIGIN)
+        const res = await workerFetch(CREATE_LOBBY_PATH, { method: 'POST' }, DISALLOWED_ORIGIN)
 
         expect(res.status).toBe(403)
     })
 
     it('refuses a missing origin with a 403', async () => {
-        const res = await workerFetch('/api/lobbies', { method: 'POST' }, null)
+        const res = await workerFetch(CREATE_LOBBY_PATH, { method: 'POST' }, null)
 
         expect(res.status).toBe(403)
     })
@@ -112,7 +114,7 @@ describe('CORS headers', () => {
         })
 
         it('sends no CORS headers on a refused POST', async () => {
-            const res = await workerFetch('/api/lobbies', { method: 'POST' }, origin)
+            const res = await workerFetch(CREATE_LOBBY_PATH, { method: 'POST' }, origin)
 
             expect(res.status).toBe(403)
             expect(await res.json()).toEqual({ error: 'Origin not allowed' })
@@ -156,7 +158,7 @@ describe('CORS headers', () => {
         })
 
         it('lets the client read a created lobby', async () => {
-            const res = await workerFetch('/api/lobbies', { method: 'POST' }, origin)
+            const res = await workerFetch(CREATE_LOBBY_PATH, { method: 'POST' }, origin)
 
             expect(res.status).toBe(201)
             expectCorsFor(res, origin)

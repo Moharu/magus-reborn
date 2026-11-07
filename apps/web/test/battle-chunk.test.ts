@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GAME_TICK_INTERVAL } from '@magus/engine'
-import type { ServerMessage } from '@magus/engine/protocol'
+import { NEW_VERSION_MESSAGE, type ServerMessage } from '@magus/engine/protocol'
 import {
     BATTLE_COUNTDOWN,
     Lobby,
@@ -8,68 +8,14 @@ import {
     RECONNECT_GRACE,
     START_COUNTDOWN,
 } from '../../server/src/lobby'
-import { loadBattleChunk, NEW_VERSION_MESSAGE } from '../src/screens/battle-chunk'
+import { loadBattleChunk } from '../src/screens/battle-chunk'
+import { FakeElement, FakeNode } from './fake-dom'
 
 // The screens run for real against a real server Lobby, and only the browser is faked: enough DOM for `h`, and a
 // WebSocket whose ends are the Lobby's connect/message/disconnect, the calls lobby-room.ts makes for a real socket.
 
 // the real icons draw on a canvas, which node doesn't have
 vi.mock('../src/game/icons', () => ({ iconUrl: () => 'icon.png' }))
-
-class FakeNode {}
-
-class FakeElement extends FakeNode {
-    className = ''
-    style = { cssText: '' }
-    classList = { toggle() {} }
-    parent: FakeElement | null = null
-    children: (FakeElement | string)[] = []
-    private clickHandlers: (() => void)[] = []
-
-    constructor(readonly tag: string) {
-        super()
-    }
-    attrs = new Map<string, string>()
-    setAttribute(name: string, value: string) {
-        this.attrs.set(name, value)
-    }
-    addEventListener(type: string, handler: () => void) {
-        if (type === 'click') this.clickHandlers.push(handler)
-    }
-    append(...nodes: (FakeElement | string)[]) {
-        for (const node of nodes) if (node instanceof FakeElement) node.parent = this
-        this.children.push(...nodes)
-    }
-    replaceChildren(...nodes: (FakeElement | string)[]) {
-        this.children = []
-        this.append(...nodes)
-    }
-    remove() {
-        if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this)
-        this.parent = null
-    }
-    set textContent(text: string) {
-        this.children = [text]
-    }
-    get textContent(): string {
-        return this.children.map(child => (typeof child === 'string' ? child : child.textContent)).join(' ')
-    }
-    /** Depth first search. */
-    find(matches: (el: FakeElement) => boolean): FakeElement | null {
-        if (matches(this)) return this
-        for (const child of this.children) {
-            const found = typeof child === 'string' ? null : child.find(matches)
-            if (found) return found
-        }
-        return null
-    }
-    button(label: string) {
-        return this.find(el => el.tag === 'button' && el.textContent === label)
-    }
-    click() {
-        for (const handler of this.clickHandlers) handler()
-    }
-}
 
 type Listener = (error: unknown) => void
 const nodeProcess = (

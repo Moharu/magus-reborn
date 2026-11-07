@@ -1,4 +1,4 @@
-import type { ServerMessage } from '@magus/engine/protocol'
+import { VERSION_QUERY, type ServerMessage } from '@magus/engine/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ABUSE_DROP_ALLOWANCE, RATE_LIMIT_BURST } from '../../src/rate-limit'
 import {
@@ -96,7 +96,7 @@ describe('sustained abuse', () => {
         ) {
             if (args[0] !== 'close' && args[0] !== 'error') addEventListener.apply(this, args)
         })
-        const res = await upgrade(`/api/lobbies/${code}?playerId=alice-id&name=Alice`).finally(() =>
+        const res = await upgrade(`/api/lobbies/${code}?playerId=alice-id&name=Alice&${VERSION_QUERY}`).finally(() =>
             withheld.mockRestore(),
         )
         const alice = lobbyClientFrom(res)
