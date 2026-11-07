@@ -29,7 +29,10 @@ class FakeElement extends FakeNode {
     constructor(readonly tag: string) {
         super()
     }
-    setAttribute() {}
+    attrs = new Map<string, string>()
+    setAttribute(name: string, value: string) {
+        this.attrs.set(name, value)
+    }
     addEventListener(type: string, handler: () => void) {
         if (type === 'click') this.clickHandlers.push(handler)
     }
@@ -51,14 +54,17 @@ class FakeElement extends FakeNode {
     get textContent(): string {
         return this.children.map(child => (typeof child === 'string' ? child : child.textContent)).join(' ')
     }
-    /** Depth first search for a button by its label. */
-    button(label: string): FakeElement | null {
-        if (this.tag === 'button' && this.textContent === label) return this
+    /** Depth first search. */
+    find(matches: (el: FakeElement) => boolean): FakeElement | null {
+        if (matches(this)) return this
         for (const child of this.children) {
-            const found = typeof child === 'string' ? null : child.button(label)
+            const found = typeof child === 'string' ? null : child.find(matches)
             if (found) return found
         }
         return null
+    }
+    button(label: string) {
+        return this.find(el => el.tag === 'button' && el.textContent === label)
     }
     click() {
         for (const handler of this.clickHandlers) handler()
@@ -206,9 +212,18 @@ const expectNoNewVersionMessage = (root: FakeElement) => {
 
 const expectNewVersionMessage = (root: FakeElement) => {
     // spelled out rather than the constant: this is the wording #41 asks for
-    expect(root.textContent).toContain('A new version is available, please refresh')
-    root.button('Refresh')!.click()
+    const alert = root.find(el => el.attrs.get('role') === 'alert')
+    expect(alert?.textContent).toContain('A new version is available, please refresh')
+    alert!.button('Refresh')!.click()
     expect(reload).toHaveBeenCalledTimes(1)
+}
+
+/** Online there is no other way off the panel, since a refresh lands back in the battle. */
+const expectBackHomeLink = (root: FakeElement) => {
+    const alert = root.find(el => el.attrs.get('role') === 'alert')
+    const link = alert?.find(el => el.tag === 'a' && el.textContent === 'Back home')
+    expect(link?.attrs.get('href')).toBe('/')
+    expect(link?.attrs.has('data-link')).toBe(true)
 }
 
 beforeEach(() => {
@@ -329,6 +344,7 @@ describe('online, for a player', () => {
     it('shows the message and a reload control when the import fails', async () => {
         const { root } = await seatedClient(FAILED_CHUNK)
         expectNewVersionMessage(root)
+        expectBackHomeLink(root)
         expect(unhandled).toEqual([])
     })
 
@@ -438,6 +454,7 @@ describe('online, for a spectator', () => {
     it('shows the message and a reload control when the import fails', async () => {
         const { root } = await spectatingClient(FAILED_CHUNK)
         expectNewVersionMessage(root)
+        expectBackHomeLink(root)
         expect(unhandled).toEqual([])
     })
 
