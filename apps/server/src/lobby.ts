@@ -146,7 +146,7 @@ export class Lobby {
             role,
             spells: role === 'spectator' ? null : this.seats[role]!.spells,
         })
-        if (this.battle) this.transport.send(connId, this.battleMessage(0))
+        if (this.battle) this.transport.send(connId, this.battleCatchUp())
 
         if (role !== 'spectator' && this.paused && this.bothConnected()) this.resume()
         this.changed()
@@ -328,7 +328,7 @@ export class Lobby {
         this.phase = 'battle_countdown'
         this.battle = new Battle({ name: p1.name, spells: p1.spells }, { name: p2.name, spells: p2.spells })
         this.logSent = 0
-        this.transport.broadcast(this.battleMessage(0))
+        this.transport.broadcast(this.battleBroadcast())
         this.countdown(BATTLE_COUNTDOWN, () => this.enterBattle())
         this.changed()
     }
@@ -342,7 +342,7 @@ export class Lobby {
     private onTick() {
         const battle = this.battle!
         battle.tick()
-        this.transport.broadcast(this.battleMessage(this.logSent))
+        this.transport.broadcast(this.battleBroadcast())
         // a win waits for its tick to end, since actions in that tick can still turn it into a draw; a draw can't change
         if (battle.finished || battle.state.winner === 'draw') this.endRound()
     }
@@ -461,11 +461,22 @@ export class Lobby {
 
     // helpers
 
-    private battleMessage(logFrom: number): ServerMessage {
+    /** The next part of the stream every client follows. It moves the stream on, so it must go to all of them. */
+    private battleBroadcast(): ServerMessage {
         const battle = this.battle!
+        const logFrom = this.logSent
         const log = battle.state.log.slice(logFrom)
         this.logSent = battle.state.log.length
         return { t: 'battle', snap: battle.snapshot(), log, logFrom, events: battle.drainEvents() }
+    }
+
+    /**
+     * The battle so far, for one connection that just joined. It leaves the stream alone: whatever is pending goes
+     * to everyone in the next broadcast, the joiner included, which is why the events aren't repeated here.
+     */
+    private battleCatchUp(): ServerMessage {
+        const battle = this.battle!
+        return { t: 'battle', snap: battle.snapshot(), log: battle.state.log.slice(), logFrom: 0, events: [] }
     }
 
     private canCast() {

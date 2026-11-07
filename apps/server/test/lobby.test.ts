@@ -45,6 +45,10 @@ class FakeTransport implements LobbyTransport {
     }
 }
 
+type BattleMessage = Extract<ServerMessage, { t: 'battle' }>
+
+const isBattle = (message: ServerMessage): message is BattleMessage => message.t === 'battle'
+
 const seconds = (s: number) => vi.advanceTimersByTime(s * 1000)
 
 const setup = () => {
@@ -78,6 +82,27 @@ const toBattle = (lobby: Lobby) => {
 const killPlayer2 = (lobby: Lobby) => {
     lobby.battle!.state.player2.hp = 0
     vi.advanceTimersByTime(100)
+}
+
+/** Player 1 starts a Fireball (slot 0) and holds it until it is ready to release. */
+const holdFireball = (lobby: Lobby) => {
+    lobby.message('c1', { t: 'start_cast', i: 0 })
+    vi.advanceTimersByTime(lobby.battle!.state.player1.spells[0].castTime * GAME_TICK_INTERVAL)
+}
+
+/** From set up, a live battle where player 1 holds a Fireball that is ready to release. */
+const toHeldFireball = (lobby: Lobby) => {
+    lobby.message('c1', { t: 'set_spells', spells: FIRE })
+    toBattle(lobby)
+    holdFireball(lobby)
+}
+
+/** Player 1 kills player 2 with an action, so its log entries and HP event wait for the next broadcast. */
+const killByAction = (lobby: Lobby) => {
+    toHeldFireball(lobby)
+    lobby.battle!.state.player2.hp = 1
+    lobby.message('c1', { t: 'stop_cast', i: 0 })
+    expect(lobby.battle!.state.winner).toBe('player1')
 }
 
 beforeEach(() => vi.useFakeTimers())
@@ -552,8 +577,11 @@ describe('disconnects during a match', () => {
         const { lobby } = startMatch()
         toBattle(lobby)
         lobby.disconnect('c2')
+        const tick = lobby.battle!.state.gameTick
         seconds(RECONNECT_GRACE)
         expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1' })
+        // only a decided round gets a settling tick
+        expect(lobby.battle!.state.gameTick).toBe(tick)
     })
 
     it('abandons the match if both players leave', () => {
@@ -636,22 +664,16 @@ describe('disconnects during a match', () => {
 
     it('gives the match to the actual winner of a kill made by an action, and shows it to the opponent', () => {
         const { lobby, transport } = startMatch({ bestOf: 1 })
-        lobby.message('c1', { t: 'set_spells', spells: FIRE })
-        toBattle(lobby)
-        const battle = lobby.battle!
-        lobby.message('c1', { t: 'start_cast', i: 0 })
-        vi.advanceTimersByTime(battle.state.player1.spells[0].castTime * GAME_TICK_INTERVAL)
-        battle.state.player2.hp = 1
-        lobby.message('c1', { t: 'stop_cast', i: 0 })
-        expect(battle.state.winner).toBe('player1')
+        killByAction(lobby)
         lobby.disconnect('c1')
         const before = transport.broadcasts.length
 
         seconds(RECONNECT_GRACE)
         expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1' })
         expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
-        const finalBattle = transport.broadcasts.slice(before).find(m => m.t === 'battle')
-        expect(finalBattle).toMatchObject({ snap: { winner: 'player1', player2: { hp: 0 } } })
+        const battleBroadcasts = transport.broadcasts.slice(before).filter(isBattle)
+        expect(battleBroadcasts).toHaveLength(1)
+        expect(battleBroadcasts[0]).toMatchObject({ snap: { winner: 'player1', player2: { hp: 0 } } })
     })
 
     it('when the decided round does not end the match, records it and then forfeits', () => {
@@ -681,6 +703,19 @@ describe('disconnects during a match', () => {
         vi.advanceTimersByTime(GAME_TICK_INTERVAL)
         expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1' })
         seconds(RECONNECT_GRACE)
+        expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
+    })
+
+    it('a reconnect in time cancels the forfeit, so its deadline cannot end a match still running', () => {
+        const { lobby } = startMatch({ bestOf: 3 })
+        winInsideTick(lobby)
+        lobby.disconnect('c2')
+        seconds(5)
+        lobby.connect('c9', 'bob-id', 'Bob')
+        // past the original deadline: round 1 has ended and round 2's set up is running
+        seconds(RECONNECT_GRACE - 5 + 1)
+        expect(lobby.phase).not.toBe('match_over')
+        expect(lobby.matchWinner).toBeNull()
         expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
     })
 
@@ -738,5 +773,162 @@ describe('disconnects during a match', () => {
         expect(transport.closedConns).toEqual(['c1'])
         expect(lobby.seats.player1!.connId).toBe('c2')
         expect(lobby.seats.player2).toBeNull()
+    })
+})
+
+describe('joining mid-battle', () => {
+    const RELEASE_LOG = ['STOP_CAST', 'SPELL_RELEASE']
+    const KILL_EVENTS = [{ player: 'player2', amount: -1, source: 'SPELL_FIREBALL' }]
+
+    /** The one `battle` broadcast after a kill by action and `leaver`'s disconnect, with `meanwhile` run in the pause. */
+    const broadcastAfterPausedKill = (leaver: string, meanwhile: (lobby: Lobby) => void = () => {}) => {
+        const { lobby, transport } = startMatch({ bestOf: 1 })
+        killByAction(lobby)
+        lobby.disconnect(leaver)
+        transport.broadcasts = []
+        seconds(5)
+        meanwhile(lobby)
+        seconds(RECONNECT_GRACE)
+        expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1' })
+        const battleBroadcasts = transport.broadcasts.filter(isBattle)
+        expect(battleBroadcasts).toHaveLength(1)
+        return { message: battleBroadcasts[0], transport }
+    }
+
+    const expectSameAsNoJoin = (message: BattleMessage, leaver: string) => {
+        const { message: alone } = broadcastAfterPausedKill(leaver)
+        expect(message.log).toEqual(alone.log)
+        expect(message.events).toEqual(alone.events)
+        expect(message.logFrom).toBe(alone.logFrom)
+        // so that two empty broadcasts can't pass as the same
+        expect(alone.log.map(l => l.type)).toEqual(RELEASE_LOG)
+        expect(alone.events).toMatchObject(KILL_EVENTS)
+    }
+
+    it.each(['c1', 'c2'])('a spectator joining the pause after %s left does not change the final broadcast', leaver => {
+        const { message, transport } = broadcastAfterPausedKill(leaver, lobby => lobby.connect('c3', 'carol', 'Carol'))
+        expect(transport.to('c3').filter(isBattle)).toHaveLength(1)
+        expectSameAsNoJoin(message, leaver)
+    })
+
+    it.each([
+        ['c1', 'alice-id', 'Alice'],
+        ['c2', 'bob-id', 'Bob'],
+    ])('%s reconnecting during the pause does not change the next broadcast', (leaver, playerId, name) => {
+        const { message, transport } = broadcastAfterPausedKill(leaver, lobby => {
+            lobby.connect('c9', playerId, name)
+            expect(lobby.paused).toBe(false)
+        })
+        expect(transport.to('c9').filter(isBattle)).toHaveLength(1)
+        expectSameAsNoJoin(message, leaver)
+    })
+
+    it('a join between ticks leaves the log and events of an action for the next broadcast', () => {
+        const { lobby, transport } = startMatch()
+        toHeldFireball(lobby)
+        const logFrom = lobby.battle!.state.log.length
+        lobby.message('c1', { t: 'stop_cast', i: 0 })
+        transport.broadcasts = []
+
+        lobby.connect('c3', 'carol', 'Carol')
+        expect(transport.broadcasts.filter(isBattle)).toEqual([])
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+
+        const [next] = transport.broadcasts.filter(isBattle)
+        expect(next.logFrom).toBe(logFrom)
+        expect(next.log.map(l => l.type)).toEqual(RELEASE_LOG)
+        expect(next.events).toEqual([expect.objectContaining({ player: 'player2', source: 'SPELL_FIREBALL' })])
+    })
+
+    it('a join between ticks does not lose the Counterspell tell', () => {
+        const { lobby, transport } = startMatch()
+        toBattle(lobby)
+        const counterspell = lobby.battle!.state.player2.spells.findIndex(s => s.id === 'SPELL_COUNTERSPELL')
+        lobby.message('c1', { t: 'start_cast', i: 0 })
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+        lobby.message('c2', { t: 'start_cast', i: counterspell })
+        transport.broadcasts = []
+
+        lobby.connect('c3', 'carol', 'Carol')
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+
+        const [next] = transport.broadcasts.filter(isBattle)
+        expect(next.log.filter(l => l.type === 'INTERRUPTED')).toEqual([
+            expect.objectContaining({ player: 'player1', spellIndex: 0, source: 'SPELL_COUNTERSPELL' }),
+        ])
+    })
+
+    it('catches a joiner up with the full log, the current snapshot and no events, which come in the next broadcast', () => {
+        const { lobby, transport } = startMatch()
+        toHeldFireball(lobby)
+        lobby.message('c1', { t: 'stop_cast', i: 0 })
+        const battle = lobby.battle!
+
+        lobby.connect('c3', 'carol', 'Carol')
+
+        const catchUp = transport.to('c3').filter(isBattle)
+        expect(catchUp).toEqual([
+            { t: 'battle', logFrom: 0, log: battle.state.log, snap: battle.snapshot(), events: [] },
+        ])
+        expect(catchUp[0].log.map(l => l.type)).toEqual(['START_CAST', ...RELEASE_LOG])
+
+        transport.broadcasts = []
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+        expect(transport.broadcasts.filter(isBattle)[0].events).toHaveLength(1)
+    })
+
+    it('catches up a joiner in the pause the same way', () => {
+        const { lobby, transport } = startMatch({ bestOf: 1 })
+        killByAction(lobby)
+        lobby.disconnect('c1')
+        const battle = lobby.battle!
+
+        lobby.connect('c3', 'carol', 'Carol')
+
+        expect(transport.to('c3').filter(isBattle)).toEqual([
+            { t: 'battle', logFrom: 0, log: battle.state.log, snap: battle.snapshot(), events: [] },
+        ])
+    })
+
+    /** Two Fireball releases, calling `join` at each kind of point a join can land between two broadcasts. */
+    const twoReleases = (join: (lobby: Lobby) => void = () => {}) => {
+        const { lobby, transport } = startMatch()
+        lobby.message('c1', { t: 'set_spells', spells: FIRE })
+        toBattle(lobby)
+        transport.broadcasts = []
+        for (let release = 0; release < 2; release++) {
+            holdFireball(lobby)
+            join(lobby) // nothing pending
+            lobby.message('c1', { t: 'stop_cast', i: 0 })
+            join(lobby) // log entries and an event pending
+            join(lobby) // the same entries pending, for a second joiner
+            vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+        }
+        return { battle: lobby.battle!, broadcasts: transport.broadcasts.filter(isBattle), transport }
+    }
+
+    it('with joins between broadcasts, each log entry and event is in exactly one broadcast', () => {
+        const alone = twoReleases()
+        const { battle, broadcasts, transport } = twoReleases(lobby => {
+            lobby.connect('c3', 'carol', 'Carol')
+            lobby.disconnect('c3')
+        })
+        expect(transport.to('c3').filter(isBattle)).toHaveLength(6)
+
+        const log = broadcasts.flatMap(m => m.log)
+        const events = broadcasts.flatMap(m => m.events)
+        expect(log).toEqual(battle.state.log)
+        expect(log.filter(l => l.type === 'SPELL_RELEASE')).toHaveLength(2)
+        expect(events.filter(e => e.source === 'SPELL_FIREBALL')).toHaveLength(2)
+        expect(log).toEqual(alone.broadcasts.flatMap(m => m.log))
+        expect(events).toEqual(alone.broadcasts.flatMap(m => m.events))
+
+        // each broadcast picks up the log exactly where the one before it stopped
+        let next = 0
+        for (const message of broadcasts) {
+            expect(message.logFrom).toBe(next)
+            next += message.log.length
+        }
+        expect(next).toBe(battle.state.log.length)
     })
 })
