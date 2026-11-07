@@ -740,12 +740,3 @@ describe('disconnects during a match', () => {
         expect(lobby.seats.player2).toBeNull()
     })
 })
-
-describe('rate limiting', () => {
-    it('drops messages beyond the per-second budget', () => {
-        const { lobby, transport } = setup()
-        lobby.connect('c1', 'a', 'A')
-        for (let i = 0; i < 100; i++) lobby.message('c1', { t: 'ping', at: i })
-        expect(transport.to('c1').filter(m => m.t === 'pong')).toHaveLength(40)
-    })
-})

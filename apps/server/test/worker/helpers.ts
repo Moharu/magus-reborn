@@ -8,6 +8,8 @@ export const DISALLOWED_ORIGIN = 'https://evil.example'
 
 /** Shorter than Vitest's 5 s test timeout, so a missing message fails with the list of what did arrive. */
 const WAIT_TIMEOUT_MS = 3000
+/** Slower than the rate limit refills, so these retries can't keep a connection over it. */
+const RETRY_INTERVAL_MS = 100
 
 /** Sends a request through the Worker's real `fetch` handler. `origin: null` sends no Origin header. */
 export const workerFetch = (path: string, init: RequestInit = {}, origin: string | null = ALLOWED_ORIGIN) => {
@@ -39,7 +41,7 @@ export class RecordingSocket<M> {
     protected readonly received: M[] = []
     protected cursor = 0
     private wake: (() => void) | null = null
-    private isClosed = false
+    protected isClosed = false
     private closeSent = false
 
     constructor(private readonly ws: WebSocket) {
@@ -134,6 +136,42 @@ export class LobbyClient extends RecordingSocket<ServerMessage> {
         this.send({ t: 'ping', at })
         await this.next('pong', message => message.at === at)
         return this.received.slice(from, this.cursor - 1)
+    }
+
+    /**
+     * `sync` for a connection that may be over its rate limit, which would silently drop a single ping. Pings until one
+     * is answered. Only the first answer ends the wait, so no retry's pong is in the result.
+     */
+    async syncOverLimit(): Promise<ServerMessage[]> {
+        const from = this.cursor
+        const sent = new Set<number>()
+        const ping = () => {
+            sent.add(++this.pings)
+            this.send({ t: 'ping', at: this.pings })
+        }
+        await this.retryUntil(
+            ping,
+            this.next('pong', message => sent.has(message.at)),
+        )
+        return this.received.slice(from, this.cursor - 1)
+    }
+
+    /** Sends a message until `heard` settles, for a connection whose rate limit could silently drop any one of them. */
+    sendUntil<T>(message: ClientMessage, heard: Promise<T>): Promise<T> {
+        return this.retryUntil(() => this.send(message), heard)
+    }
+
+    private async retryUntil<T>(send: () => void, until: Promise<T>): Promise<T> {
+        const attempt = () => {
+            if (!this.isClosed) send()
+        }
+        attempt()
+        const retries = setInterval(attempt, RETRY_INTERVAL_MS)
+        try {
+            return await until
+        } finally {
+            clearInterval(retries)
+        }
     }
 }
 

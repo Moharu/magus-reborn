@@ -29,8 +29,6 @@ export const READY_SETUP_COUNTDOWN = 3
 export const BATTLE_COUNTDOWN = 3
 export const ROUND_OVER_COUNTDOWN = 10
 export const RECONNECT_GRACE = 30
-/** Messages per second a connection may send before the rest are dropped. */
-export const RATE_LIMIT = 40
 
 export interface LobbyTransport {
     send(connId: string, message: ServerMessage): void
@@ -55,8 +53,6 @@ interface Connection {
     playerId: string
     role: Role
     name: string
-    budget: number
-    budgetSecond: number
 }
 
 const SEATS: PlayerKey[] = ['player1', 'player2']
@@ -144,7 +140,7 @@ export class Lobby {
         }
 
         const name = role === 'spectator' ? sanitizeName(rawName, 'Spectator') : this.seats[role]!.name
-        this.connections.set(connId, { playerId, role, name, budget: RATE_LIMIT, budgetSecond: 0 })
+        this.connections.set(connId, { playerId, role, name })
         this.transport.send(connId, {
             t: 'welcome',
             role,
@@ -190,7 +186,7 @@ export class Lobby {
 
     message(connId: string, raw: unknown) {
         const conn = this.connections.get(connId)
-        if (!conn || !this.withinRateLimit(conn)) return
+        if (!conn) return
         const msg = parseClientMessage(raw)
         if (msg?.t === 'ping') {
             this.transport.send(connId, { t: 'pong', at: msg.at })
@@ -497,15 +493,6 @@ export class Lobby {
         let count = 0
         for (const conn of this.connections.values()) if (conn.role === 'spectator') count++
         return count
-    }
-
-    private withinRateLimit(conn: Connection) {
-        const second = Math.floor(Date.now() / 1000)
-        if (second !== conn.budgetSecond) {
-            conn.budgetSecond = second
-            conn.budget = RATE_LIMIT
-        }
-        return conn.budget-- > 0
     }
 
     private reject(connId: string, message: string) {
