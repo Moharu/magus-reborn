@@ -9,7 +9,7 @@ export const DISALLOWED_ORIGIN = 'https://evil.example'
 /** Shorter than Vitest's 5 s test timeout, so a missing message fails with the list of what did arrive. */
 const WAIT_TIMEOUT_MS = 3000
 /** Slower than the rate limit refills, so these retries can't keep a connection over it. */
-const RETRY_PING_INTERVAL_MS = 100
+const RETRY_INTERVAL_MS = 100
 
 /** Sends a request through the Worker's real `fetch` handler. `origin: null` sends no Origin header. */
 export const workerFetch = (path: string, init: RequestInit = {}, origin: string | null = ALLOWED_ORIGIN) => {
@@ -146,18 +146,32 @@ export class LobbyClient extends RecordingSocket<ServerMessage> {
         const from = this.cursor
         const sent = new Set<number>()
         const ping = () => {
-            if (this.isClosed) return
             sent.add(++this.pings)
             this.send({ t: 'ping', at: this.pings })
         }
-        ping()
-        const retries = setInterval(ping, RETRY_PING_INTERVAL_MS)
+        await this.retryUntil(
+            ping,
+            this.next('pong', message => sent.has(message.at)),
+        )
+        return this.received.slice(from, this.cursor - 1)
+    }
+
+    /** Sends a message until `heard` settles, for a connection whose rate limit could silently drop any one of them. */
+    sendUntil<T>(message: ClientMessage, heard: Promise<T>): Promise<T> {
+        return this.retryUntil(() => this.send(message), heard)
+    }
+
+    private async retryUntil<T>(send: () => void, until: Promise<T>): Promise<T> {
+        const attempt = () => {
+            if (!this.isClosed) send()
+        }
+        attempt()
+        const retries = setInterval(attempt, RETRY_INTERVAL_MS)
         try {
-            await this.next('pong', message => sent.has(message.at))
+            return await until
         } finally {
             clearInterval(retries)
         }
-        return this.received.slice(from, this.cursor - 1)
     }
 }
 

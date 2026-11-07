@@ -136,11 +136,11 @@ describe('ConnectionLimiter', () => {
             const ctx = setup()
             burst(ctx, RATE_LIMIT_BURST)
 
-            const { allow, drop } = send(ctx, 25, 10)
+            const { allow, drop } = send(ctx, 50, 10)
 
-            // the last of the 250 goes out 9.96 s in, which is 199 whole tokens
+            // the last of the 500 goes out 9.98 s in, which is 399 whole tokens
             expect(allow).toBe(RATE_LIMIT_PER_SECOND * 10 - 1)
-            expect(drop).toBe(51)
+            expect(drop).toBe(101)
         })
 
         it('recovers from a burst that stops short of being closed', () => {
@@ -157,19 +157,19 @@ describe('ConnectionLimiter', () => {
             expect(send(setup(), 1000, 60).closedAfterMs).toBeLessThan(500)
         })
 
-        it('closes 100 messages a second within a few seconds', () => {
-            expect(send(setup(), 100, 60).closedAfterMs).toBeLessThan(7000)
+        it('closes 100 messages a second within seconds', () => {
+            expect(send(setup(), 100, 60).closedAfterMs).toBeLessThan(10_000)
         })
 
-        it('closes a connection only just past 30 messages a second, in the end', () => {
-            const { closedAfterMs } = send(setup(), 31, 600)
+        it('closes a connection only just past 50 messages a second, in the end', () => {
+            const { closedAfterMs } = send(setup(), 51, 600)
 
             expect(closedAfterMs).toBeGreaterThan(390_000)
             expect(closedAfterMs).toBeLessThan(420_000)
         })
 
-        it('keeps 30 messages a second open, since dropping the excess is enough', () => {
-            const { close, drop } = send(setup(), 30, 3600)
+        it('keeps 50 messages a second open, since dropping the excess is enough', () => {
+            const { close, drop } = send(setup(), 50, 3600)
 
             expect(close).toBe(0)
             expect(drop).toBeGreaterThan(0)
@@ -190,33 +190,35 @@ describe('ConnectionLimiter', () => {
     /**
      * Rates for a real client. A key press is two messages, a start and a release: the client ignores `event.repeat`
      * and only sends again once the key is back up. It pings every 5 s (PING_INTERVAL in the web client's lobby screen).
+     *
+     * It sends every press with no gate, and the engine doesn't queue one it rejects. So mashing is how a player lands a
+     * spell the moment a GCD, lockout or cooldown ends, and the rates to allow are mashing rates.
      */
     describe('normal play', () => {
         const PING = 1 / 5
         const messagesPerSecond = (keyPressesPerSecond: number) => keyPressesPerSecond * 2 + PING
 
-        // the GCD is 1 s, so this is already far more than a spell rotation needs
-        it('never drops a player spamming 6 keys a second for 10 minutes', () => {
-            const { allow, drop, close } = send(setup(), messagesPerSecond(6), 600)
+        it('never drops a player rolling 16 keys a second for 10 minutes', () => {
+            const { allow, drop, close } = send(setup(), messagesPerSecond(16), 600)
 
             expect(drop + close).toBe(0)
-            expect(allow).toBeGreaterThan(7000)
+            expect(allow).toBeGreaterThan(19_000)
         })
 
-        it('does not drop a player mashing 10 keys a second for 3 minutes', () => {
-            const { drop, close } = send(setup(), messagesPerSecond(10), 180)
-
-            expect(drop + close).toBe(0)
-        })
-
-        it('does not drop a player mashing 12 keys a second for 5 s', () => {
-            const { drop, close } = send(setup(), messagesPerSecond(12), 5)
+        it('does not drop a player mashing 20 keys a second for 3 minutes', () => {
+            const { drop, close } = send(setup(), messagesPerSecond(20), 180)
 
             expect(drop + close).toBe(0)
         })
 
-        it('never closes a player mashing 12 keys a second for 10 minutes, though some are dropped', () => {
-            const { drop, close } = send(setup(), messagesPerSecond(12), 600)
+        it('does not drop a player mashing 24 keys a second for 4 s', () => {
+            const { drop, close } = send(setup(), messagesPerSecond(24), 4)
+
+            expect(drop + close).toBe(0)
+        })
+
+        it('never closes a player mashing 24 keys a second for 10 minutes, though some are dropped', () => {
+            const { drop, close } = send(setup(), messagesPerSecond(24), 600)
 
             expect(close).toBe(0)
             expect(drop).toBeGreaterThan(0)

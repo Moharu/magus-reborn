@@ -1,7 +1,15 @@
 import type { ServerMessage } from '@magus/engine/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ABUSE_DROP_ALLOWANCE, RATE_LIMIT_BURST } from '../../src/rate-limit'
-import { closeAllSockets, join, lobbyWithTwoPlayers, type LobbyClient } from './helpers'
+import {
+    closeAllSockets,
+    createLobby,
+    join,
+    lobbyClientFrom,
+    lobbyWithTwoPlayers,
+    upgrade,
+    type LobbyClient,
+} from './helpers'
 
 afterEach(closeAllSockets)
 
@@ -40,7 +48,8 @@ describe('messages over the rate limit', () => {
 
     it('drops what goes past the burst, and keeps the connection', async () => {
         const { alice, bob } = await lobbyWithTwoPlayers()
-        const sent = RATE_LIMIT_BURST + 60
+        // the refill would need 5 s to let all of these through, and the waits below time out long before that
+        const sent = RATE_LIMIT_BURST + 200
 
         floodPings(alice, sent)
 
@@ -49,9 +58,13 @@ describe('messages over the rate limit', () => {
             Array.from({ length: RATE_LIMIT_BURST }, (_, i) => FIRST_FLOOD_AT + i),
         )
         expect(pongs.length).toBeLessThan(sent)
-        // still seated and still heard
-        alice.send({ t: 'ready' })
-        await expect(bob.nextLobby(lobby => lobby.player1!.ready)).resolves.toMatchObject({
+        // still seated and still heard, though the bucket may not hold a token for the first `ready` yet
+        await expect(
+            alice.sendUntil(
+                { t: 'ready' },
+                bob.nextLobby(lobby => lobby.player1!.ready),
+            ),
+        ).resolves.toMatchObject({
             player1: { name: 'Alice', connected: true },
         })
     })
@@ -68,6 +81,32 @@ describe('sustained abuse', () => {
         expect(await bob.nextLobby(lobby => lobby.player1 === null)).toMatchObject({
             admin: 'player2',
             player2: { name: 'Bob', connected: true },
+        })
+    })
+
+    it('takes the player out of the lobby even if the peer never completes the close', async () => {
+        const code = await createLobby()
+        const { client: bob } = await join(code, 'bob-id', 'Bob')
+
+        // such a peer never makes the server's socket fire `close`, so its listeners are withheld for this one upgrade
+        const addEventListener = EventTarget.prototype.addEventListener
+        const withheld = vi.spyOn(EventTarget.prototype, 'addEventListener').mockImplementation(function (
+            this: EventTarget,
+            ...args: Parameters<typeof addEventListener>
+        ) {
+            if (args[0] !== 'close' && args[0] !== 'error') addEventListener.apply(this, args)
+        })
+        const res = await upgrade(`/api/lobbies/${code}?playerId=alice-id&name=Alice`).finally(() =>
+            withheld.mockRestore(),
+        )
+        const alice = lobbyClientFrom(res)
+        await bob.nextLobby(lobby => lobby.player2 !== null)
+
+        floodPings(alice, FLOOD)
+
+        expect(await alice.closed).toMatchObject(POLICY_VIOLATION)
+        await expect(bob.nextLobby(lobby => lobby.player2 === null)).resolves.toMatchObject({
+            player1: { name: 'Bob', connected: true },
         })
     })
 

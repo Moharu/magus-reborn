@@ -1,5 +1,9 @@
-/** Messages per second a connection can keep sending without any being dropped. */
-export const RATE_LIMIT_PER_SECOND = 20
+/**
+ * Messages per second a connection can keep sending without any being dropped. A key press is two messages, so this is
+ * 20 keys a second. Players mash to land a spell the moment a GCD, lockout or cooldown ends, and the presses the engine
+ * rejects until then cost the same as any other, so this has to sit above what a player can do, not what a rotation needs.
+ */
+export const RATE_LIMIT_PER_SECOND = 40
 /** Messages a connection can send at once, after being quiet for long enough to fill its bucket. */
 export const RATE_LIMIT_BURST = 40
 /**
@@ -9,7 +13,7 @@ export const RATE_LIMIT_BURST = 40
 export const ABUSE_DROP_ALLOWANCE = 400
 /**
  * Dropped messages forgiven per second, so only sustained abuse runs out the allowance. With the rate limit above,
- * a connection has to keep sending more than 30 messages a second to be closed.
+ * a connection has to keep sending more than 50 messages a second to be closed.
  */
 export const ABUSE_DROPS_FORGIVEN_PER_SECOND = 10
 
