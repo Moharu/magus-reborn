@@ -8,11 +8,6 @@ import { iconTexture } from '../src/game/textures'
 import type { Vfx } from '../src/game/vfx'
 import type { Wizard } from '../src/game/wizard'
 
-// pixi reads navigator on import, and node only has it from version 21; CI runs node 20
-vi.hoisted(() => {
-    if (!('navigator' in globalThis)) vi.stubGlobal('navigator', { userAgent: 'node' })
-})
-
 // the real textures draw on a canvas, which node doesn't have; nothing here is rendered
 vi.mock('../src/game/textures', async () => {
     const { Texture } = await import('pixi.js')
