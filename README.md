@@ -32,6 +32,7 @@ The web app connects to `http://localhost:8787` unless `VITE_SERVER_URL` is set 
 ```sh
 npm test             # engine + lobby unit tests, and Worker/Durable Object tests in workerd
 npm run typecheck
+npm run lint         # eslint (typescript-eslint + prettier-compatible)
 npm run format
 ```
 
@@ -106,7 +107,7 @@ Runs every loadout of 1 to `N` pool spells times every policy through `simulate`
 
 ### CI
 
-`.github/workflows/ci.yml` runs `npm ci`, `npm test`, `npm run typecheck`, `npm run format:check` and `npm run build` on every pull request into `dev` and every push to `dev`. In the branch protection rule for `dev`, mark the `ci` status check as required.
+`.github/workflows/ci.yml` runs `npm ci`, `npm run lint`, `npm test`, `npm run typecheck`, `npm run format:check` and `npm run build` on every pull request into `dev` and every push to `dev`. In the branch protection rule for `dev`, mark the `ci` status check as required.
 
 ## Controls
 

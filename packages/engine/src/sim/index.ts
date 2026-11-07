@@ -342,7 +342,9 @@ const parsePolicy = (v: unknown): PolicyEntry[] => {
         try {
             return parsePolicyEntry(entry)
         } catch (error) {
-            throw new Error(`"policy[${i}]": ${error instanceof Error ? error.message : String(error)}`)
+            throw new Error(`"policy[${i}]": ${error instanceof Error ? error.message : String(error)}`, {
+                cause: error,
+            })
         }
     })
 }
