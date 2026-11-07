@@ -1,0 +1,467 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { GAME_TICK_INTERVAL } from '@magus/engine'
+import type { ServerMessage } from '@magus/engine/protocol'
+import {
+    BATTLE_COUNTDOWN,
+    Lobby,
+    READY_SETUP_COUNTDOWN,
+    RECONNECT_GRACE,
+    START_COUNTDOWN,
+} from '../../server/src/lobby'
+import { loadBattleChunk, NEW_VERSION_MESSAGE } from '../src/screens/battle-chunk'
+
+// The screens run for real against a real server Lobby, and only the browser is faked: enough DOM for `h`, and a
+// WebSocket whose ends are the Lobby's connect/message/disconnect, the calls lobby-room.ts makes for a real socket.
+
+// the real icons draw on a canvas, which node doesn't have
+vi.mock('../src/game/icons', () => ({ iconUrl: () => 'icon.png' }))
+
+class FakeNode {}
+
+class FakeElement extends FakeNode {
+    className = ''
+    style = { cssText: '' }
+    classList = { toggle() {} }
+    parent: FakeElement | null = null
+    children: (FakeElement | string)[] = []
+    private clickHandlers: (() => void)[] = []
+
+    constructor(readonly tag: string) {
+        super()
+    }
+    setAttribute() {}
+    addEventListener(type: string, handler: () => void) {
+        if (type === 'click') this.clickHandlers.push(handler)
+    }
+    append(...nodes: (FakeElement | string)[]) {
+        for (const node of nodes) if (node instanceof FakeElement) node.parent = this
+        this.children.push(...nodes)
+    }
+    replaceChildren(...nodes: (FakeElement | string)[]) {
+        this.children = []
+        this.append(...nodes)
+    }
+    remove() {
+        if (this.parent) this.parent.children = this.parent.children.filter(child => child !== this)
+        this.parent = null
+    }
+    set textContent(text: string) {
+        this.children = [text]
+    }
+    get textContent(): string {
+        return this.children.map(child => (typeof child === 'string' ? child : child.textContent)).join(' ')
+    }
+    /** Depth first search for a button by its label. */
+    button(label: string): FakeElement | null {
+        if (this.tag === 'button' && this.textContent === label) return this
+        for (const child of this.children) {
+            const found = typeof child === 'string' ? null : child.button(label)
+            if (found) return found
+        }
+        return null
+    }
+    click() {
+        for (const handler of this.clickHandlers) handler()
+    }
+}
+
+type Listener = (error: unknown) => void
+const nodeProcess = (
+    globalThis as unknown as {
+        process: {
+            listeners(event: string): Listener[]
+            removeAllListeners(event: string): void
+            on(event: string, listener: Listener): void
+        }
+    }
+).process
+
+let unhandled: unknown[] = []
+let vitestListeners: Listener[] = []
+let reload: ReturnType<typeof vi.fn>
+let lobby: Lobby
+let sockets: Map<string, FakeWebSocket>
+let nextConn = 0
+
+class FakeWebSocket {
+    static OPEN = 1
+    readyState = FakeWebSocket.OPEN
+    onopen: (() => void) | null = null
+    onmessage: ((event: { data: string }) => void) | null = null
+    onclose: (() => void) | null = null
+    readonly connId = `client-${++nextConn}`
+
+    constructor(url: string) {
+        const params = new URL(url).searchParams
+        sockets.set(this.connId, this)
+        queueMicrotask(() => {
+            this.onopen?.()
+            lobby.connect(this.connId, params.get('playerId'), params.get('name'))
+        })
+    }
+    send(data: string) {
+        lobby.message(this.connId, JSON.parse(data))
+    }
+    close() {
+        if (!sockets.delete(this.connId)) return
+        this.readyState = 3
+        lobby.disconnect(this.connId)
+        this.onclose?.()
+    }
+}
+
+const newLobby = () =>
+    new Lobby('ABC234', {
+        send: (connId, message) => deliver(connId, message),
+        broadcast: message => [...sockets.keys()].forEach(connId => deliver(connId, message)),
+        close: connId => sockets.get(connId)?.close(),
+        listingChanged() {},
+        closed() {},
+    })
+
+const deliver = (connId: string, message: ServerMessage) =>
+    sockets.get(connId)?.onmessage?.({ data: JSON.stringify(message) })
+
+const realSetTimeout = setTimeout
+/** Lets promises and Node's unhandled rejection check run. */
+const settle = () => new Promise(resolve => realSetTimeout(resolve, 0))
+const seconds = (s: number) => vi.advanceTimersByTimeAsync(s * 1000)
+
+const fakeView = () => ({
+    update: vi.fn(),
+    destroy: vi.fn(),
+    setScore: vi.fn(),
+    setFrozen: vi.fn(),
+    setOverlay: vi.fn(),
+})
+
+type Chunk = () => Promise<unknown>
+const FAILED_CHUNK: Chunk = () => Promise.reject(new TypeError('Failed to fetch dynamically imported module'))
+const WORKING_CHUNK: Chunk = async () => ({ BattleView: { create: async () => fakeView() } })
+const BROKEN_RENDERER: Chunk = async () => ({
+    BattleView: { create: () => Promise.reject(new Error('WebGL is not available')) },
+})
+const pendingChunk = () => {
+    let reject!: (error: Error) => void
+    const promise = new Promise<never>((_, rej) => (reject = rej))
+    return { chunk: () => promise, fail: () => reject(new TypeError('Failed to fetch')) }
+}
+
+/** A fresh copy of the client, as a page load gets. `localStorage` survives, so a refresh keeps the player id. */
+const loadPage = async (chunk: Chunk) => {
+    vi.resetModules()
+    vi.doMock('../src/game/battle-view', chunk)
+    const root = new FakeElement('main')
+    const { lobbyScreen } = await import('../src/screens/lobby')
+    const { trainingScreen } = await import('../src/screens/training')
+    return {
+        root,
+        openLobby: () => lobbyScreen(root as unknown as HTMLElement, ['ABC234']),
+        openTraining: () => trainingScreen(root as unknown as HTMLElement),
+    }
+}
+
+const openLobby = async (chunk: Chunk) => {
+    const page = await loadPage(chunk)
+    const leave = page.openLobby()
+    await settle()
+    return { root: page.root, leave }
+}
+
+/** The client under test's socket. It is the only one, the players around it being direct Lobby connections. */
+const socketOfClient = () => [...sockets.values()].at(0)
+
+/** Takes a lobby with both seats filled to the start of the first battle, when the client asks for the chunk. */
+const startBattle = async (ready: string[]) => {
+    for (const connId of ready) lobby.message(connId, { t: 'ready' })
+    await seconds(START_COUNTDOWN)
+    for (const connId of ready) lobby.message(connId, { t: 'ready' })
+    await seconds(READY_SETUP_COUNTDOWN)
+    expect(lobby.phase).toBe('battle_countdown')
+    await settle()
+}
+
+/** The client sits in seat one and Bob, a direct connection, in seat two. */
+const seatedClient = async (chunk: Chunk) => {
+    const client = await openLobby(chunk)
+    lobby.connect('bob', 'bob-id', 'Bob')
+    await startBattle([socketOfClient()!.connId, 'bob'])
+    return client
+}
+
+/** Alice and Bob are seated, and the client watches them. */
+const spectatingClient = async (chunk: Chunk) => {
+    lobby.connect('alice', 'alice-id', 'Alice')
+    lobby.connect('bob', 'bob-id', 'Bob')
+    lobby.settings.maxSpectators = 1
+    const client = await openLobby(chunk)
+    await startBattle(['alice', 'bob'])
+    return client
+}
+
+const expectNoNewVersionMessage = (root: FakeElement) => {
+    expect(root.textContent).not.toContain(NEW_VERSION_MESSAGE)
+    expect(root.button('Refresh')).toBeNull()
+}
+
+const expectNewVersionMessage = (root: FakeElement) => {
+    // spelled out rather than the constant: this is the wording #41 asks for
+    expect(root.textContent).toContain('A new version is available, please refresh')
+    root.button('Refresh')!.click()
+    expect(reload).toHaveBeenCalledTimes(1)
+}
+
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] })
+    const storage = new Map([['magus.name', 'Carol']])
+    reload = vi.fn()
+    sockets = new Map()
+    lobby = newLobby()
+    vi.stubGlobal('Node', FakeNode)
+    vi.stubGlobal('document', { createElement: (tag: string) => new FakeElement(tag) })
+    vi.stubGlobal('location', { origin: 'https://game.example', reload })
+    vi.stubGlobal('localStorage', {
+        getItem: (key: string) => storage.get(key) ?? null,
+        setItem: (key: string, value: string) => storage.set(key, value),
+    })
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+    vi.stubGlobal('requestAnimationFrame', () => 1)
+    vi.stubGlobal('cancelAnimationFrame', () => {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    // vitest fails the run on an unhandled rejection. Taking its place lets each test assert on them, in both directions.
+    unhandled = []
+    vitestListeners = nodeProcess.listeners('unhandledRejection')
+    nodeProcess.removeAllListeners('unhandledRejection')
+    nodeProcess.on('unhandledRejection', error => unhandled.push(error))
+})
+
+afterEach(() => {
+    nodeProcess.removeAllListeners('unhandledRejection')
+    for (const listener of vitestListeners) nodeProcess.on('unhandledRejection', listener)
+    lobby.dispose()
+    vi.doUnmock('../src/game/battle-view')
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+})
+
+describe('loadBattleChunk', () => {
+    const handlers = (current = true) => ({
+        onLoaded: vi.fn((module: string) => `${module} loaded`),
+        onFailed: vi.fn(),
+        isCurrent: () => current,
+    })
+
+    it('hands a loaded module on, and reports no failure', async () => {
+        const h = handlers()
+        await expect(loadBattleChunk(async () => 'chunk', h)).resolves.toBe('chunk loaded')
+        expect(h.onFailed).not.toHaveBeenCalled()
+    })
+
+    it('reports a rejected load once, and resolves', async () => {
+        const h = handlers()
+        await expect(loadBattleChunk(() => Promise.reject(new Error('gone')), h)).resolves.toBeUndefined()
+        expect(h.onFailed).toHaveBeenCalledTimes(1)
+        expect(h.onLoaded).not.toHaveBeenCalled()
+    })
+
+    it('stays quiet about a rejected load nobody is waiting for', async () => {
+        const h = handlers(false)
+        await expect(loadBattleChunk(() => Promise.reject(new Error('gone')), h)).resolves.toBeUndefined()
+        expect(h.onFailed).not.toHaveBeenCalled()
+    })
+
+    it('does not report a failure after loading as a failed load', async () => {
+        const failure = new Error('renderer')
+        const onFailed = vi.fn()
+        await expect(
+            loadBattleChunk(async () => 'chunk', {
+                onLoaded: () => Promise.reject(failure),
+                onFailed,
+                isCurrent: () => true,
+            }),
+        ).rejects.toBe(failure)
+        expect(onFailed).not.toHaveBeenCalled()
+    })
+})
+
+describe('training room', () => {
+    const openTraining = async (chunk: Chunk) => {
+        const page = await loadPage(chunk)
+        const leave = page.openTraining()
+        return { root: page.root, leave }
+    }
+
+    it('shows the message and a reload control when the import fails', async () => {
+        const { root } = await openTraining(FAILED_CHUNK)
+        await settle()
+        expectNewVersionMessage(root)
+        expect(unhandled).toEqual([])
+    })
+
+    it('shows nothing and throws nothing when the import fails after the screen was left', async () => {
+        const { chunk, fail } = pendingChunk()
+        const { root, leave } = await openTraining(chunk)
+        leave()
+        fail()
+        await settle()
+        expectNoNewVersionMessage(root)
+        expect(unhandled).toEqual([])
+    })
+
+    it('does not report a failed BattleView.create as a new version', async () => {
+        const { root } = await openTraining(BROKEN_RENDERER)
+        await settle()
+        expectNoNewVersionMessage(root)
+        expect(unhandled).toEqual([new Error('WebGL is not available')])
+    })
+
+    it('shows no message when the import works', async () => {
+        const { root } = await openTraining(WORKING_CHUNK)
+        await settle()
+        expectNoNewVersionMessage(root)
+        expect(unhandled).toEqual([])
+    })
+})
+
+describe('online, for a player', () => {
+    it('shows the message and a reload control when the import fails', async () => {
+        const { root } = await seatedClient(FAILED_CHUNK)
+        expectNewVersionMessage(root)
+        expect(unhandled).toEqual([])
+    })
+
+    it('closes the socket, so the server pauses the match for the opponent', async () => {
+        await seatedClient(FAILED_CHUNK)
+        expect(sockets.size).toBe(0)
+        expect(lobby.info()).toMatchObject({
+            phase: 'battle_countdown',
+            paused: true,
+            pauseReason: 'Carol disconnected',
+            player1: { name: 'Carol', connected: false },
+        })
+    })
+
+    it('does not reconnect by itself, or the match would resume for a player who still has no battle', async () => {
+        await seatedClient(FAILED_CHUNK)
+        await seconds(RECONNECT_GRACE - 1)
+        expect(sockets.size).toBe(0)
+        expect(lobby.paused).toBe(true)
+    })
+
+    it('stops showing a connection status for the socket it closed', async () => {
+        const { root } = await seatedClient(FAILED_CHUNK)
+        expect(root.textContent).not.toMatch(/ms|Connecting|Reconnecting/)
+    })
+
+    it('holds a paused battle still, then rejoins the same seat and resumes after a refresh', async () => {
+        await seatedClient(FAILED_CHUNK)
+        await seconds(RECONNECT_GRACE - 1)
+        expect(lobby.phase).toBe('battle_countdown')
+
+        const { root } = await openLobby(WORKING_CHUNK)
+
+        expect(lobby.info()).toMatchObject({ paused: false, player1: { name: 'Carol', connected: true } })
+        expect(lobby.seats.player1!.connId).toBe(socketOfClient()!.connId)
+        expectNoNewVersionMessage(root)
+
+        await seconds(BATTLE_COUNTDOWN)
+        expect(lobby.phase).toBe('battle')
+        const tick = lobby.battle!.state.gameTick
+        await vi.advanceTimersByTimeAsync(GAME_TICK_INTERVAL * 5)
+        expect(lobby.battle!.state.gameTick).toBe(tick + 5)
+    })
+
+    it('stays paused until both players are back when a deploy caught both of them', async () => {
+        await seatedClient(FAILED_CHUNK)
+        lobby.disconnect('bob')
+        expect(lobby.paused).toBe(true)
+
+        await openLobby(WORKING_CHUNK)
+        expect(lobby.paused).toBe(true)
+
+        lobby.connect('bob-again', 'bob-id', 'Bob')
+        expect(lobby.paused).toBe(false)
+    })
+
+    it('forfeits if the refresh comes after the reconnect grace period', async () => {
+        await seatedClient(FAILED_CHUNK)
+        await seconds(RECONNECT_GRACE)
+        expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player2' })
+    })
+
+    it('shows nothing and leaves the match alone when the import fails after the screen was left', async () => {
+        const { chunk, fail } = pendingChunk()
+        const { root, leave } = await seatedClient(chunk)
+        leave()
+        const before = lobby.info()
+        fail()
+        await settle()
+        expectNoNewVersionMessage(root)
+        expect(lobby.info()).toEqual(before)
+        expect(unhandled).toEqual([])
+    })
+
+    it('shows nothing and keeps the socket when the import fails after the battle ended', async () => {
+        const { chunk, fail } = pendingChunk()
+        const { root } = await seatedClient(chunk)
+        lobby.disconnect('bob')
+        await seconds(RECONNECT_GRACE)
+        expect(lobby.phase).toBe('match_over')
+        fail()
+        await settle()
+        expectNoNewVersionMessage(root)
+        expect(root.textContent).toContain('Victory!')
+        expect(sockets.size).toBe(1)
+        expect(unhandled).toEqual([])
+    })
+
+    it('does not report a failed BattleView.create as a new version, and stays connected', async () => {
+        const { root } = await seatedClient(BROKEN_RENDERER)
+        expectNoNewVersionMessage(root)
+        expect(sockets.size).toBe(1)
+        expect(lobby.paused).toBe(false)
+        expect(unhandled).toEqual([new Error('WebGL is not available')])
+    })
+
+    it('stays connected with no message when the import works', async () => {
+        const { root } = await seatedClient(WORKING_CHUNK)
+        expectNoNewVersionMessage(root)
+        expect(sockets.size).toBe(1)
+        expect(lobby.paused).toBe(false)
+        expect(unhandled).toEqual([])
+    })
+})
+
+describe('online, for a spectator', () => {
+    it('shows the message and a reload control when the import fails', async () => {
+        const { root } = await spectatingClient(FAILED_CHUNK)
+        expectNewVersionMessage(root)
+        expect(unhandled).toEqual([])
+    })
+
+    it('carries the match on for the players', async () => {
+        await spectatingClient(FAILED_CHUNK)
+        expect(lobby.info()).toMatchObject({
+            paused: false,
+            spectators: [],
+            player1: { connected: true },
+            player2: { connected: true },
+        })
+
+        await seconds(BATTLE_COUNTDOWN)
+        expect(lobby.phase).toBe('battle')
+        const tick = lobby.battle!.state.gameTick
+        await vi.advanceTimersByTimeAsync(GAME_TICK_INTERVAL * 5)
+        expect(lobby.battle!.state.gameTick).toBe(tick + 5)
+    })
+
+    it('comes back as a spectator after a refresh', async () => {
+        await spectatingClient(FAILED_CHUNK)
+        const { root } = await openLobby(WORKING_CHUNK)
+        expect(lobby.info().spectators).toEqual(['Carol'])
+        expect(lobby.seats.player1!.playerId).toBe('alice-id')
+        expectNoNewVersionMessage(root)
+    })
+})
