@@ -14,9 +14,9 @@ Git flow: work branches come from `dev` and PRs target `dev`. `main` only receiv
 
 ```sh
 npm ci
+npm run lint           # eslint
 npm test               # vitest
 npm run typecheck
-npm run lint           # eslint
 npm run format:check   # prettier
 npm run build          # web client
 ```
