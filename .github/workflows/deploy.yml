@@ -113,6 +113,16 @@ jobs:
                   grep -qi '<!doctype html' <<< "${page}"
 
                   # Hashed assets must be cached as immutable.
-                  asset="$(ls apps/web/dist/assets | head -n 1)"
+                  asset="$(ls apps/web/dist/assets | grep -v '^404\.html$' | head -n 1)"
+                  test -n "${asset}"
                   headers="$(fetch -o /dev/null -D - "${url}/assets/${asset}")"
                   grep -qi '^cache-control:.*immutable' <<< "${headers}"
+
+                  # A missing asset must be a real 404 that isn't cached as immutable, or a refresh can't recover
+                  # if that file name comes back. No -f here: the 404 is the expected answer.
+                  missing="$(curl -sS --retry 10 --retry-delay 15 --retry-all-errors --max-time 20 -o /dev/null -D - "${url}/assets/smoke-check-missing.js")"
+                  if ! grep -qiE '^HTTP/[0-9.]+ 404' <<< "${missing}" || grep -qi '^cache-control:.*immutable' <<< "${missing}"; then
+                      echo "::error::A missing asset must be a 404 that isn't immutable. Check apps/web/public/assets/404.html."
+                      echo "${missing}"
+                      exit 1
+                  fi

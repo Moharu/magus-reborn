@@ -150,7 +150,7 @@ The account also needs a `workers.dev` subdomain. Registering one is a one-time 
 
 ### Client hosting
 
-`apps/web/public/_headers` marks `/assets/*` as immutable, and Vite copies it into the build. The SPA fallback is Pages' default behaviour for a site with no top-level `404.html`, so don't add one. Don't add a `/* /index.html 200` rule to a `_redirects` file either: wrangler treats it as an infinite loop and ignores it.
+`apps/web/public/_headers` marks `/assets/*` as immutable, and Vite copies it into the build. The SPA fallback is Pages' default behaviour for a site with no top-level `404.html`, so don't add one. `apps/web/public/assets/404.html` is different and has to stay: it makes a missing asset a real 404 instead of the fallback page, which the `/assets/*` rule would cache as immutable under that asset's name. A tab left open across a deploy asks for such names, and a refresh couldn't recover if the name came back in a rollback. Don't add a `/* /index.html 200` rule to a `_redirects` file either: wrangler treats it as an infinite loop and ignores it.
 
 `vercel.json` is no longer used for new deploys. It stays in the repository until the first Cloudflare deploy has been verified.
 
