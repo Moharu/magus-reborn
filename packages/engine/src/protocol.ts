@@ -52,9 +52,9 @@ export interface RoundResult {
     round: number
     winner: Winner
     ticks: number
-    /** Hp at the end of the round. Never the loadouts: those are not sent to the opponent. */
-    player1: { hp: number }
-    player2: { hp: number }
+    /** `spells` (the round's loadout) is sent to spectators only, never to a player. */
+    player1: { hp: number; spells?: SpellId[] }
+    player2: { hp: number; spells?: SpellId[] }
 }
 
 export interface LobbyInfo {

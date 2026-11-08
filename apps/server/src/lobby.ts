@@ -251,7 +251,8 @@ export class Lobby {
 
     // views
 
-    info(): LobbyInfo {
+    /** The lobby as `role` may see it: the round history holds each player's spells for spectators only. */
+    info(role: Role | null = null): LobbyInfo {
         const player = (key: PlayerKey): LobbyPlayerInfo | null => {
             const seat = this.seats[key]
             return seat && { name: seat.name, ready: seat.ready, wins: seat.wins, connected: seat.connId !== null }
@@ -270,7 +271,14 @@ export class Lobby {
             player2: player('player2'),
             spectators: [...this.connections.values()].filter(c => c.role === 'spectator').map(c => c.name),
             settings: this.settings,
-            rounds: this.rounds,
+            rounds:
+                role === 'spectator'
+                    ? this.rounds
+                    : this.rounds.map(({ player1, player2, ...round }) => ({
+                          ...round,
+                          player1: { hp: player1.hp },
+                          player2: { hp: player2.hp },
+                      })),
         }
     }
 
@@ -367,8 +375,8 @@ export class Lobby {
             round: this.round,
             winner,
             ticks: state.gameTick,
-            player1: { hp: state.player1.hp },
-            player2: { hp: state.player2.hp },
+            player1: { hp: state.player1.hp, spells: state.player1.spells.map(s => s.id) },
+            player2: { hp: state.player2.hp, spells: state.player2.spells.map(s => s.id) },
         })
         if (winner === 'player1' || winner === 'player2') {
             const seat = this.seats[winner]!
@@ -537,7 +545,19 @@ export class Lobby {
     }
 
     private changed() {
-        this.transport.broadcast({ t: 'meta', lobby: this.info() })
+        const watching = [...this.connections].filter(([, conn]) => conn.role === 'spectator')
+        if (this.rounds.length && watching.length) {
+            // only spectators get the spells in the round history; everyone else gets it without
+            const messages = new Map<string, ServerMessage>()
+            const players: ServerMessage = { t: 'meta', lobby: this.info() }
+            const spectators: ServerMessage = { t: 'meta', lobby: this.info('spectator') }
+            for (const [connId, conn] of this.connections) {
+                messages.set(connId, conn.role === 'spectator' ? spectators : players)
+            }
+            this.transport.sendEach(messages)
+        } else {
+            this.transport.broadcast({ t: 'meta', lobby: this.info() })
+        }
         const listing = this.phase === 'match_over' ? null : this.listing()
         const serialized = JSON.stringify(listing)
         if (serialized !== this.lastListing) {

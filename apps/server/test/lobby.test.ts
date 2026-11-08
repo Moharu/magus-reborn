@@ -35,6 +35,7 @@ class FakeTransport implements LobbyTransport {
     broadcast(msg: ServerMessage) {
         this.broadcasts.push(msg)
     }
+    /** Messages that went to each connection separately, such as the battle stream and a per-viewer `meta`. */
     sendEach(messages: Map<string, ServerMessage>) {
         for (const [to, msg] of messages) this.streamed.push({ to, msg })
     }
@@ -1198,19 +1199,24 @@ describe('keeping a loadout from the opponent (#86)', () => {
         expect(mid.snap.player1).not.toHaveProperty('spells')
     })
 
-    it('keeps the loadouts out of the round history, which still has the winner, ticks and hp', () => {
+    it("shows spectators each player's spells in the round history, and players only hp", () => {
         const { lobby, transport } = play()
-        const [round] = lobby.info().rounds
-        expect(round).toEqual({
-            round: 1,
-            winner: 'player1',
-            ticks: expect.any(Number),
-            player1: { hp: 100 },
-            player2: { hp: 0 },
-        })
-        const metas = transport.broadcasts.filter(m => m.t === 'meta')
-        expect(metas.at(-1)).toMatchObject({ lobby: { rounds: [round] } })
-        expect(metas.some(m => JSON.stringify(m).includes('SPELL_'))).toBe(false)
+        const base = { round: 1, winner: 'player1', ticks: expect.any(Number) }
+        const metaOf = (connId: string) => transport.stream(connId).filter(m => m.t === 'meta')
+        const lastRounds = (connId: string) => {
+            const meta = metaOf(connId).at(-1)
+            return meta?.t === 'meta' ? meta.lobby.rounds : null
+        }
+        expect(lastRounds('c3')).toEqual([
+            { ...base, player1: { hp: 100, spells: LOADOUT }, player2: { hp: 0, spells: LOADOUT_2 } },
+        ])
+        for (const player of ['c1', 'c2']) {
+            expect(lastRounds(player)).toEqual([{ ...base, player1: { hp: 100 }, player2: { hp: 0 } }])
+            expect(receivedBy(transport, player).filter(m => m.t === 'meta' && holdsLoadout(m, LOADOUT))).toEqual([])
+            expect(receivedBy(transport, player).filter(m => m.t === 'meta' && holdsLoadout(m, LOADOUT_2))).toEqual([])
+        }
+        expect(lobby.info().rounds[0].player1).toEqual({ hp: 100 })
+        expect(lobby.info('spectator').rounds[0].player1.spells).toEqual(LOADOUT)
     })
 
     it('redacts the catch-up an opponent or spectator gets when joining a battle', () => {
