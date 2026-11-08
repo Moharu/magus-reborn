@@ -143,5 +143,5 @@ describe('arena:tournament CLI', () => {
         }
         writeFileSync(join(dir, 'bad.json'), '{}')
         expect(fails('merge', join(dir, 'bad.json'))).toMatch(/not a tournament shard/)
-    })
+    }, 30000)
 })

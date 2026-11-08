@@ -24,7 +24,7 @@ export const SHARD_FORMAT = 'arena-tournament-shard'
 
 export const DEFAULT_TOP = 8
 export const DEFAULT_GENERAL_PAIRS = 2
-export const DEFAULT_GAMES = 4
+export const DEFAULT_GAMES = 2
 export const DEFAULT_SEED = 1
 
 export interface TournamentOptions {

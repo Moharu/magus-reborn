@@ -9,7 +9,7 @@ npm run arena:match -- --seed 1          # summary of one match between the two 
 npm run arena:match -- --seed 1 --log    # the full match log, then the summary
 npm run arena:match -- --seed 1 --max-ticks 600
 npm run arena:match -- --seed 1 --a bait --b patient-counter   # two archetypes from profiles/
-npm run arena:tournament -- --top 8 --games 4 --seed 1          # round-robin, ranked by win rate (#103)
+npm run arena:tournament -- --top 8 --games 2 --seed 1          # round-robin, ranked by win rate (#103)
 ```
 
 ## Rules the arena keeps
@@ -180,7 +180,7 @@ tie), or turned off if it has none. Everything else is kept.
 
 - **Pairs.** Every unordered pair of distinct entrants plays, so a loadout meets itself under a different profile (mirror
   matches), and an entrant never meets itself. Pairs are indexed (0,1), (0,2), ..., (1,2), ... .
-- **Games.** `--games G` (default 4, even) best-of-1 matches per pair, `a` as `player1` on even games and `b` on odd ones, so
+- **Games.** `--games G` (default 2, even) best-of-1 matches per pair, `a` as `player1` on even games and `b` on odd ones, so
   each is first in exactly half. Game `g` of pair `p` is seeded `deriveSeed(seed, p, g)`.
 - **Score.** Win rate = wins / games over all of an entrant's games. Only wins count: draws (time cap, mutual lethal) and
   losses are both non-wins; draws are listed for information. The ranking is by win rate, ties by entrant id
