@@ -2,13 +2,18 @@ import { NEW_VERSION_MESSAGE } from '@magus/engine/protocol'
 import { h } from '../dom'
 
 interface BattleChunkHandlers<M, R> {
+    /** Only create the view here; screen setup belongs in onCreated. */
     onLoaded: (module: M) => R | PromiseLike<R>
+    onCreated?: (view: R) => void
+    onSetupFailed?: () => void
     onCreateFailed: (message: string) => void
     /** The chunk could not be loaded, and `isCurrent` says someone still wants it. */
     onFailed: () => void
     /** False once the screen was left or the battle ended, so a late failure has nobody to tell. */
     isCurrent: () => boolean
 }
+
+export const BATTLE_SETUP_ERROR = 'Could not display the battle. Please try refreshing.'
 
 export const BATTLE_CREATE_ERROR =
     'Could not start the battle renderer. Check that your browser supports WebGL or WebGPU and try refreshing.'
@@ -24,18 +29,27 @@ const isChunkLoadError = (error: unknown): boolean =>
 /** Import failures need a refresh; renderer startup failures may need a different explanation. */
 export const loadBattleChunk = <M, R>(
     load: () => Promise<M>,
-    { onLoaded, onFailed, onCreateFailed, isCurrent }: BattleChunkHandlers<M, R>,
+    { onLoaded, onCreated, onSetupFailed, onFailed, onCreateFailed, isCurrent }: BattleChunkHandlers<M, R>,
 ): Promise<R | void> =>
     load().then(
         async module => {
+            let view: R
             try {
-                return await onLoaded(module)
+                view = await onLoaded(module)
             } catch (error) {
                 if (!isCurrent()) return
                 console.error('Could not create the battle view', error)
                 if (isChunkLoadError(error)) onFailed()
                 else onCreateFailed(BATTLE_CREATE_ERROR)
+                return
             }
+            try {
+                onCreated?.(view)
+            } catch (error) {
+                console.error('Could not initialize the battle screen', error)
+                onSetupFailed?.()
+            }
+            return view
         },
         error => {
             if (!isCurrent()) return

@@ -8,7 +8,7 @@ import {
     RECONNECT_GRACE,
     START_COUNTDOWN,
 } from '../../server/src/lobby'
-import { BATTLE_CREATE_ERROR, loadBattleChunk } from '../src/screens/battle-chunk'
+import { BATTLE_CREATE_ERROR, BATTLE_SETUP_ERROR, loadBattleChunk } from '../src/screens/battle-chunk'
 import { FakeElement, FakeNode } from './fake-dom'
 
 // The screens run for real against a real server Lobby, and only the browser is faked: enough DOM for `h`, and a
@@ -385,6 +385,9 @@ describe('online, for a player', () => {
         expect(sockets.size).toBe(0)
         expect(lobby.paused).toBe(true)
         expect(root.textContent).toContain(BATTLE_CREATE_ERROR)
+        expectBackHomeLink(root)
+        root.button('Refresh')!.click()
+        expect(reload).toHaveBeenCalledTimes(1)
         expect(unhandled).toEqual([])
     })
 
@@ -513,4 +516,39 @@ describe.each([
         expect(sockets.size).toBe(1)
         expect(unhandled).toEqual([])
     })
+})
+
+describe('errors after BattleView.create succeeds', () => {
+    it.each(['training update', 'lobby update', 'lobby decoration'])(
+        'logs and destroys the view after a failed %s',
+        async scenario => {
+            const view = fakeView()
+            const error = new Error('screen setup failed')
+            const method = scenario === 'lobby decoration' ? view.setScore : view.update
+            method.mockImplementation(() => {
+                throw error
+            })
+            const chunk: Chunk = async () => ({ BattleView: { create: async () => view } })
+            let root: FakeElement
+            let leave: () => void
+            if (scenario.startsWith('training')) {
+                const page = await loadPage(chunk)
+                root = page.root
+                leave = page.openTraining()
+                await settle()
+            } else {
+                ;({ root, leave } = await seatedClient(chunk))
+                expect(sockets.size).toBe(0)
+                expect(lobby.paused).toBe(true)
+            }
+            expect(console.error).toHaveBeenCalledWith('Could not initialize the battle screen', error)
+            expect(root.textContent).toContain(BATTLE_SETUP_ERROR)
+            expect(root.textContent).not.toContain(BATTLE_CREATE_ERROR)
+            expectNoNewVersionMessage(root)
+            expect(view.destroy).toHaveBeenCalledTimes(1)
+            leave()
+            expect(view.destroy).toHaveBeenCalledTimes(1)
+            expect(unhandled).toEqual([])
+        },
+    )
 })

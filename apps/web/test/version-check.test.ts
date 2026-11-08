@@ -182,7 +182,8 @@ describe('joining a lobby', () => {
         sockets[0].deliver({ t: 'error', message: 'Lobby not found', fatal: true })
 
         expect(root.textContent).toContain('Lobby not found')
-        expect(root.button('Refresh')).toBeNull()
+        root.button('Refresh')!.click()
+        expect(reload).toHaveBeenCalledTimes(1)
         leave()
     })
 })
