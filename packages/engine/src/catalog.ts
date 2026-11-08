@@ -79,7 +79,8 @@ export const LOADOUT_SLOTS: readonly SlotKind[] = [
 
 export const LOADOUT_SIZE = LOADOUT_SLOTS.length
 export const FIXED_SLOT = LOADOUT_SLOTS.indexOf('fixed')
-export const HOTKEYS = ['Q', 'W', 'E', 'R', 'S', 'D', 'F'] as const
+/** Default hotkey labels per slot. Counterspell's is Space (the key's `KeyboardEvent.code`). */
+export const HOTKEYS = ['Q', 'W', 'E', 'R', 'Space', 'D', 'F'] as const
 
 /** Placeholder until the owner picks a 0.2 default: the 0.1 default plus Afterburn as the 4th Fire spell. */
 export const DEFAULT_SPELLS: SpellId[] = [

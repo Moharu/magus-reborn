@@ -60,9 +60,9 @@ describe('loadout shape', () => {
     })
 
     it('has one hotkey per slot: Q W E R for the element, S for Counterspell, D F for general', () => {
-        expect(HOTKEYS).toEqual(['Q', 'W', 'E', 'R', 'S', 'D', 'F'])
+        expect(HOTKEYS).toEqual(['Q', 'W', 'E', 'R', 'Space', 'D', 'F'])
         expect(HOTKEYS).toHaveLength(LOADOUT_SIZE)
-        expect(HOTKEYS[FIXED_SLOT]).toBe('S')
+        expect(HOTKEYS[FIXED_SLOT]).toBe('Space')
     })
 
     it('the default loadout is valid', () => {

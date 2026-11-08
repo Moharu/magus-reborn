@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { Battle, GLOBAL_COOLDOWN, secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
+import { Battle, DEFAULT_SPELLS, GLOBAL_COOLDOWN, secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
 import { buttonState } from '../src/game/button-state'
 
 const LOADOUT: SpellId[] = [
@@ -219,5 +219,18 @@ describe('buttonState (#38)', () => {
             advance(battle, 1)
             expect(stateOf(battle, 'SPELL_FIREBALL')).toEqual(IDLE)
         })
+    })
+})
+
+describe('7 button loadout', () => {
+    it('gives every button a state, and Counterspell and the general spells are off the GCD', () => {
+        const battle = new Battle({ name: 'Alice', spells: DEFAULT_SPELLS }, { name: 'Bob', spells: DEFAULT_SPELLS })
+        advance(battle, 10)
+        const player = battle.state.player1
+        expect(player.spells).toHaveLength(7)
+        expect(player.spells.map(spell => buttonState(player, spell, battle.state.gameTick))).toEqual(
+            Array(7).fill(IDLE),
+        )
+        expect(player.spells.slice(4).every(spell => SPELLS[spell.id].offGlobalCooldown)).toBe(true)
     })
 })

@@ -10,6 +10,7 @@ import {
     type SpellId,
 } from '@magus/engine'
 import { ActionBar, INFINITE_HP, PlayerHud, setText } from './hud'
+import { hotkeyFor, KEY_CODES } from './hotkeys'
 import { GROUND_Y, HEIGHT, SIDE_X, sidesFor, TEXT_FONT, WIDTH, type Side } from './layout'
 import { interruptTells, type InterruptTell } from './interrupt-tell'
 import { backdropTexture, particleTexture } from './textures'
@@ -23,7 +24,6 @@ export interface BattleViewOptions {
     onRelease?: (spellIndex: number) => void
 }
 
-const KEY_CODES: Record<string, number> = { KeyQ: 0, KeyW: 1, KeyE: 2, KeyA: 3, KeyS: 4, KeyD: 5 }
 const SIDES: Side[] = ['left', 'right']
 const opposite = (side: Side): Side => (side === 'left' ? 'right' : 'left')
 
@@ -521,10 +521,8 @@ export class BattleView {
     // input
 
     private onKeyDown = (event: KeyboardEvent) => {
-        const index = KEY_CODES[event.code]
-        if (index === undefined || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return
-        const target = event.target as HTMLElement | null
-        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+        const index = hotkeyFor(event)
+        if (index === undefined) return
         event.preventDefault()
         if (this.keysDown.has(index)) return
         this.keysDown.add(index)
@@ -534,6 +532,8 @@ export class BattleView {
     private onKeyUp = (event: KeyboardEvent) => {
         const index = KEY_CODES[event.code]
         if (index === undefined || !this.keysDown.delete(index)) return
+        // Firefox clicks the focused button when Space is released; a cast hotkey must not do that
+        event.preventDefault()
         this.options.onRelease?.(index)
     }
 
