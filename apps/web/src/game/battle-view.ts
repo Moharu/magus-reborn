@@ -20,7 +20,7 @@ import { Wizard } from './wizard'
 export interface BattleViewOptions {
     /** The local player's seat, or null for spectators (no input, no action bar). */
     me: PlayerKey | null
-    onPress?: (spellIndex: number) => void
+    onPress?: (spellIndex: number) => void | boolean
     onRelease?: (spellIndex: number) => void
 }
 
@@ -166,7 +166,7 @@ export class BattleView {
             this.actionBar = new ActionBar(
                 i => {
                     if (!this.combatActive()) return false
-                    this.options.onPress?.(i)
+                    return this.options.onPress?.(i)
                 },
                 i => this.options.onRelease?.(i),
             )
@@ -567,6 +567,7 @@ export class BattleView {
         if (event.repeat || this.keysDown.has(index)) return
         this.handledKeyUps.add(event.code)
         this.keysDown.add(index)
+        this.actionBar?.manualPress(index)
         this.options.onPress?.(index)
     }
 

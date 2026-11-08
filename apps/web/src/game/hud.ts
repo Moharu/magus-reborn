@@ -5,6 +5,7 @@ import {
     HOTKEYS,
     SPELLS,
     ticksToSeconds,
+    secondsToTicks,
     type PlayerKey,
     type PlayerState,
     type PlayerView,
@@ -221,7 +222,13 @@ export class ActionBar extends Container {
     }[] = []
     pressed = new Set<number>()
     private accessibleCast: { index: number; startingTick: number } | null = null
-    private readonly accessibleRequests = new Set<number>()
+    // Ten 50 ms ticks allow a 0.5 s lobby round trip without claiming later casts.
+    private readonly accessibleRequests = new Map<number, number>()
+    private requestTick = 0
+
+    manualPress(index: number) {
+        this.accessibleRequests.delete(index)
+    }
 
     clearAccessibleCast() {
         this.accessibleCast = null
@@ -277,6 +284,7 @@ export class ActionBar extends Container {
             root.on('pointerdown', () => {
                 if (this.pressed.has(i)) return
                 this.pressed.add(i)
+                this.manualPress(i)
                 onPress(i)
             })
             const release = () => {
@@ -289,9 +297,8 @@ export class ActionBar extends Container {
                 // Pixi's pointer click already went through down/up. Accessibility clicks
                 // have no pointer type and need their own activation.
                 if (event?.pointerType) return
-                const alreadyRequested = this.accessibleRequests.has(i)
-                this.accessibleRequests.add(i)
-                if (onPress(i) === false && !alreadyRequested) this.accessibleRequests.delete(i)
+                this.accessibleRequests.set(i, this.requestTick)
+                if (onPress(i) === false) this.accessibleRequests.delete(i)
             })
             this.addChild(root)
             this.buttons.push({ root, icon, overlay, frame, center, key, name, spellId: '' })
@@ -299,17 +306,23 @@ export class ActionBar extends Container {
     }
 
     update(player: PlayerState, tick: number, keysDown: Set<number>, confirmedTick = tick, active = true) {
+        this.requestTick = tick
         if (!active) this.clearAccessibleCast()
         // Bind requests to the cast the engine actually accepted, never the last clicked slot.
         if (
             active &&
             player.cast !== null &&
             player.castStartingTick !== null &&
-            this.accessibleRequests.has(player.cast)
+            this.accessibleRequests.has(player.cast) &&
+            player.castStartingTick >= this.accessibleRequests.get(player.cast)! &&
+            player.castStartingTick <= this.accessibleRequests.get(player.cast)! + secondsToTicks(0.5)
         ) {
             this.accessibleCast = { index: player.cast, startingTick: player.castStartingTick }
             // Other requests may still be in flight to the authoritative server.
             this.accessibleRequests.delete(player.cast)
+        }
+        for (const [index, requestedTick] of this.accessibleRequests) {
+            if (confirmedTick > requestedTick + secondsToTicks(0.5)) this.accessibleRequests.delete(index)
         }
         const pending = this.accessibleCast
         if (pending) {

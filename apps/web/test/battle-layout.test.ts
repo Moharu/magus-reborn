@@ -317,6 +317,22 @@ describe('accessible cast ownership', () => {
             return { game, view, release, input, charge, sync }
         }
 
+        it('does not claim a manual Fireball after an accessible request rejected under Counterspell', () => {
+            const { game, release, input, charge, sync } = harness()
+            game.startCast('player1', 0)
+            game.startCast('player2', 4)
+            sync()
+            input('click', 0)
+            while (game.state.gameTick < game.state.player1.lockedUntil) {
+                game.tick()
+                sync()
+            }
+            input('keyboard', 0)
+            charge()
+            expect(release).not.toHaveBeenCalled()
+            expect(game.state.player1.cast).toBe(0)
+        })
+
         it.each(['keyboard', 'pointer'] as const)('releases accessible Fireball after rejected %s Haste', kind => {
             const { game, release, input, charge } = harness()
             game.startCast('player1', 5)
@@ -409,6 +425,39 @@ describe('accessible cast ownership', () => {
         charge()
         expect(release).not.toHaveBeenCalled()
         expect(game.state.player1.cast).toBe(0)
+    })
+
+    it.each([8, 11])('bounds delayed lobby acceptance at %i ticks', delay => {
+        const game = battle()
+        const release = vi.fn((i: number) => game.stopCast('player1', i))
+        const bar = new ActionBar(() => {}, release)
+        bar.update(game.state.player1, 0, new Set())
+        bar.children[1].emit('click', new FederatedPointerEvent(new EventBoundary(bar)))
+        for (let i = 0; i < delay; i++) {
+            game.tick()
+            bar.update(game.state.player1, game.state.gameTick, new Set())
+        }
+        game.startCast('player1', 0)
+        bar.update(game.state.player1, game.state.gameTick, new Set())
+        for (let i = 0; i < game.state.player1.spells[0].castTime; i++) game.tick()
+        bar.update(game.state.player1, game.state.gameTick, new Set())
+        if (delay <= 10) expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        else {
+            expect(release).not.toHaveBeenCalled()
+            expect(game.state.player1.cast).toBe(0)
+        }
+    })
+
+    it('does not claim manual input within a pending lobby request window', () => {
+        const game = battle()
+        const release = vi.fn()
+        const bar = new ActionBar(() => {}, release)
+        bar.children[1].emit('click', new FederatedPointerEvent(new EventBoundary(bar)))
+        bar.children[1].emit('pointerdown', new FederatedPointerEvent(new EventBoundary(bar)))
+        game.startCast('player1', 0)
+        for (let i = 0; i < game.state.player1.spells[0].castTime; i++) game.tick()
+        bar.update(game.state.player1, game.state.gameTick, new Set())
+        expect(release).not.toHaveBeenCalled()
     })
 
     it('keeps a second accessible request while an older network cast is confirmed', () => {

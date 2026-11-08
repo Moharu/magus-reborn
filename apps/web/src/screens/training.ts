@@ -159,8 +159,9 @@ export const trainingScreen = (root: HTMLElement) => {
             BattleView.create(stage, {
                 me: 'player1',
                 onPress: i => {
-                    battle.startCast('player1', i)
+                    const accepted = battle.startCast('player1', i)
                     flush()
+                    return accepted
                 },
                 onRelease: i => {
                     battle.stopCast('player1', i)
