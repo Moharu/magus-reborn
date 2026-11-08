@@ -1,4 +1,4 @@
-import type { SpellId } from '@magus/engine'
+import type { EffectId, EffectType, SpellId } from '@magus/engine'
 import type { Rng } from './prng'
 
 /** `a` plays as the engine's `player1`, `b` as `player2`. */
@@ -27,6 +27,19 @@ export interface CastView {
     readonly completesAt: number
 }
 
+/**
+ * A buff or debuff as the buff bar shows it, on either player: which effect, whether it is harmful, and its timer. Never
+ * an effect's internal fields (Haste's saved cast times, Temporal Shield's saved HP, Magic Eater's pending heal).
+ * Every Ignite is its own entry, so the Ignite stacks on a player are the entries with id `DEBUFF_IGNITE`.
+ */
+export interface EffectView {
+    readonly id: EffectId
+    readonly type: EffectType
+    readonly startingTick: number
+    /** `startingTick + duration`: the tick the effect ends on. Views from that tick on no longer show it. */
+    readonly expiresAt: number
+}
+
 export interface OwnCastView extends CastView {
     readonly slot: number
 }
@@ -36,15 +49,22 @@ export interface SelfView {
     readonly casting: OwnCastView | null
     readonly gcdUntil: number
     readonly lockedUntil: number
+    /** The player's own buffs and debuffs, in the order the engine applied them. */
+    readonly effects: readonly EffectView[]
     /** The player's own loadout, in slot order. */
     readonly spells: readonly SpellView[]
 }
 
-/** What a player sees of their opponent: HP, the spell being cast (if any) and a Counterspell lock. Never the loadout. */
+/**
+ * What a player sees of their opponent, as a real client shows it: HP, the spell being cast (if any), a Counterspell
+ * lock, and their buffs and debuffs. Never the loadout, cooldowns, GCD or any effect's internal fields.
+ */
 export interface EnemyView {
     readonly hp: number
     readonly casting: CastView | null
     readonly lockedUntil: number
+    /** The opponent's buffs and debuffs (for example the Ignites on them, Haste, Blur, Temporal Shield). */
+    readonly effects: readonly EffectView[]
 }
 
 /**

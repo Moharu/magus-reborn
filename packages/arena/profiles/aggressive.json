@@ -1,0 +1,53 @@
+{
+    "loadout": [
+        "SPELL_METEOR",
+        "SPELL_FIREBALL",
+        "SPELL_IGNITE",
+        "SPELL_COMBUSTION",
+        "SPELL_COUNTERSPELL",
+        "SPELL_HASTE",
+        "SPELL_MAGIC_EATER"
+    ],
+    "profile": {
+        "name": "aggressive",
+        "intent": "All-out damage: stack Ignites, Combustion at 4+, Haste into Meteor, and a fast early Counterspell on big casts.",
+        "rotation": [
+            {
+                "spell": "SPELL_COMBUSTION",
+                "when": [{ "type": "enemyEffectsAtLeast", "effect": "DEBUFF_IGNITE", "count": 4 }]
+            },
+            {
+                "spell": "SPELL_IGNITE",
+                "when": [{ "type": "enemyEffectsBelow", "effect": "DEBUFF_IGNITE", "count": 4 }]
+            },
+            "SPELL_METEOR",
+            "SPELL_FIREBALL"
+        ],
+        "counterspell": {
+            "enabled": true,
+            "targets": ["SPELL_METEOR", "SPELL_COMBUSTION"],
+            "reaction": { "meanSeconds": 0.35, "spreadSeconds": 0.1 },
+            "timing": "early",
+            "lateWindowSeconds": 0
+        },
+        "fakeCast": {
+            "enabled": false,
+            "spell": "SPELL_METEOR",
+            "cancelAfterSeconds": 0.3,
+            "pauseAfterSeconds": 0,
+            "minGapSeconds": 12,
+            "maxPerMatch": 0,
+            "when": []
+        },
+        "generals": {
+            "SPELL_HASTE": {
+                "when": [{ "type": "selfNotCasting" }, { "type": "nextCastIs", "spells": ["SPELL_METEOR"] }]
+            },
+            "SPELL_TEMPORAL_SHIELD": "never",
+            "SPELL_MAGIC_EATER": {
+                "when": [{ "type": "nextCastIs", "spells": ["SPELL_COMBUSTION", "SPELL_METEOR"] }]
+            },
+            "SPELL_BLUR": "never"
+        }
+    }
+}
