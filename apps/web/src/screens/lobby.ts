@@ -591,6 +591,17 @@ const startLobby = (root: HTMLElement, code: string) => {
                     if (!message.lobby.matchStarted || (lobby && message.lobby.round < lobby.round))
                         stage.querySelector('.spell-log-history')?.replaceChildren()
                     lobby = message.lobby
+                    // Ready is final locally, but a disconnected send may never reach the server.
+                    // Retry only after fresh metadata confirms this round still needs our Ready.
+                    if (
+                        connection === 'open' &&
+                        lobby.phase === 'set_up' &&
+                        lobby.round === readyRound &&
+                        lobby.countdown !== 0 &&
+                        me() !== null &&
+                        lobby[me()!]?.ready === false
+                    )
+                        send({ t: 'ready' })
                     break
                 case 'battle': {
                     const fresh = caughtUp
