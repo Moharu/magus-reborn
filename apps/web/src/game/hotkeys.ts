@@ -12,14 +12,14 @@ export interface KeyLike {
     ctrlKey?: boolean
     metaKey?: boolean
     altKey?: boolean
-    target?: { tagName?: string; isContentEditable?: boolean } | null
+    target?: EventTarget | { tagName?: string; isContentEditable?: boolean } | null
 }
 
 /** The slot a key press should cast, or undefined for modified keys, repeats and typing in a field. */
 export const hotkeyFor = (event: KeyLike): number | undefined => {
     const index = KEY_CODES[event.code]
     if (index === undefined || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return undefined
-    const target = event.target
+    const target = event.target as { tagName?: string; isContentEditable?: boolean } | null | undefined
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable))
         return undefined
     return index
