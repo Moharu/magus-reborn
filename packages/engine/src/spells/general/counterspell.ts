@@ -20,6 +20,7 @@ export const Counterspell: SpellDefinition = {
             type: 'INTERRUPTED',
             player: target,
             spellIndex: player.cast!,
+            spellId: player.spells[player.cast!].id,
             tick: state.gameTick,
             source: 'SPELL_COUNTERSPELL',
         })

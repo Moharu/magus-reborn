@@ -66,6 +66,7 @@ const newLobby = () =>
     new Lobby('ABC234', {
         send: (connId, message) => deliver(connId, message),
         broadcast: message => [...sockets.keys()].forEach(connId => deliver(connId, message)),
+        sendEach: messages => messages.forEach((message, connId) => deliver(connId, message)),
         close: connId => sockets.get(connId)?.close(),
         listingChanged() {},
         closed() {},

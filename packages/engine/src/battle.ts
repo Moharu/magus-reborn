@@ -152,7 +152,13 @@ export class Battle {
 
         if (!spell.castTime) {
             if (player.cast !== null && !SPELLS[spell.id].usableWhileCasting) {
-                this.log({ type: 'CANCEL_CAST', caster, spellIndex: player.cast, tick: state.gameTick })
+                this.log({
+                    type: 'CANCEL_CAST',
+                    caster,
+                    spellIndex: player.cast,
+                    spellId: player.spells[player.cast].id,
+                    tick: state.gameTick,
+                })
                 player.cast = null
                 player.castStartingTick = null
             }
@@ -160,9 +166,15 @@ export class Battle {
             return true
         }
         if (player.cast !== null) {
-            this.log({ type: 'CANCEL_CAST', caster, spellIndex: player.cast, tick: state.gameTick })
+            this.log({
+                type: 'CANCEL_CAST',
+                caster,
+                spellIndex: player.cast,
+                spellId: player.spells[player.cast].id,
+                tick: state.gameTick,
+            })
         }
-        this.log({ type: 'START_CAST', caster, spellIndex, tick: state.gameTick })
+        this.log({ type: 'START_CAST', caster, spellIndex, spellId: spell.id, tick: state.gameTick })
         player.cast = spellIndex
         player.castStartingTick = state.gameTick
         return true
@@ -202,8 +214,8 @@ export class Battle {
 
     private castSpell(caster: PlayerKey, spellIndex: number) {
         const state = this.state
-        this.log({ type: 'SPELL_RELEASE', caster, spellIndex, tick: state.gameTick })
         const spell = state[caster].spells[spellIndex]
+        this.log({ type: 'SPELL_RELEASE', caster, spellIndex, spellId: spell.id, tick: state.gameTick })
         spell.lastCast = state.gameTick
         // never shortens a longer GCD already running; the Counterspell lock (lockedUntil) is separate
         if (spell.globalCooldown)

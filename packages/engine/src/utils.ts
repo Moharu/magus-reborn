@@ -1,5 +1,13 @@
 import { MAX_HP } from './constants'
-import type { BattleState, EffectState, PlayerKey, PlayerState } from './types'
+import type {
+    BattleSnapshot,
+    BattleState,
+    SnapshotView,
+    EffectState,
+    PlayerKey,
+    PlayerState,
+    PlayerView,
+} from './types'
 
 /**
  * HP is exposed in HP units but all arithmetic happens in integer hundredths ("centi-HP"), so
@@ -68,3 +76,23 @@ export const simpleBuff = <E extends EffectState>(state: BattleState, target: Pl
 export const isCasting = (player: PlayerState) => player.cast !== null
 
 export const enemyOf = (player: PlayerKey): PlayerKey => (player === 'player1' ? 'player2' : 'player1')
+
+/**
+ * `snap` as `viewer` may see it: a player sees their own loadout and not their opponent's; a spectator sees both.
+ * The one place a loadout is redacted. The spell being cast stays visible as `casting`.
+ */
+export const viewSnapshot = (snap: BattleSnapshot, viewer: PlayerKey | 'spectator'): SnapshotView => {
+    const player = (key: PlayerKey): PlayerView => {
+        const { spells, ...rest } = snap[key]
+        const casting = snap[key].cast === null ? null : (spells[snap[key].cast] ?? null)
+        if (viewer === 'spectator' || viewer === key) return { ...rest, spells, casting }
+        // Haste's `backup` is every slot's original cast time: the loadout's order and kinds
+        const effects = rest.effects.map(effect => {
+            if (effect.id !== 'BUFF_HASTE') return effect
+            const { backup: _backup, ...visible } = effect
+            return visible
+        })
+        return { ...rest, effects, casting }
+    }
+    return { ...snap, player1: player('player1'), player2: player('player2') }
+}

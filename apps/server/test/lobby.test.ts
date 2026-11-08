@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GAME_TICK_INTERVAL, LOADOUT_SIZE, type SpellId } from '@magus/engine'
+import { GAME_TICK_INTERVAL, LOADOUT_SIZE, viewSnapshot, type SpellId } from '@magus/engine'
 import {
     DEFAULT_SETTINGS,
     MAX_SPECTATORS,
@@ -24,6 +24,8 @@ const LOADOUT: SpellId[] = [
 class FakeTransport implements LobbyTransport {
     sent: { to: string; msg: ServerMessage }[] = []
     broadcasts: ServerMessage[] = []
+    /** Per-connection stream messages (the battle), in order. */
+    streamed: { to: string; msg: ServerMessage }[] = []
     closedConns: string[] = []
     listings: (LobbyListing | null)[] = []
     wasClosed = false
@@ -32,6 +34,19 @@ class FakeTransport implements LobbyTransport {
     }
     broadcast(msg: ServerMessage) {
         this.broadcasts.push(msg)
+    }
+    /** Messages that went to each connection separately, such as the battle stream and a per-viewer `meta`. */
+    sendEach(messages: Map<string, ServerMessage>) {
+        for (const [to, msg] of messages) this.streamed.push({ to, msg })
+    }
+    clear() {
+        this.sent = []
+        this.broadcasts = []
+        this.streamed = []
+    }
+    /** What the stream sent to `connId`, which is what that viewer sees of the battle. */
+    stream(connId = 'c1') {
+        return this.streamed.filter(s => s.to === connId).map(s => s.msg)
     }
     close(connId: string) {
         this.closedConns.push(connId)
@@ -201,7 +216,7 @@ describe('settings', () => {
         ctx.lobby.connect('c1', 'a', 'A')
         ctx.lobby.connect('c2', 'b', 'B')
         ctx.lobby.message('c2', { t: 'ready' })
-        ctx.transport.broadcasts = []
+        ctx.transport.clear()
         ctx.transport.listings = []
         return ctx
     }
@@ -305,6 +320,25 @@ describe('match flow', () => {
         expect(transport.to('c1').filter(m => m.t === 'error')).toHaveLength(4)
     })
 
+    it.each<[string, unknown]>([
+        ['an old 6-slot loadout', LOADOUT.filter(id => id !== 'SPELL_COUNTERSPELL')],
+        ['Counterspell in another slot', [LOADOUT[4], ...LOADOUT.slice(1, 4), LOADOUT[0], ...LOADOUT.slice(5)]],
+        ['too many element spells', [...LOADOUT.slice(0, 5), 'SPELL_IGNITE', LOADOUT[6]]],
+        ['a duplicate', [LOADOUT[0], LOADOUT[0], ...LOADOUT.slice(2)]],
+        ['an unknown id', [...LOADOUT.slice(0, 6), 'SPELL_NOPE']],
+        ['an extra slot', [...LOADOUT, 'SPELL_HASTE']],
+    ])('answers %s with a non-fatal error and keeps the previous loadout', (_, spells) => {
+        const { lobby, transport } = startMatch()
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        transport.clear()
+        const sentBefore = transport.sent.length
+        lobby.message('c1', { t: 'set_spells', spells } as never)
+        expect(lobby.seats.player1!.spells).toEqual(LOADOUT)
+        expect(transport.sent.slice(sentBefore)).toEqual([
+            { to: 'c1', msg: { t: 'error', message: 'Invalid spell selection' } },
+        ])
+    })
+
     it('rejects a loadout of names every object inherits', () => {
         const { lobby, transport } = startMatch()
         const before = lobby.seats.player1!.spells
@@ -324,13 +358,13 @@ describe('match flow', () => {
     it('relays casts to the battle and broadcasts state every tick', () => {
         const { lobby, transport } = startMatch()
         toBattle(lobby)
-        transport.broadcasts = []
+        transport.clear()
         lobby.message('c1', { t: 'start_cast', i: 0 })
         vi.advanceTimersByTime(26 * 50)
         lobby.message('c1', { t: 'stop_cast', i: 0 })
         vi.advanceTimersByTime(50)
         expect(lobby.battle!.state.player2.hp).toBeCloseTo(94.4)
-        const battleMessages = transport.broadcasts.filter(m => m.t === 'battle')
+        const battleMessages = transport.stream().filter(isBattle)
         expect(battleMessages).toHaveLength(27)
         // the log is streamed incrementally
         const logs = battleMessages.flatMap(m => (m.t === 'battle' ? m.log : []))
@@ -668,12 +702,12 @@ describe('disconnects during a match', () => {
         const { lobby, transport } = startMatch({ bestOf: 1 })
         killByAction(lobby)
         lobby.disconnect('c1')
-        const before = transport.broadcasts.length
+        const before = transport.stream('c2').length
 
         seconds(RECONNECT_GRACE)
         expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1' })
         expect(lobby.rounds.map(r => r.winner)).toEqual(['player1'])
-        const battleBroadcasts = transport.broadcasts.slice(before).filter(isBattle)
+        const battleBroadcasts = transport.stream('c2').slice(before).filter(isBattle)
         expect(battleBroadcasts).toHaveLength(1)
         expect(battleBroadcasts[0]).toMatchObject({ snap: { winner: 'player1', player2: { hp: 0 } } })
     })
@@ -787,12 +821,12 @@ describe('joining mid-battle', () => {
         const { lobby, transport } = startMatch({ bestOf: 1 })
         killByAction(lobby)
         lobby.disconnect(leaver)
-        transport.broadcasts = []
+        transport.clear()
         seconds(5)
         meanwhile(lobby)
         seconds(RECONNECT_GRACE)
         expect(lobby.info()).toMatchObject({ phase: 'match_over', matchWinner: 'player1' })
-        const battleBroadcasts = transport.broadcasts.filter(isBattle)
+        const battleBroadcasts = transport.stream(leaver === 'c1' ? 'c2' : 'c1').filter(isBattle)
         expect(battleBroadcasts).toHaveLength(1)
         return { message: battleBroadcasts[0], transport }
     }
@@ -830,13 +864,13 @@ describe('joining mid-battle', () => {
         toHeldFireball(lobby)
         const logFrom = lobby.battle!.state.log.length
         lobby.message('c1', { t: 'stop_cast', i: 0 })
-        transport.broadcasts = []
+        transport.clear()
 
         lobby.connect('c3', 'carol', 'Carol')
-        expect(transport.broadcasts.filter(isBattle)).toEqual([])
+        expect(transport.stream().filter(isBattle)).toEqual([])
         vi.advanceTimersByTime(GAME_TICK_INTERVAL)
 
-        const [next] = transport.broadcasts.filter(isBattle)
+        const [next] = transport.stream().filter(isBattle)
         expect(next.logFrom).toBe(logFrom)
         expect(next.log.map(l => l.type)).toEqual(RELEASE_LOG)
         expect(next.events).toEqual([expect.objectContaining({ player: 'player2', source: 'SPELL_FIREBALL' })])
@@ -849,12 +883,12 @@ describe('joining mid-battle', () => {
         lobby.message('c1', { t: 'start_cast', i: 0 })
         vi.advanceTimersByTime(GAME_TICK_INTERVAL)
         lobby.message('c2', { t: 'start_cast', i: counterspell })
-        transport.broadcasts = []
+        transport.clear()
 
         lobby.connect('c3', 'carol', 'Carol')
         vi.advanceTimersByTime(GAME_TICK_INTERVAL)
 
-        const [next] = transport.broadcasts.filter(isBattle)
+        const [next] = transport.stream().filter(isBattle)
         expect(next.log.filter(l => l.type === 'INTERRUPTED')).toEqual([
             expect.objectContaining({ player: 'player1', spellIndex: 0, source: 'SPELL_COUNTERSPELL' }),
         ])
@@ -870,13 +904,19 @@ describe('joining mid-battle', () => {
 
         const catchUp = transport.to('c3').filter(isBattle)
         expect(catchUp).toEqual([
-            { t: 'battle', logFrom: 0, log: battle.state.log, snap: battle.snapshot(), events: [] },
+            {
+                t: 'battle',
+                logFrom: 0,
+                log: battle.state.log,
+                snap: viewSnapshot(battle.snapshot(), 'spectator'),
+                events: [],
+            },
         ])
         expect(catchUp[0].log.map(l => l.type)).toEqual(['START_CAST', ...RELEASE_LOG])
 
-        transport.broadcasts = []
+        transport.clear()
         vi.advanceTimersByTime(GAME_TICK_INTERVAL)
-        expect(transport.broadcasts.filter(isBattle)[0].events).toHaveLength(1)
+        expect(transport.stream().filter(isBattle)[0].events).toHaveLength(1)
     })
 
     it('catches up a joiner in the pause the same way', () => {
@@ -888,7 +928,13 @@ describe('joining mid-battle', () => {
         lobby.connect('c3', 'carol', 'Carol')
 
         expect(transport.to('c3').filter(isBattle)).toEqual([
-            { t: 'battle', logFrom: 0, log: battle.state.log, snap: battle.snapshot(), events: [] },
+            {
+                t: 'battle',
+                logFrom: 0,
+                log: battle.state.log,
+                snap: viewSnapshot(battle.snapshot(), 'spectator'),
+                events: [],
+            },
         ])
     })
 
@@ -897,7 +943,7 @@ describe('joining mid-battle', () => {
         const { lobby, transport } = startMatch()
         lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
         toBattle(lobby)
-        transport.broadcasts = []
+        transport.clear()
         for (let release = 0; release < 2; release++) {
             holdFireball(lobby)
             join(lobby) // nothing pending
@@ -906,7 +952,7 @@ describe('joining mid-battle', () => {
             join(lobby) // the same entries pending, for a second joiner
             vi.advanceTimersByTime(GAME_TICK_INTERVAL)
         }
-        return { battle: lobby.battle!, broadcasts: transport.broadcasts.filter(isBattle), transport }
+        return { battle: lobby.battle!, broadcasts: transport.stream().filter(isBattle), transport }
     }
 
     it('with joins between broadcasts, each log entry and event is in exactly one broadcast', () => {
@@ -932,5 +978,261 @@ describe('joining mid-battle', () => {
             next += message.log.length
         }
         expect(next).toBe(battle.state.log.length)
+    })
+})
+
+/** A second valid loadout, sharing no slot with LOADOUT except Counterspell. */
+const LOADOUT_2: SpellId[] = [
+    'SPELL_IGNITE',
+    'SPELL_FIREBALL',
+    'SPELL_COMBUSTION',
+    'SPELL_METEOR',
+    'SPELL_COUNTERSPELL',
+    'SPELL_HASTE',
+    'SPELL_TEMPORAL_SHIELD',
+]
+
+const errors = (transport: FakeTransport, connId: string) => transport.to(connId).filter(m => m.t === 'error')
+const loadoutIds = (lobby: Lobby, key: 'player1' | 'player2') => lobby.battle!.state[key].spells.map(s => s.id)
+
+describe('changing the loadout (#85)', () => {
+    it('allows changes between rounds by default, and lets the host turn that off', () => {
+        const { lobby } = setup()
+        lobby.connect('c1', 'alice-id', 'Alice')
+        expect(lobby.settings.allowSpellChange).toBe(true)
+        lobby.message('c1', { t: 'settings', settings: { allowSpellChange: false } })
+        expect(lobby.settings.allowSpellChange).toBe(false)
+    })
+
+    it('accepts a valid loadout and echoes it to its owner only', () => {
+        const { lobby, transport } = startMatch()
+        transport.clear()
+        const before = transport.sent.length
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        expect(lobby.seats.player1!.spells).toEqual(LOADOUT)
+        expect(transport.sent.slice(before)).toEqual([{ to: 'c1', msg: { t: 'loadout', spells: LOADOUT } }])
+        expect(transport.broadcasts).toEqual([])
+    })
+
+    it('accepts a change in the set up of round 1', () => {
+        const { lobby } = startMatch()
+        expect(lobby.phase).toBe('set_up')
+        lobby.message('c2', { t: 'set_spells', spells: LOADOUT_2 })
+        expect(lobby.seats.player2!.spells).toEqual(LOADOUT_2)
+    })
+
+    it('accepts a change in the set up of a later round when spell changes are allowed', () => {
+        const { lobby, transport } = startMatch({ allowSpellChange: true })
+        toBattle(lobby)
+        killPlayer2(lobby)
+        seconds(10)
+        expect(lobby).toMatchObject({ phase: 'set_up', round: 2 })
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        expect(lobby.seats.player1!.spells).toEqual(LOADOUT)
+        expect(errors(transport, 'c1')).toEqual([])
+    })
+
+    it('has no set up after round 1 when spell changes are not allowed, and rejects the change', () => {
+        const { lobby, transport } = startMatch({ allowSpellChange: false })
+        toBattle(lobby)
+        killPlayer2(lobby)
+        seconds(10)
+        expect(lobby).toMatchObject({ phase: 'battle_countdown', round: 2 })
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        expect(lobby.seats.player1!.spells).not.toEqual(LOADOUT)
+        expect(errors(transport, 'c1')).toEqual([{ t: 'error', message: "Spells can't be changed now" }])
+    })
+
+    it.each(['battle_countdown', 'battle', 'round_over'] as const)('rejects a change in %s', phase => {
+        const { lobby, transport } = startMatch()
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        lobby.message('c1', { t: 'ready' })
+        lobby.message('c2', { t: 'ready' })
+        seconds(3)
+        if (phase !== 'battle_countdown') seconds(3)
+        if (phase === 'round_over') killPlayer2(lobby)
+        expect(lobby.phase).toBe(phase)
+        transport.clear()
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT_2 })
+        expect(lobby.seats.player1!.spells).toEqual(LOADOUT)
+        expect(errors(transport, 'c1')).toEqual([{ t: 'error', message: "Spells can't be changed now" }])
+        expect(transport.to('c1').filter(m => m.t === 'loadout')).toEqual([])
+    })
+
+    it('rejects a change after the player is ready, in the lobby and in set up', () => {
+        const { lobby, transport } = setup()
+        lobby.connect('c1', 'alice-id', 'Alice')
+        lobby.connect('c2', 'bob-id', 'Bob')
+        lobby.message('c1', { t: 'ready' })
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        expect(errors(transport, 'c1')).toHaveLength(1)
+        lobby.message('c1', { t: 'unready' })
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        expect(lobby.seats.player1!.spells).toEqual(LOADOUT)
+
+        lobby.message('c1', { t: 'ready' })
+        lobby.message('c2', { t: 'ready' })
+        seconds(3)
+        expect(lobby.phase).toBe('set_up')
+        lobby.message('c1', { t: 'ready' })
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT_2 })
+        expect(lobby.seats.player1!.spells).toEqual(LOADOUT)
+        expect(errors(transport, 'c1')).toHaveLength(2)
+    })
+
+    it('applies a change made in set up to the battle that follows it, and not to one that has started', () => {
+        const { lobby } = startMatch()
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        toBattle(lobby)
+        const first = lobby.battle!
+        expect(loadoutIds(lobby, 'player1')).toEqual(LOADOUT)
+
+        // a change during the battle is refused and leaves the live battle alone
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT_2 })
+        expect(loadoutIds(lobby, 'player1')).toEqual(LOADOUT)
+
+        killPlayer2(lobby)
+        seconds(10)
+        expect(lobby).toMatchObject({ phase: 'set_up', round: 2 })
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT_2 })
+        // round 1's battle is finished business
+        expect(first.state.player1.spells.map(s => s.id)).toEqual(LOADOUT)
+
+        toBattle(lobby)
+        expect(lobby.battle).not.toBe(first)
+        expect(loadoutIds(lobby, 'player1')).toEqual(LOADOUT_2)
+        expect(loadoutIds(lobby, 'player2')).toEqual(first.state.player2.spells.map(s => s.id))
+    })
+
+    it('returns the seat its current loadout on reconnecting, to that seat only', () => {
+        const { lobby, transport } = startMatch()
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        lobby.message('c2', { t: 'set_spells', spells: LOADOUT_2 })
+        lobby.connect('c3', 'carol-id', 'Carol')
+        lobby.connect('c1b', 'alice-id', 'Alice')
+        lobby.connect('c2b', 'bob-id', 'Bob')
+        expect(transport.to('c1b')[0]).toEqual({ t: 'welcome', role: 'player1', spells: LOADOUT })
+        expect(transport.to('c2b')[0]).toEqual({ t: 'welcome', role: 'player2', spells: LOADOUT_2 })
+        expect(transport.to('c3')[0]).toEqual({ t: 'welcome', role: 'spectator', spells: null })
+    })
+})
+
+/**
+ * Whether `value` holds, anywhere inside it, a loadout: an array of the spell ids of `loadout`, or of spell states
+ * (as a snapshot has them) with those ids.
+ */
+const holdsLoadout = (value: unknown, loadout: SpellId[]): boolean => {
+    if (Array.isArray(value)) {
+        const idOf = (v: unknown) => (typeof v === 'object' && v !== null ? (v as { id?: unknown }).id : v)
+        if (value.length === loadout.length && value.every((v, i) => idOf(v) === loadout[i])) return true
+        return value.some(v => holdsLoadout(v, loadout))
+    }
+    if (typeof value === 'object' && value !== null) return Object.values(value).some(v => holdsLoadout(v, loadout))
+    return false
+}
+
+describe('keeping a loadout from the opponent (#86)', () => {
+    /** Everything `connId` was sent: its own messages, the stream and the broadcasts. */
+    const receivedBy = (transport: FakeTransport, connId: string) => [
+        ...transport.to(connId),
+        ...transport.stream(connId),
+        ...transport.broadcasts,
+    ]
+
+    /** A two-round match with distinct loadouts and a spectator, played through a cast and a kill. */
+    const play = () => {
+        const ctx = startMatch({ bestOf: 3 })
+        const { lobby } = ctx
+        lobby.connect('c3', 'carol-id', 'Carol')
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        lobby.message('c2', { t: 'set_spells', spells: LOADOUT_2 })
+        toBattle(lobby)
+        lobby.message('c1', { t: 'start_cast', i: 0 })
+        vi.advanceTimersByTime(300)
+        lobby.message('c2', { t: 'start_cast', i: 5 }) // Haste, from the second general slot
+        vi.advanceTimersByTime(100)
+        killPlayer2(lobby)
+        seconds(10)
+        return ctx
+    }
+
+    it('never sends a player the opponent loadout, in any message', () => {
+        const { transport } = play()
+        expect(receivedBy(transport, 'c2').filter(m => holdsLoadout(m, LOADOUT))).toEqual([])
+        expect(receivedBy(transport, 'c1').filter(m => holdsLoadout(m, LOADOUT_2))).toEqual([])
+        // so the check can see a loadout when there is one
+        expect(receivedBy(transport, 'c1').some(m => holdsLoadout(m, LOADOUT))).toBe(true)
+        expect(receivedBy(transport, 'c2').some(m => holdsLoadout(m, LOADOUT_2))).toBe(true)
+    })
+
+    it('has no opponent spells in the battle snapshot, but each player has their own', () => {
+        const { transport } = play()
+        const last = (connId: string) => transport.stream(connId).filter(isBattle).at(-1)!.snap
+        expect(last('c1').player1.spells!.map(s => s.id)).toEqual(LOADOUT)
+        expect(last('c1').player2).not.toHaveProperty('spells')
+        expect(last('c2').player2.spells!.map(s => s.id)).toEqual(LOADOUT_2)
+        expect(last('c2').player1).not.toHaveProperty('spells')
+    })
+
+    it('lets spectators see both loadouts', () => {
+        const { transport } = play()
+        const { snap } = transport.stream('c3').filter(isBattle).at(-1)!
+        expect(snap.player1.spells!.map(s => s.id)).toEqual(LOADOUT)
+        expect(snap.player2.spells!.map(s => s.id)).toEqual(LOADOUT_2)
+    })
+
+    it('still names the spell of each cast the opponent can see', () => {
+        const { transport } = play()
+        const log = transport
+            .stream('c2')
+            .filter(isBattle)
+            .flatMap(m => m.log)
+        expect(log.find(l => l.type === 'START_CAST' && l.caster === 'player1')).toMatchObject({
+            spellIndex: 0,
+            spellId: 'SPELL_FIREBALL',
+        })
+        const mid = transport
+            .stream('c2')
+            .filter(isBattle)
+            .find(m => m.snap.player1.cast === 0)!
+        expect(mid.snap.player1.casting).toMatchObject({ id: 'SPELL_FIREBALL' })
+        expect(mid.snap.player1).not.toHaveProperty('spells')
+    })
+
+    it("shows spectators each player's spells in the round history, and players only hp", () => {
+        const { lobby, transport } = play()
+        const base = { round: 1, winner: 'player1', ticks: expect.any(Number) }
+        const metaOf = (connId: string) => transport.stream(connId).filter(m => m.t === 'meta')
+        const lastRounds = (connId: string) => {
+            const meta = metaOf(connId).at(-1)
+            return meta?.t === 'meta' ? meta.lobby.rounds : null
+        }
+        expect(lastRounds('c3')).toEqual([
+            { ...base, player1: { hp: 100, spells: LOADOUT }, player2: { hp: 0, spells: LOADOUT_2 } },
+        ])
+        for (const player of ['c1', 'c2']) {
+            expect(lastRounds(player)).toEqual([{ ...base, player1: { hp: 100 }, player2: { hp: 0 } }])
+            expect(receivedBy(transport, player).filter(m => m.t === 'meta' && holdsLoadout(m, LOADOUT))).toEqual([])
+            expect(receivedBy(transport, player).filter(m => m.t === 'meta' && holdsLoadout(m, LOADOUT_2))).toEqual([])
+        }
+        expect(lobby.info().rounds[0].player1).toEqual({ hp: 100 })
+        expect(lobby.info('spectator').rounds[0].player1.spells).toEqual(LOADOUT)
+    })
+
+    it('redacts the catch-up an opponent or spectator gets when joining a battle', () => {
+        const { lobby, transport } = startMatch()
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        lobby.message('c2', { t: 'set_spells', spells: LOADOUT_2 })
+        toBattle(lobby)
+        lobby.disconnect('c2')
+        lobby.connect('c2b', 'bob-id', 'Bob')
+        lobby.connect('c3', 'carol-id', 'Carol')
+
+        const [bobCatchUp] = transport.to('c2b').filter(isBattle)
+        expect(holdsLoadout(bobCatchUp, LOADOUT)).toBe(false)
+        expect(bobCatchUp.snap.player2.spells!.map(s => s.id)).toEqual(LOADOUT_2)
+        const [carolCatchUp] = transport.to('c3').filter(isBattle)
+        expect(holdsLoadout(carolCatchUp, LOADOUT) && holdsLoadout(carolCatchUp, LOADOUT_2)).toBe(true)
+        expect(transport.to('c2b').some(m => holdsLoadout(m, LOADOUT))).toBe(false)
     })
 })

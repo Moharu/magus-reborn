@@ -96,16 +96,17 @@ export interface PlayerState {
 }
 
 export type LogEntry =
-    | { type: 'SPELL_RELEASE'; caster: PlayerKey; spellIndex: number; tick: number }
-    | { type: 'START_CAST'; caster: PlayerKey; spellIndex: number; tick: number }
+    /** Cast entries carry the id of the spell, so a viewer who can't see the caster's loadout can still name it. */
+    | { type: 'SPELL_RELEASE'; caster: PlayerKey; spellIndex: number; spellId: SpellId; tick: number }
+    | { type: 'START_CAST'; caster: PlayerKey; spellIndex: number; spellId: SpellId; tick: number }
     | { type: 'STOP_CAST'; caster: PlayerKey; tick: number }
     /** The caster's own cast was cancelled by using an instant mid-cast or replaced by starting a new cast. */
-    | { type: 'CANCEL_CAST'; caster: PlayerKey; spellIndex: number; tick: number }
+    | { type: 'CANCEL_CAST'; caster: PlayerKey; spellIndex: number; spellId: SpellId; tick: number }
     /**
-     * `player`'s cast of the spell in `spellIndex` was interrupted by the enemy's `source` spell. Written right
+     * `player`'s cast of the spell (`spellId`, in `spellIndex`) was interrupted by the enemy's `source` spell. Written right
      * after that spell's SPELL_RELEASE, whose `caster` is the interrupter; only when a cast was really interrupted.
      */
-    | { type: 'INTERRUPTED'; player: PlayerKey; spellIndex: number; tick: number; source: SpellId }
+    | { type: 'INTERRUPTED'; player: PlayerKey; spellIndex: number; spellId: SpellId; tick: number; source: SpellId }
 
 export type Winner = PlayerKey | 'draw' | null
 
@@ -120,6 +121,22 @@ export interface BattleState {
 
 /** Everything but the log, which is streamed incrementally. */
 export type BattleSnapshot = Omit<BattleState, 'log'>
+
+/**
+ * A player as one viewer may see them. `spells` (the loadout) is absent when the viewer isn't allowed to see it, and
+ * `casting` then still holds the one spell being cast, which the cast bar shows anyway.
+ */
+export type PlayerView = Omit<PlayerState, 'spells' | 'effects'> & {
+    spells?: SpellState[]
+    casting?: SpellState | null
+    effects: ViewEffect[]
+}
+
+/** An effect as a viewer sees it. A Haste buff's `backup` holds every slot's cast time, so only the owner gets it. */
+export type ViewEffect = Exclude<EffectState, HasteBuff> | (Omit<HasteBuff, 'backup'> & { backup?: number[] })
+
+/** A `BattleSnapshot` as one viewer may see it; every `BattleSnapshot` is one. */
+export type SnapshotView = Omit<BattleSnapshot, PlayerKey> & Record<PlayerKey, PlayerView>
 
 export interface HpEvent {
     tick: number
