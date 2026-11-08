@@ -81,6 +81,8 @@ export class BattleView {
     private time = 0
     private delayed: { at: number; run: () => void }[] = []
     private readonly keysDown = new Set<number>()
+    // Bind deferred releases to the cast identity so they cannot release a replacement.
+    private readonly pausedReleases = new Map<number, number>()
     private readonly handledKeyUps = new Set<string>()
     private resizeObserver: ResizeObserver | null = null
     private destroyed = false
@@ -168,7 +170,7 @@ export class BattleView {
                     if (!this.combatActive()) return false
                     return this.options.onPress?.(i)
                 },
-                i => this.options.onRelease?.(i),
+                i => this.releaseInput(i),
             )
             stage.addChild(this.actionBar)
             window.addEventListener('keydown', this.onKeyDown)
@@ -224,6 +226,7 @@ export class BattleView {
                 snap.gameTick,
                 this.combatActive() && fresh,
             )
+        if (fresh) this.reconcileReleases()
         if (!fresh) return
         for (const entry of newLog) if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(entry.caster, entry.spellId)
         for (const tell of interruptTells(newLog, this.sides)) this.onInterrupt(tell)
@@ -234,19 +237,22 @@ export class BattleView {
     setFrozen(frozen: boolean) {
         if (frozen) {
             if (this.snap?.finished === true) this.actionBar?.clearAccessibleCast()
-            this.releaseAll()
         }
+        // A lobby pause rejects stop_cast and preserves the authoritative cast.
+        // Keep live holds; keyup/pointerup (or blur) records releases while frozen.
         this.frozen = frozen
+        this.reconcileReleases()
     }
 
     setOverlay(title: string | null, sub = '') {
         if (title !== null) {
             if (this.snap?.finished === true) this.actionBar?.clearAccessibleCast()
-            this.releaseAll()
+            if (!this.frozen) this.releaseAll()
         }
         this.overlay.visible = title !== null
         setText(this.overlayTitle, title ?? '')
         setText(this.overlaySub, sub)
+        this.reconcileReleases()
     }
 
     setScore(score: Record<PlayerKey, number> | null) {
@@ -582,14 +588,33 @@ export class BattleView {
         if (index === undefined || !this.keysDown.delete(index)) return
         // Firefox clicks the focused button when Space is released; a cast hotkey must not do that
         event.preventDefault()
+        this.releaseInput(index)
+    }
+
+    private releaseInput(index: number) {
+        if (this.frozen) {
+            const mine = this.options.me && this.snap?.[this.options.me]
+            if (mine && mine.cast === index && mine.castStartingTick !== null)
+                this.pausedReleases.set(index, mine.castStartingTick)
+            return
+        }
         this.options.onRelease?.(index)
     }
 
+    private reconcileReleases() {
+        if (!this.combatActive()) return
+        const mine = this.options.me && this.snap?.[this.options.me]
+        for (const [index, startingTick] of this.pausedReleases) {
+            this.pausedReleases.delete(index)
+            if (mine && mine.cast === index && mine.castStartingTick === startingTick) this.options.onRelease?.(index)
+        }
+    }
+
     private releaseAll = () => {
-        for (const index of this.keysDown) this.options.onRelease?.(index)
+        for (const index of this.keysDown) this.releaseInput(index)
         this.keysDown.clear()
         if (this.actionBar) {
-            for (const index of this.actionBar.pressed) this.options.onRelease?.(index)
+            for (const index of this.actionBar.pressed) this.releaseInput(index)
             this.actionBar.pressed.clear()
         }
     }

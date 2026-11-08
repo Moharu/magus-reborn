@@ -488,6 +488,71 @@ describe('cast ownership across lobby pauses', () => {
         },
     )
 
+    it.each([
+        ['keyboard', true],
+        ['keyboard', false],
+        ['pointer', true],
+        ['pointer', false],
+    ] as const)('preserves manual %s hold across pause (released during pause: %s)', (input, releasedDuringPause) => {
+        const battle = newBattle()
+        let paused = false
+        const release = vi.fn((i: number) => {
+            if (!paused) battle.stopCast('player1', i)
+        })
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: { me: PlayerKey; onPress(i: number): boolean; onRelease(i: number): void },
+        ) => Pick<BattleView, 'update' | 'setFrozen' | 'setOverlay'> & {
+            actionBar: ActionBar
+            onKeyDown(event: KeyboardEvent): void
+            onKeyUp(event: KeyboardEvent): void
+            releaseInput(i: number): void
+        }
+        const view = new Ctor(
+            {},
+            {
+                me: 'player1',
+                onPress: i => battle.startCast('player1', i),
+                onRelease: release,
+            },
+        )
+        view.actionBar = new ActionBar(
+            i => battle.startCast('player1', i),
+            i => view.releaseInput(i),
+        )
+        view.update(battle.snapshot(), [], [])
+        view.setOverlay(null)
+        const event = { code: 'KeyQ', preventDefault: vi.fn() } as unknown as KeyboardEvent
+        const button = view.actionBar.children[1]
+        if (input === 'keyboard') view.onKeyDown(event)
+        else button.emit('pointerdown', {} as never)
+        while (battle.state.gameTick < battle.state.player1.spells[0].castTime) battle.tick()
+        view.update(battle.snapshot(), [], [])
+        paused = true
+        view.setFrozen(true)
+        view.setOverlay('Paused')
+        const up = () => {
+            if (input === 'keyboard') view.onKeyUp(event)
+            else button.emit('pointerupoutside', {} as never)
+        }
+        if (releasedDuringPause) up()
+        view.update(battle.snapshot(), [], [])
+        expect(release).not.toHaveBeenCalled()
+        expect(battle.state.player1.cast).toBe(0)
+        paused = false
+        view.setFrozen(false)
+        view.setOverlay(null)
+        view.update(battle.snapshot(), [], [])
+        if (!releasedDuringPause) {
+            expect(release).not.toHaveBeenCalled()
+            expect(battle.state.player1.cast).toBe(0)
+            up()
+        }
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player1.cast).toBeNull()
+        expect(battle.state.player2.hp).toBeLessThan(100)
+    })
+
     it('preserves an accessible Fireball through opponent pause and releases only after resume', () => {
         const battle = newBattle()
         const { view, release } = setup(battle)
@@ -509,6 +574,26 @@ describe('cast ownership across lobby pauses', () => {
         }
         expect(release).toHaveBeenCalledExactlyOnceWith(0)
         expect(battle.state.player1.cast).toBeNull()
+        expect(battle.state.player2.hp).toBeLessThan(100)
+    })
+
+    it('recovers a manual hold after the player reconnects with a recreated view', () => {
+        const battle = newBattle()
+        const original = setup(battle)
+        original.view.actionBar.children[1].emit('pointerdown', {} as never)
+        original.view.update(battle.snapshot(), [], [])
+        original.view.setFrozen(true)
+        const { view, release } = setup(battle)
+        view.setFrozen(true)
+        view.setOverlay('Paused')
+        view.update(battle.snapshot(), [], [], false)
+        view.setFrozen(false)
+        view.setOverlay(null)
+        while (battle.state.gameTick < battle.state.player1.spells[0].castTime) {
+            battle.tick()
+            view.update(battle.snapshot(), [], [])
+        }
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
         expect(battle.state.player2.hp).toBeLessThan(100)
     })
 

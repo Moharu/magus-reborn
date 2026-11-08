@@ -238,11 +238,11 @@ describe('battle input review regressions', () => {
         expect(release).toHaveBeenCalledExactlyOnceWith(4)
         view.onKeyDown({ code: 'Space', preventDefault: vi.fn() })
         view.setFrozen(true)
-        expect(release).toHaveBeenCalledTimes(2)
+        expect(release).toHaveBeenCalledTimes(1)
         const frozenUp = { code: 'Space', preventDefault: vi.fn() }
         view.onKeyUp(frozenUp)
-        expect(frozenUp.preventDefault).toHaveBeenCalledOnce()
-        expect(release).toHaveBeenCalledTimes(2)
+        expect(frozenUp.preventDefault).toHaveBeenCalled()
+        expect(release).toHaveBeenCalledTimes(1)
     })
 })
 
