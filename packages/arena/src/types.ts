@@ -91,7 +91,7 @@ export interface MatchEvent {
     readonly tick: number
     readonly side: Side
     readonly type: 'START_CAST' | 'STOP_CAST' | 'SPELL_RELEASE' | 'CANCEL_CAST' | 'INTERRUPTED'
-    /** The spell started, released, cancelled or interrupted. Absent for STOP_CAST. */
+    /** The spell started, stopped, released, cancelled or interrupted. */
     readonly spellId?: SpellId
     /** INTERRUPTED only: the interrupter's spell. */
     readonly source?: SpellId

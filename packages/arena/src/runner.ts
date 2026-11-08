@@ -182,6 +182,9 @@ const summarize = (battle: Battle, withLog: boolean) => {
     const stats: Record<Side, SideStats> = { a: emptyStats(), b: emptyStats() }
     const log: MatchEvent[] = []
     const entries = battle.state.log
+    // each side's latest START_CAST: the cast a later STOP_CAST ends (only a cast in progress can be stopped)
+    const castSlot: Record<Side, number> = { a: -1, b: -1 }
+    const castSpell: Record<Side, SpellId | undefined> = { a: undefined, b: undefined }
     for (let i = 0; i < entries.length; i++) {
         const entry: LogEntry = entries[i]
         const side = SIDE_OF[entry.type === 'INTERRUPTED' ? entry.player : entry.caster]
@@ -189,6 +192,8 @@ const summarize = (battle: Battle, withLog: boolean) => {
         switch (entry.type) {
             case 'START_CAST':
                 own.started += 1
+                castSlot[side] = entry.spellIndex
+                castSpell[side] = entry.spellId
                 break
             case 'SPELL_RELEASE':
                 own.casts += 1
@@ -197,10 +202,15 @@ const summarize = (battle: Battle, withLog: boolean) => {
                 own.cancelled += 1
                 break
             case 'STOP_CAST': {
-                // a releasing stop is followed by that cast's SPELL_RELEASE; any other stop cancelled the cast
+                // a releasing stop is followed at once by the release of that same slot; any other stop cancelled
+                // the cast, even when an instant started right after it releases on the same tick
                 const next = entries[i + 1]
-                if (!(next?.type === 'SPELL_RELEASE' && next.caster === entry.caster && next.tick === entry.tick))
-                    own.cancelled += 1
+                const released =
+                    next?.type === 'SPELL_RELEASE' &&
+                    next.caster === entry.caster &&
+                    next.tick === entry.tick &&
+                    next.spellIndex === castSlot[side]
+                if (!released) own.cancelled += 1
                 break
             }
             case 'INTERRUPTED':
@@ -209,7 +219,7 @@ const summarize = (battle: Battle, withLog: boolean) => {
                 break
         }
         if (!withLog) continue
-        if (entry.type === 'STOP_CAST') log.push({ tick: entry.tick, side, type: entry.type })
+        if (entry.type === 'STOP_CAST') log.push({ tick: entry.tick, side, type: entry.type, spellId: castSpell[side] })
         else if (entry.type === 'INTERRUPTED')
             log.push({ tick: entry.tick, side, type: entry.type, spellId: entry.spellId, source: entry.source })
         else log.push({ tick: entry.tick, side, type: entry.type, spellId: entry.spellId })

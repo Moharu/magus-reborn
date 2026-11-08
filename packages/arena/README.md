@@ -91,9 +91,9 @@ countered), `rejected` (actions the engine refused) and `damageTaken` (HP lost, 
 END winner=<a|b|draw> reason=<death|mutual|timeout> ticks=<n> seconds=<s> hp=<a>/<b> casts=<a>/<b> interrupts=<a>/<b> seed=<seed>
 ```
 
-`TYPE` is the engine's log type: `START_CAST`, `STOP_CAST` (no spell), `SPELL_RELEASE`, `CANCEL_CAST` or
+`TYPE` is the engine's log type: `START_CAST`, `STOP_CAST` (the spell whose cast was stopped), `SPELL_RELEASE`, `CANCEL_CAST` or
 `INTERRUPTED`. For `INTERRUPTED`, `side` is the interrupted player, `spellId` the countered spell and `source` the
-interrupter's spell. A `STOP_CAST` followed by a `SPELL_RELEASE` on the same tick is a release; any other `STOP_CAST`
+interrupter's spell. A `STOP_CAST` directly followed by a `SPELL_RELEASE` of the same spell is a release; any other `STOP_CAST`
 cancelled the cast. Example:
 
 ```
@@ -103,7 +103,7 @@ cancelled the cast. Example:
 8 b SPELL_RELEASE SPELL_COUNTERSPELL
 8 a INTERRUPTED SPELL_METEOR SPELL_COUNTERSPELL
 9 b START_CAST SPELL_FIREBALL
-37 b STOP_CAST
+37 b STOP_CAST SPELL_FIREBALL
 ...
 END winner=a reason=death ticks=450 seconds=22.5 hp=16/0 casts=4/17 interrupts=0/2 seed=1
 ```

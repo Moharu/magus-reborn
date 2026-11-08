@@ -203,6 +203,25 @@ describe('runMatch: engine rules apply through startCast/stopCast', () => {
         expect(result.hp.b).toBe(100)
     })
 
+    it('counts a stop as a cancel when an instant started in the same decision releases right after it', () => {
+        const script = scripted({ 0: start(METEOR), 1: [stop(METEOR), start(HASTE)] })
+        const result = runMatch({ seed: 1, a: entrant('script', script), b: idler(), maxTicks: 10 })
+        expect(result.log.filter(e => e.side === 'a').map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
+            '0 START_CAST SPELL_METEOR',
+            '1 STOP_CAST SPELL_METEOR',
+            '1 SPELL_RELEASE SPELL_HASTE',
+        ])
+        expect(result.stats.a).toMatchObject({ started: 1, cancelled: 1, casts: 1, rejected: 0 })
+        expect(result.hp.b).toBe(100)
+    })
+
+    it('counts a stop that releases the completed cast as a release, not a cancel', () => {
+        const script = scripted({ 0: start(FIREBALL), 26: [stop(FIREBALL), start(HASTE)] })
+        const result = runMatch({ seed: 1, a: entrant('script', script), b: idler(), maxTicks: 30 })
+        expect(result.stats.a).toMatchObject({ started: 1, cancelled: 0, casts: 2, rejected: 0 })
+        expect(result.hp.b).toBe(94.4)
+    })
+
     describe('with Haste put on the GCD', () => {
         afterEach(() => {
             SPELLS.SPELL_HASTE.offGlobalCooldown = true
