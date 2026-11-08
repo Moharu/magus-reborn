@@ -28,17 +28,22 @@ export {
     type PolicyRule,
 } from './sim/policy'
 export {
+    canPrune,
     compareResults,
     DAMAGE_POOL,
     DEFAULT_RULE_VARIANTS,
     enumerateLoadouts,
     enumeratePolicies,
+    enumerateShapeLoadouts,
     evaluateCandidate,
+    policySpells,
     rankResults,
     search,
     searchCandidates,
     type PolicyEnumerationOptions,
     type RuleVariants,
+    type SearchCandidate,
     type SearchOptions,
     type SearchResult,
+    type ShapeOptions,
 } from './sim/search'

@@ -14,7 +14,7 @@ describe('sim CLI', () => {
         expect(out.risk).toBe(1.866667)
     }, 30_000)
 
-    it('sim:search prints the top K by dpsUnderPressure, the same with any --jobs', () => {
+    it('sim:search prints the top K 0.2 loadouts by dpsUnderPressure, the same with any --jobs', () => {
         const script = fileURLToPath(new URL('../scripts/sim-search.ts', import.meta.url))
         const run = (jobs: string) =>
             execFileSync(
@@ -22,12 +22,14 @@ describe('sim CLI', () => {
                 [
                     'tsx',
                     script,
-                    '--size',
-                    '2',
-                    '--pool',
-                    'fireball,ignite,meteor',
+                    '--fire',
+                    'meteor,fireball,ignite,combustion',
+                    '--general',
+                    'haste,blur',
                     '--duration',
-                    '20',
+                    '10',
+                    '--cap',
+                    '40',
                     '--top',
                     '4',
                     '--jobs',
@@ -38,23 +40,45 @@ describe('sim CLI', () => {
         const single = run('1')
         expect(run('3')).toBe(single)
         const out = JSON.parse(single)
-        expect(out.evaluated).toBe(16)
-        expect(out.options).toMatchObject({ size: 2, top: 4, durationSeconds: 20, reactionSeconds: 0.4 })
+        // one loadout, its first 40 policies
+        expect(out.evaluated).toBe(40)
+        expect(out.pairs).toBe(40)
+        expect(out.options).toMatchObject({
+            element: 'FIRE',
+            loadouts: 1,
+            top: 4,
+            cap: 40,
+            durationSeconds: 10,
+            reactionSeconds: 0.4,
+        })
         expect(out.results).toHaveLength(4)
-        for (const r of out.results)
+        for (const r of out.results) {
             expect(Object.keys(r)).toEqual(expect.arrayContaining(['dps', 'dpsUnderPressure', 'risk']))
+            expect(r.loadout).toEqual([
+                'SPELL_FIREBALL',
+                'SPELL_IGNITE',
+                'SPELL_COMBUSTION',
+                'SPELL_METEOR',
+                'SPELL_COUNTERSPELL',
+                'SPELL_HASTE',
+                'SPELL_BLUR',
+            ])
+            expect(r.elementSpells).toEqual(r.loadout.slice(0, 4))
+            expect(r.generalSpells).toEqual(['SPELL_HASTE', 'SPELL_BLUR'])
+        }
         const ranks = out.results.map((r: { dpsUnderPressure: number }) => r.dpsUnderPressure)
         expect(ranks).toEqual([...ranks].sort((a, b) => b - a))
     }, 60_000)
 
-    it('sim:search rejects a missing --size or flag value', () => {
+    it('sim:search rejects the removed --size and --pool, bad pools and a missing flag value', () => {
         const script = fileURLToPath(new URL('../scripts/sim-search.ts', import.meta.url))
-        expect(() => execFileSync('npx', ['tsx', script], { encoding: 'utf8', stdio: 'pipe' })).toThrow(
-            /--size is required/,
-        )
+        const fail = (...args: string[]) =>
+            expect(() => execFileSync('npx', ['tsx', script, ...args], { encoding: 'utf8', stdio: 'pipe' }))
+        fail('--size', '2').toThrow(/--size was removed/)
+        fail('--pool', 'fireball').toThrow(/--pool was removed/)
+        fail('--fire', 'fireball,ignite').toThrow(/at least 4/)
+        fail('--general', 'haste,counterspell').toThrow(/not one of the general spells/)
         // a flag never swallows the next flag as its value
-        expect(() =>
-            execFileSync('npx', ['tsx', script, '--pool', '--size', '2'], { encoding: 'utf8', stdio: 'pipe' }),
-        ).toThrow(/--pool needs a value/)
+        fail('--fire', '--top', '2').toThrow(/--fire needs a value/)
     }, 30_000)
 })
