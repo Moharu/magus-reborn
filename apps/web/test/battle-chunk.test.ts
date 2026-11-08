@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GAME_TICK_INTERVAL } from '@magus/engine'
+import { GAME_TICK_INTERVAL, type IgniteDebuff } from '@magus/engine'
 import { NEW_VERSION_MESSAGE, type ServerMessage } from '@magus/engine/protocol'
 import {
     BATTLE_COUNTDOWN,
@@ -253,6 +253,39 @@ describe('training room', () => {
         const leave = page.openTraining()
         return { root: page.root, leave }
     }
+
+    it('sends real finalization state when a training battle ends', async () => {
+        const update = vi.fn()
+        const page = await loadPage(async () => ({
+            BattleView: { create: async () => ({ ...fakeView(), update }) },
+        }))
+        const { Battle, simpleDebuff } = await import('@magus/engine')
+        const spy = vi.spyOn(Battle.prototype, 'snapshot')
+        let frame!: FrameRequestCallback
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frame = callback
+            return 1
+        })
+        const leave = page.openTraining()
+        await settle()
+        expect(update.mock.lastCall?.[0].finished).toBe(false)
+        const battle = spy.mock.contexts.at(-1) as InstanceType<typeof Battle>
+        // The normal dummy cannot die; kill the trainee using the real engine instead.
+        simpleDebuff<IgniteDebuff>(battle.state, 'player1', {
+            id: 'DEBUFF_IGNITE',
+            label: 'Ignite',
+            source: 'SPELL_IGNITE',
+            damage: 1000,
+            duration: 10,
+        })
+        frame(performance.now() + GAME_TICK_INTERVAL)
+        expect(update.mock.lastCall?.[0]).toMatchObject({ winner: 'player2', finished: false })
+        frame(performance.now() + 2 * GAME_TICK_INTERVAL)
+        expect(update.mock.lastCall?.[0]).toMatchObject({ winner: 'player2', finished: true })
+        expect(battle.finished).toBe(true)
+        leave()
+        spy.mockRestore()
+    })
 
     it('shows the message and a reload control when the import fails', async () => {
         const { root } = await openTraining(FAILED_CHUNK)

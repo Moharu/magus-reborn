@@ -36,7 +36,7 @@ export const trainingScreen = (root: HTMLElement) => {
         logSeen = 0
         meter.reset()
         renderMeter()
-        view?.update(battle.state, [], [])
+        view?.update(battle.snapshot(), [], [])
     }
 
     const renderMeter = () => {
@@ -89,7 +89,7 @@ export const trainingScreen = (root: HTMLElement) => {
         logSeen = log.length
         const events = battle.drainEvents()
         meter.record(events)
-        view?.update(battle.state, newLog, events)
+        view?.update(battle.snapshot(), newLog, events)
     }
 
     const openPicker = () => {
@@ -159,8 +159,9 @@ export const trainingScreen = (root: HTMLElement) => {
             BattleView.create(stage, {
                 me: 'player1',
                 onPress: i => {
-                    battle.startCast('player1', i)
+                    const accepted = battle.startCast('player1', i)
                     flush()
+                    return accepted
                 },
                 onRelease: i => {
                     battle.stopCast('player1', i)
@@ -170,7 +171,7 @@ export const trainingScreen = (root: HTMLElement) => {
         onCreated: v => {
             if (disposed) return v.destroy()
             view = v
-            view.update(battle.state, [], [])
+            view.update(battle.snapshot(), [], [])
             last = performance.now()
             raf = requestAnimationFrame(loop)
         },

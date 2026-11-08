@@ -19,7 +19,7 @@ export interface ButtonState {
 
 /**
  * Picks the display for one spell button. In order of priority:
- * - Counterspell lock: tint and timer, over the spell's cooldown fader or a full fill.
+ * - Counterspell lock: lock timer, over the spell's cooldown fader or a full fill.
  * - GCD, if it outlasts the spell's own cooldown: fader only, no text. Off-GCD spells never show it.
  * - The spell's own cooldown: fader and timer.
  *
@@ -30,7 +30,7 @@ export const buttonState = (player: PlayerState, spell: SpellState, tick: number
     const cooldownFader = cooldown > 0 ? cooldown / spell.cooldown : 0
 
     const lock = Math.max(0, player.lockedUntil - tick)
-    if (lock > 0) return { fader: cooldownFader || 1, locked: true, timer: Math.max(cooldown, lock) }
+    if (lock > 0) return { fader: cooldownFader || 1, locked: true, timer: lock }
 
     const gcd = SPELLS[spell.id].offGlobalCooldown ? 0 : gcdRemaining(player, tick)
     if (gcd > cooldown) return { fader: gcd / GLOBAL_COOLDOWN, locked: false, timer: 0 }

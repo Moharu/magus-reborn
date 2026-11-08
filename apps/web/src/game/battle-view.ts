@@ -11,7 +11,7 @@ import {
 } from '@magus/engine'
 import { ActionBar, INFINITE_HP, PlayerHud, setText } from './hud'
 import { hotkeyFor, KEY_CODES } from './hotkeys'
-import { GROUND_Y, HEIGHT, SIDE_X, sidesFor, TEXT_FONT, WIDTH, type Side } from './layout'
+import { battleLayout, GROUND_Y, HEIGHT, SIDE_X, sidesFor, TEXT_FONT, WIDTH, type Side } from './layout'
 import { interruptTells, type InterruptTell } from './interrupt-tell'
 import { backdropTexture, particleTexture } from './textures'
 import { Vfx } from './vfx'
@@ -20,7 +20,7 @@ import { Wizard } from './wizard'
 export interface BattleViewOptions {
     /** The local player's seat, or null for spectators (no input, no action bar). */
     me: PlayerKey | null
-    onPress?: (spellIndex: number) => void
+    onPress?: (spellIndex: number) => void | boolean
     onRelease?: (spellIndex: number) => void
 }
 
@@ -59,7 +59,7 @@ export class BattleView {
     private readonly world = new Container()
     private readonly vfx = new Vfx()
     private readonly wizards: Record<Side, Wizard> = { left: new Wizard('left'), right: new Wizard('right') }
-    private readonly huds: Record<Side, PlayerHud> = { left: new PlayerHud('left'), right: new PlayerHud('right') }
+    private readonly huds: Record<Side, PlayerHud>
     private readonly auras: Record<Side, Graphics> = { left: new Graphics(), right: new Graphics() }
     private readonly bombs: Record<Side, Sprite> = {
         left: new Sprite(particleTexture()),
@@ -81,6 +81,9 @@ export class BattleView {
     private time = 0
     private delayed: { at: number; run: () => void }[] = []
     private readonly keysDown = new Set<number>()
+    // Bind deferred releases to the cast identity so they cannot release a replacement.
+    private readonly pausedReleases = new Map<number, number>()
+    private readonly handledKeyUps = new Set<string>()
     private resizeObserver: ResizeObserver | null = null
     private destroyed = false
 
@@ -89,6 +92,10 @@ export class BattleView {
         private readonly options: BattleViewOptions,
     ) {
         this.sides = sidesFor(options.me)
+        this.huds = {
+            left: new PlayerHud('left', this.sides.left, options.me),
+            right: new PlayerHud('right', this.sides.right, options.me),
+        }
     }
 
     static async create(container: HTMLElement, options: BattleViewOptions) {
@@ -136,7 +143,7 @@ export class BattleView {
         }
         this.world.addChild(this.vfx)
 
-        const top = new Graphics().rect(0, 0, WIDTH, 136).fill({ color: 0x05040c, alpha: 0.45 })
+        const top = new Graphics().rect(0, 0, WIDTH, 136).fill(0x130f20)
         stage.addChild(top, this.huds.left, this.huds.right)
         for (const [text, size, y] of [
             [this.timer, 15, 8],
@@ -154,13 +161,16 @@ export class BattleView {
             stage.addChild(text)
         }
         // score sits between the hp bars
-        this.score.position.y = 6
-        this.timer.position.y = 112
+        this.score.position.y = battleLayout(WIDTH, HEIGHT).score.y
+        this.timer.position.y = battleLayout(WIDTH, HEIGHT).timer.y
 
         if (this.options.me) {
             this.actionBar = new ActionBar(
-                i => this.options.onPress?.(i),
-                i => this.options.onRelease?.(i),
+                i => {
+                    if (!this.combatActive()) return false
+                    return this.options.onPress?.(i)
+                },
+                i => this.releaseInput(i),
             )
             stage.addChild(this.actionBar)
             window.addEventListener('keydown', this.onKeyDown)
@@ -169,7 +179,7 @@ export class BattleView {
         }
 
         const dim = new Graphics()
-            .rect(0, 136, WIDTH, (this.options.me ? 470 : HEIGHT) - 136)
+            .rect(0, 136, WIDTH, (this.options.me ? battleLayout(WIDTH, HEIGHT).bar.y : HEIGHT) - 136)
             .fill({ color: 0x000000, alpha: 0.45 })
         this.overlayTitle.style = {
             fontFamily: TEXT_FONT,
@@ -201,8 +211,22 @@ export class BattleView {
 
     /** Feed a new authoritative state. `fresh` is false for catch-up state, which skips effects. */
     update(snap: SnapshotView, newLog: LogEntry[], events: HpEvent[], fresh = true) {
-        this.snap = snap
+        this.snap = { ...snap, finished: snap.finished ?? false }
         this.snapAt = performance.now()
+        const mine = this.options.me ? snap[this.options.me] : null
+        if (snap.finished === true) this.actionBar?.clearAccessibleCast()
+        // Catch-up initializes a recreated view after reconnect. Recover the surviving
+        // authoritative cast so losing its original input cannot leave it stuck at 100%.
+        if (!fresh && mine?.spells && snap.finished !== true) this.actionBar?.recoverCast(mine as PlayerState)
+        if (mine?.spells)
+            this.actionBar?.update(
+                mine as PlayerState,
+                snap.gameTick,
+                this.keysDown,
+                snap.gameTick,
+                this.combatActive() && fresh,
+            )
+        if (fresh) this.reconcileReleases()
         if (!fresh) return
         for (const entry of newLog) if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(entry.caster, entry.spellId)
         for (const tell of interruptTells(newLog, this.sides)) this.onInterrupt(tell)
@@ -211,13 +235,24 @@ export class BattleView {
 
     /** Stops cast bars and cooldowns from advancing between snapshots (countdowns, pauses). */
     setFrozen(frozen: boolean) {
+        if (frozen) {
+            if (this.snap?.finished === true) this.actionBar?.clearAccessibleCast()
+        }
+        // A lobby pause rejects stop_cast and preserves the authoritative cast.
+        // Keep live holds; keyup/pointerup (or blur) records releases while frozen.
         this.frozen = frozen
+        this.reconcileReleases()
     }
 
     setOverlay(title: string | null, sub = '') {
+        if (title !== null) {
+            if (this.snap?.finished === true) this.actionBar?.clearAccessibleCast()
+            if (!this.frozen) this.releaseAll()
+        }
         this.overlay.visible = title !== null
         setText(this.overlayTitle, title ?? '')
         setText(this.overlaySub, sub)
+        this.reconcileReleases()
     }
 
     setScore(score: Record<PlayerKey, number> | null) {
@@ -227,6 +262,7 @@ export class BattleView {
     destroy() {
         if (this.destroyed) return
         this.destroyed = true
+        this.actionBar?.clearAccessibleCast()
         this.releaseAll()
         window.removeEventListener('keydown', this.onKeyDown)
         window.removeEventListener('keyup', this.onKeyUp)
@@ -247,7 +283,7 @@ export class BattleView {
     }
 
     private displayTick(snap: SnapshotView) {
-        if (this.frozen || snap.winner) return snap.gameTick
+        if (this.frozen || snap.finished === true) return snap.gameTick
         const ahead = (performance.now() - this.snapAt) / GAME_TICK_INTERVAL
         return snap.gameTick + Math.min(1, Math.max(0, ahead))
     }
@@ -268,11 +304,11 @@ export class BattleView {
                 this.huds[side].update(player, tick, dt)
                 const wizard = this.wizards[side]
                 wizard.pose =
-                    snap.winner && snap.winner !== 'draw'
+                    snap.finished === true && snap.winner && snap.winner !== 'draw'
                         ? snap.winner === key
                             ? 'win'
                             : 'lose'
-                        : snap.winner === 'draw'
+                        : snap.finished === true && snap.winner === 'draw'
                           ? 'lose'
                           : player.cast !== null
                             ? 'casting'
@@ -284,7 +320,8 @@ export class BattleView {
             setText(this.timer, formatTime(snap.gameTick))
             const mine = this.options.me && snap[this.options.me]
             // a player always has their own loadout
-            if (this.actionBar && mine?.spells) this.actionBar.update(mine as PlayerState, tick, this.keysDown)
+            if (this.actionBar && mine?.spells)
+                this.actionBar.update(mine as PlayerState, tick, this.keysDown, snap.gameTick, this.combatActive())
         }
 
         for (const side of SIDES) {
@@ -310,8 +347,8 @@ export class BattleView {
         }
 
         this.vfx.update(dt)
-        const shake = this.vfx.shake
-        this.world.position.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake)
+        // Split Console keeps the arena stationary, including on heavy hits.
+        this.world.position.set(0, 0)
     }
 
     private persistentEffects(side: Side, player: SnapshotView['player1'], tick: number, dt: number) {
@@ -520,28 +557,64 @@ export class BattleView {
 
     // input
 
+    private combatActive() {
+        return (
+            !!this.options.me && !!this.snap && !(this.snap.finished ?? false) && !this.frozen && !this.overlay.visible
+        )
+    }
+
     private onKeyDown = (event: KeyboardEvent) => {
-        const index = hotkeyFor(event)
+        if (!this.combatActive()) return
+        const index = hotkeyFor({
+            code: event.code,
+            target: event.target,
+            ctrlKey: event.ctrlKey,
+            metaKey: event.metaKey,
+            altKey: event.altKey,
+            repeat: false,
+        })
         if (index === undefined) return
         event.preventDefault()
-        if (this.keysDown.has(index)) return
+        if (event.repeat || this.keysDown.has(index)) return
+        this.handledKeyUps.add(event.code)
         this.keysDown.add(index)
+        this.actionBar?.manualPress(index)
         this.options.onPress?.(index)
     }
 
     private onKeyUp = (event: KeyboardEvent) => {
         const index = KEY_CODES[event.code]
+        if (this.handledKeyUps.delete(event.code)) event.preventDefault()
         if (index === undefined || !this.keysDown.delete(index)) return
         // Firefox clicks the focused button when Space is released; a cast hotkey must not do that
         event.preventDefault()
+        this.releaseInput(index)
+    }
+
+    private releaseInput(index: number) {
+        if (this.frozen) {
+            const mine = this.options.me && this.snap?.[this.options.me]
+            if (mine && mine.cast === index && mine.castStartingTick !== null)
+                this.pausedReleases.set(index, mine.castStartingTick)
+            return
+        }
         this.options.onRelease?.(index)
     }
 
+    private reconcileReleases() {
+        if (!this.combatActive()) return
+        const mine = this.options.me && this.snap?.[this.options.me]
+        for (const [index, startingTick] of this.pausedReleases) {
+            this.pausedReleases.delete(index)
+            if (mine && mine.cast === index && mine.castStartingTick === startingTick) this.options.onRelease?.(index)
+        }
+    }
+
     private releaseAll = () => {
-        for (const index of this.keysDown) this.options.onRelease?.(index)
+        for (const index of this.keysDown) this.releaseInput(index)
         this.keysDown.clear()
         if (this.actionBar) {
-            for (const index of this.actionBar.pressed) this.options.onRelease?.(index)
+            for (const index of this.actionBar.pressed) this.releaseInput(index)
             this.actionBar.pressed.clear()
         }
     }

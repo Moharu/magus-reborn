@@ -120,7 +120,10 @@ export interface BattleState {
 }
 
 /** Everything but the log, which is streamed incrementally. */
-export type BattleSnapshot = Omit<BattleState, 'log'>
+export type BattleSnapshot = Omit<BattleState, 'log'> & {
+    /** True after the deciding tick ends. Absent in older snapshots. */
+    finished?: boolean
+}
 
 /**
  * A player as one viewer may see them. `spells` (the loadout) is absent when the viewer isn't allowed to see it, and

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { Battle, enemyOf, simpleDebuff, type IgniteDebuff, type PlayerKey, type SpellId } from '../src'
+import { Battle, viewSnapshot, enemyOf, simpleDebuff, type IgniteDebuff, type PlayerKey, type SpellId } from '../src'
 import { advance, effectIds, FIRE, GENERAL, putOnGcd, restoreOffGcd, slot } from './helpers'
 
 afterEach(restoreOffGcd)
@@ -261,12 +261,16 @@ describe.each(KEYS)('after the tick a winner is decided, %s winning', first => {
 
     it('finished only turns true on the next tick() call, which does not advance the clock', () => {
         const b = withLethalInstants()
-        expect(b.finished).toBe(false)
+        expect(b.snapshot().finished).toBe(false)
         b.startCast(first, FIREBALL)
-        expect(b.finished).toBe(false)
+        expect(b.snapshot().finished).toBe(false)
+        for (const viewer of [...KEYS, 'spectator'] as const)
+            expect(viewSnapshot(b.snapshot(), viewer).finished).toBe(false)
         const tick = b.state.gameTick
         b.tick()
-        expect(b.finished).toBe(true)
+        expect(b.snapshot().finished).toBe(true)
+        for (const viewer of [...KEYS, 'spectator'] as const)
+            expect(viewSnapshot(b.snapshot(), viewer).finished).toBe(true)
         expect(b.state.gameTick).toBe(tick)
     })
 })
