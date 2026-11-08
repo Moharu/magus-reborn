@@ -36,7 +36,7 @@ export type Condition =
     | { type: 'enemyCastEndsWithin'; seconds: number; spells?: SpellId[] }
     /** The enemy is under a Counterspell lock. */
     | { type: 'enemyLocked' }
-    /** The cast this profile is about to start this tick is one of `spells`, e.g. Haste before Meteor. */
+    /** The real cast this profile starts this tick is one of `spells`, e.g. Haste before Meteor. Never a fake cast. */
     | { type: 'nextCastIs'; spells: SpellId[] }
 
 export type ConditionType = Condition['type']
@@ -46,7 +46,7 @@ export interface ConditionInput {
     readonly view: ArenaView
     /** Whether the player still has a cast in progress after this tick's release or cancel. */
     readonly casting: boolean
-    /** The spell the profile starts this tick, or null. */
+    /** The spell the profile starts this tick, or null (also for a fake cast). */
     readonly nextCast: SpellId | null
 }
 

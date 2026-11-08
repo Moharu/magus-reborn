@@ -20,7 +20,7 @@ const NONE = -1
  *
  * Counterspell model: for each targeted enemy cast it sees, the player samples a reaction time and picks a decision
  * tick (`early`: the first tick the cast is visible; `late`: the first tick the cast is within `lateWindowSeconds` of
- * its release). From that tick on, while the cast is still on the bar, it commits as soon as Counterspell will be
+ * its release, moved with the release if the visible cast time changes, as when Haste expires mid-cast). From that tick on, while the cast is still on the bar, it commits as soon as Counterspell will be
  * ready one reaction later; the Counterspell then lands one reaction after the commit whatever the enemy does
  * meanwhile, because it can't tell a fake cast from a real one, nor react to the cancel faster than to the cast. A fake cancelled after the commit and before the landing
  * wastes the Counterspell; one cancelled before the commit is seen in time and not interrupted.
@@ -58,6 +58,8 @@ export const profileController =
         let planFor = NONE
         let planReaction = NONE
         let decideAt = NONE
+        // the enemy cast's release tick when the plan was made or last moved
+        let planCompletesAt = NONE
         // a committed Counterspell: it lands on this tick whatever the enemy does meanwhile
         let pressAt = NONE
         // fake casts: the start tick of the one in progress, the last one's start, how many so far
@@ -105,8 +107,19 @@ export const profileController =
                     planReaction = NONE
                     if (cs.targets.includes(seen.spellId)) {
                         planReaction = sampleReaction()
+                        planCompletesAt = seen.completesAt
                         decideAt = cs.timing === 'early' ? tick : Math.max(tick, seen.completesAt - lateWindow)
                     }
+                } else if (
+                    cs.timing === 'late' &&
+                    planReaction !== NONE &&
+                    seen?.startTick === planFor &&
+                    seen.completesAt !== planCompletesAt
+                ) {
+                    // the same cast now completes at another tick (Haste expired mid-cast): move the window with it,
+                    // keeping the reaction already drawn for this cast
+                    planCompletesAt = seen.completesAt
+                    decideAt = Math.max(tick, seen.completesAt - lateWindow)
                 }
                 if (planReaction !== NONE && tick >= decideAt) {
                     // a cast that left the bar before the decision was seen in time: nothing to interrupt
@@ -152,7 +165,8 @@ export const profileController =
                     }
                 }
             }
-            input.nextCast = next === NONE ? null : loadout[next]
+            // a fake cast is not a cast `nextCastIs` rules prepare for (no Haste or Magic Eater wasted on a bait)
+            input.nextCast = next === NONE || isFake ? null : loadout[next]
 
             // 4. general spells
             for (const general of generals) {

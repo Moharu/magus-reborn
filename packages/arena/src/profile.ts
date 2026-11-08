@@ -32,7 +32,8 @@ export interface CounterspellPolicy {
     readonly targets: readonly SpellId[]
     /**
      * Time from deciding to interrupt to the Counterspell landing, sampled once per enemy cast from the seeded stream:
-     * uniform in [meanSeconds - spreadSeconds, meanSeconds + spreadSeconds], floored at 0, then rounded to ticks.
+     * uniform in [meanSeconds - spreadSeconds, meanSeconds + spreadSeconds], then rounded to ticks. `spreadSeconds` may
+     * not exceed `meanSeconds`, so no draw is negative and the mean is exact (no floor skews it).
      */
     readonly reaction: { readonly meanSeconds: number; readonly spreadSeconds: number }
     /**
@@ -121,13 +122,17 @@ const parseCounterspell = (raw: unknown): CounterspellPolicy => {
     targets.forEach((id, i) => castTimeSpell(id, `counterspell.targets[${i}]`))
     const reaction = record(value.reaction, 'counterspell.reaction', ['meanSeconds', 'spreadSeconds'])
     if (value.timing !== 'early' && value.timing !== 'late') fail('counterspell.timing', 'must be "early" or "late"')
+    const meanSeconds = number(reaction.meanSeconds, 'counterspell.reaction.meanSeconds', 0, MAX_SECONDS)
+    const spreadSeconds = number(reaction.spreadSeconds, 'counterspell.reaction.spreadSeconds', 0, MAX_SECONDS)
+    if (spreadSeconds > meanSeconds)
+        fail(
+            'counterspell.reaction.spreadSeconds',
+            `must not exceed meanSeconds (${meanSeconds}), got ${spreadSeconds}`,
+        )
     return {
         enabled: boolean(value.enabled, 'counterspell.enabled'),
         targets,
-        reaction: {
-            meanSeconds: number(reaction.meanSeconds, 'counterspell.reaction.meanSeconds', 0, MAX_SECONDS),
-            spreadSeconds: number(reaction.spreadSeconds, 'counterspell.reaction.spreadSeconds', 0, MAX_SECONDS),
-        },
+        reaction: { meanSeconds, spreadSeconds },
         timing: value.timing as 'early' | 'late',
         lateWindowSeconds: number(value.lateWindowSeconds, 'counterspell.lateWindowSeconds', 0, MAX_SECONDS),
     }

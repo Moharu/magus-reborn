@@ -165,6 +165,8 @@ describe('profile loader', () => {
     it('rejects out-of-range and malformed values, naming the key', () => {
         rejects(raw => (raw.counterspell.reaction.meanSeconds = 11), 'counterspell.reaction.meanSeconds')
         rejects(raw => (raw.counterspell.reaction.spreadSeconds = -0.1), 'counterspell.reaction.spreadSeconds')
+        // a spread wider than the mean would need a floor at 0, which skews the mean
+        rejects(raw => (raw.counterspell.reaction.spreadSeconds = 0.5), 'counterspell.reaction.spreadSeconds')
         rejects(raw => (raw.counterspell.lateWindowSeconds = Number.NaN), 'counterspell.lateWindowSeconds')
         rejects(raw => ((raw.counterspell as { timing: string }).timing = 'whenever'), 'counterspell.timing')
         rejects(raw => (raw.counterspell.targets = ['SPELL_HASTE']), 'counterspell.targets[0]')
@@ -257,6 +259,32 @@ describe('profile controller: Counterspell policy', () => {
             expect(of(result.log, side, 'SPELL_RELEASE').map(e => `${e.tick} ${e.spellId}`)).toEqual([
                 '78 SPELL_COUNTERSPELL',
             ])
+        })
+    }
+
+    for (const side of ['a', 'b'] as const) {
+        it(`late (as ${side}): moves the window when Haste expires mid-cast and the release comes later`, () => {
+            const HASTE = slotOf(METEOR_LOADOUT, 'SPELL_HASTE')
+            const enemy = side === 'a' ? 'b' : 'a'
+            // Haste on tick 0 lasts 60 s (to tick 1200); the Meteor started on 1190 shows 36 ticks (release 1226)
+            // until Haste expires on 1200, then its base 72 (release 1262)
+            const hasted: ControllerFactory = () => view => {
+                if (view.tick === 0) return start(HASTE)
+                if (view.tick === 1190) return start(METEOR)
+                return view.self.casting && view.tick >= view.self.casting.completesAt ? stop(METEOR) : null
+            }
+            const seen: ArenaView[] = []
+            const counter = counterer('late', 0, 1)
+            const result = runMatch({
+                seed: 1,
+                [side]: { ...counter, controller: recording(counter.controller, seen) },
+                [enemy]: entrant('hasted', hasted),
+                maxTicks: 1300,
+            } as unknown as Parameters<typeof runMatch>[0])
+            expect(seen[1199].enemy.casting?.completesAt).toBe(1226)
+            expect(seen[1200].enemy.casting?.completesAt).toBe(1262)
+            // the 1 s (20-tick) window opens on 1262 - 20 = 1242, not on the stale 1206
+            expect(of(result.log, enemy, 'INTERRUPTED').map(e => e.tick)).toEqual([1242])
         })
     }
 
@@ -369,6 +397,17 @@ describe('profile controller: fake casts', () => {
         // no Counterspell on the fake; the real Meteor (13 to 85) is countered 0.4 s after its window opens on 65
         expect(of(result.log, 'b', 'SPELL_RELEASE').map(e => e.tick)).toEqual([73])
         expect(of(result.log, 'a', 'INTERRUPTED').map(e => e.tick)).toEqual([73])
+    })
+
+    it('does not let nextCastIs rules (Haste before Meteor) fire for a fake cast', () => {
+        const result = runMatch({ seed: 1, a: archetypeEntrant('bait'), b: idler(), maxTicks: 20 })
+        // the fake Meteor starts on tick 0 and is cancelled on 5; Haste goes with the real Meteor on 13
+        expect(result.log.map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
+            '0 START_CAST SPELL_METEOR',
+            '5 STOP_CAST SPELL_METEOR',
+            '13 SPELL_RELEASE SPELL_HASTE',
+            '13 START_CAST SPELL_METEOR',
+        ])
     })
 
     it('makes no fake cast when disabled', () => {
@@ -494,7 +533,7 @@ describe('archetypes in play', () => {
         for (const name of ARCHETYPE_NAMES) {
             const result = runMatch({ seed: 1, a: archetypeEntrant(name), b: idler(), maxTicks: 1200 })
             expect(result.stats.a.rejected, name).toBe(0)
-            expect(result.stats.a.casts, name).toBeGreaterThan(5)
+            expect(result.stats.a.casts, name).toBeGreaterThanOrEqual(4)
         }
     })
 

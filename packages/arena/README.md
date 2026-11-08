@@ -93,7 +93,7 @@ entry's `when` is required.
     "counterspell": {
         "enabled": true,
         "targets": ["SPELL_METEOR"], // enemy casts it interrupts
-        "reaction": { "meanSeconds": 0.4, "spreadSeconds": 0.1 }, // uniform in mean ± spread, floored at 0, per cast
+        "reaction": { "meanSeconds": 0.4, "spreadSeconds": 0.1 }, // uniform in mean ± spread (spread ≤ mean), per cast
         "timing": "early", // or "late"
         "lateWindowSeconds": 0, // late: decide once the cast is within this long of its release
     },
@@ -120,7 +120,7 @@ entry's `when` is required.
 profile's own choice this tick (`src/conditions.ts`): `selfHpBelow`/`selfHpAtLeast`/`enemyHpBelow`/`enemyHpAtLeast`
 (`hp`), `selfEffectsAtLeast`/`selfEffectsBelow`/`enemyEffectsAtLeast`/`enemyEffectsBelow` (`effect`, `count`),
 `selfCasting`, `selfNotCasting`, `enemyCasting` (optional `spells`), `enemyNotCasting`, `enemyCastEndsWithin`
-(`seconds`, optional `spells`), `enemyLocked` and `nextCastIs` (`spells`: the cast the profile starts this tick).
+(`seconds`, optional `spells`), `enemyLocked` and `nextCastIs` (`spells`: the real cast the profile starts this tick; never a fake).
 
 **Each tick** the controller: (1) cancels its fake cast once `cancelAfterSeconds` has passed, or releases a completed
 cast; (2) lands a committed Counterspell; (3) picks its next cast if it has none in progress and isn't pausing after a
@@ -131,7 +131,8 @@ It never assumes a side.
 
 **Counterspell model.** For each targeted enemy cast it sees, the player samples a reaction time and waits for its
 decision tick: `early`, the first tick the cast is visible; `late`, the first tick the cast is within
-`lateWindowSeconds` of its release. From then on, while the cast is still on the bar, it commits as soon as
+`lateWindowSeconds` of its release (moved with the release if the visible cast time changes, as when Haste expires
+mid-cast). From then on, while the cast is still on the bar, it commits as soon as
 Counterspell will be ready one reaction later, and the Counterspell lands one reaction after the commit whatever the
 enemy does meanwhile: the enemy can't tell a fake cast from a real one, nor react to the cancel faster than to the
 cast. A `late` window shorter than the reaction lands after the release.
