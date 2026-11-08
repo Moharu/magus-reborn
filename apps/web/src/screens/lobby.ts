@@ -1,4 +1,4 @@
-import { SPELLS, ticksToSeconds, type PlayerKey, type SnapshotView, type SpellId } from '@magus/engine'
+import { DEFAULT_ELEMENT, SPELLS, ticksToSeconds, type PlayerKey, type SnapshotView, type SpellId } from '@magus/engine'
 import {
     BEST_OF_OPTIONS,
     MAX_SPECTATORS,
@@ -19,6 +19,8 @@ import type { BattleView } from '../game/battle-view'
 import { getLoadout, getName, playerId, setLoadout } from '../identity'
 import { connect, type Socket } from '../net'
 import { navigate } from '../router'
+import { loadoutValid } from '../ui/loadout-logic'
+import { canSendLoadout, setupAccess } from '../ui/setup-flow'
 import { spellPicker, type SpellPicker } from '../ui/spell-picker'
 import { BATTLE_SETUP_ERROR, battleErrorPanel, loadBattleChunk } from './battle-chunk'
 import { nameField } from './home'
@@ -349,19 +351,31 @@ const startLobby = (root: HTMLElement, code: string) => {
     const setupHead = h('header', { class: 'setup-head' })
     const renderSetup = (info: LobbyInfo, entering: boolean) => {
         const mine = me()!
+        const access = setupAccess(info, info[mine])
         const ready = !!info[mine]?.ready
+        const valid = loadoutValid(loadout, DEFAULT_ELEMENT)
         if (entering || !picker) {
-            picker = spellPicker(loadout, next => {
-                loadout = next
-                setLoadout(next)
-                send({ t: 'set_spells', spells: next })
-            })
+            picker = spellPicker(
+                loadout,
+                next => {
+                    loadout = next
+                    setLoadout(next)
+                    if (canSendLoadout(setupAccess(lobby ?? info, seatInfo(mine)), loadoutValid(next, DEFAULT_ELEMENT)))
+                        send({ t: 'set_spells', spells: next })
+                },
+                { elementLocked: access.elementLocked },
+            )
             content.replaceChildren(h('section', { class: 'panel setup' }, setupHead, picker.el))
         }
-        picker.setLocked(ready)
+        picker.setLocked(!access.editable, access.lockedReason ?? undefined)
         const opponent = seatInfo(mine === 'player1' ? 'player2' : 'player1')
         setupHead.replaceChildren(
-            h('div', null, h('h2', null, `Round ${info.round}`), h('span', { class: 'muted' }, 'Choose your spells')),
+            h(
+                'div',
+                null,
+                h('h2', null, `Round ${info.round}`),
+                h('span', { class: 'muted' }, access.flow === 'pregame' ? 'Choose your spells' : 'Swap spells'),
+            ),
             h('div', { class: 'timer', 'aria-live': 'polite' }, `${info.countdown ?? 0}s`),
             h(
                 'div',
@@ -369,7 +383,11 @@ const startLobby = (root: HTMLElement, code: string) => {
                 h('span', { class: 'muted' }, opponent?.ready ? `${opponent.name} is ready` : ''),
                 ready
                     ? h('strong', { class: 'ready-label' }, 'Ready!')
-                    : h('button', { class: 'btn primary', onclick: () => send({ t: 'ready' }) }, 'Ready'),
+                    : h(
+                          'button',
+                          { class: 'btn primary', disabled: !valid, onclick: () => valid && send({ t: 'ready' }) },
+                          'Ready',
+                      ),
             ),
         )
     }
@@ -535,6 +553,7 @@ const startLobby = (root: HTMLElement, code: string) => {
                     loadout = message.spells
                     setLoadout(loadout)
                     picker?.setLoadout(loadout)
+                    if (mode === 'setup' && lobby) renderSetup(lobby, false)
                     break
                 case 'meta':
                     lobby = message.lobby

@@ -10,6 +10,7 @@ import {
     type SpellId,
 } from '@magus/engine'
 import { ActionBar, INFINITE_HP, PlayerHud, setText } from './hud'
+import { KEY_CODES } from './hotkeys'
 import { GROUND_Y, HEIGHT, SIDE_X, sidesFor, TEXT_FONT, WIDTH, type Side } from './layout'
 import { interruptTells, type InterruptTell } from './interrupt-tell'
 import { backdropTexture, particleTexture } from './textures'
@@ -23,7 +24,6 @@ export interface BattleViewOptions {
     onRelease?: (spellIndex: number) => void
 }
 
-const KEY_CODES: Record<string, number> = { KeyQ: 0, KeyW: 1, KeyE: 2, KeyA: 3, KeyS: 4, KeyD: 5 }
 const SIDES: Side[] = ['left', 'right']
 const opposite = (side: Side): Side => (side === 'left' ? 'right' : 'left')
 
