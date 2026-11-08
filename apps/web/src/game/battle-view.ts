@@ -11,7 +11,7 @@ import {
 } from '@magus/engine'
 import { ActionBar, INFINITE_HP, PlayerHud, setText } from './hud'
 import { hotkeyFor, KEY_CODES } from './hotkeys'
-import { GROUND_Y, HEIGHT, SIDE_X, sidesFor, TEXT_FONT, WIDTH, type Side } from './layout'
+import { battleLayout, GROUND_Y, HEIGHT, SIDE_X, sidesFor, TEXT_FONT, WIDTH, type Side } from './layout'
 import { interruptTells, type InterruptTell } from './interrupt-tell'
 import { backdropTexture, particleTexture } from './textures'
 import { Vfx } from './vfx'
@@ -136,7 +136,7 @@ export class BattleView {
         }
         this.world.addChild(this.vfx)
 
-        const top = new Graphics().rect(0, 0, WIDTH, 136).fill({ color: 0x05040c, alpha: 0.45 })
+        const top = new Graphics().rect(0, 0, WIDTH, 136).fill(0x130f20)
         stage.addChild(top, this.huds.left, this.huds.right)
         for (const [text, size, y] of [
             [this.timer, 15, 8],
@@ -154,12 +154,14 @@ export class BattleView {
             stage.addChild(text)
         }
         // score sits between the hp bars
-        this.score.position.y = 6
-        this.timer.position.y = 112
+        this.score.position.y = battleLayout(WIDTH, HEIGHT).score.y
+        this.timer.position.y = battleLayout(WIDTH, HEIGHT).timer.y
 
         if (this.options.me) {
             this.actionBar = new ActionBar(
-                i => this.options.onPress?.(i),
+                i => {
+                    if (this.combatActive()) this.options.onPress?.(i)
+                },
                 i => this.options.onRelease?.(i),
             )
             stage.addChild(this.actionBar)
@@ -169,7 +171,7 @@ export class BattleView {
         }
 
         const dim = new Graphics()
-            .rect(0, 136, WIDTH, (this.options.me ? 470 : HEIGHT) - 136)
+            .rect(0, 136, WIDTH, (this.options.me ? battleLayout(WIDTH, HEIGHT).bar.y : HEIGHT) - 136)
             .fill({ color: 0x000000, alpha: 0.45 })
         this.overlayTitle.style = {
             fontFamily: TEXT_FONT,
@@ -211,6 +213,7 @@ export class BattleView {
 
     /** Stops cast bars and cooldowns from advancing between snapshots (countdowns, pauses). */
     setFrozen(frozen: boolean) {
+        if (frozen) this.releaseAll()
         this.frozen = frozen
     }
 
@@ -310,8 +313,8 @@ export class BattleView {
         }
 
         this.vfx.update(dt)
-        const shake = this.vfx.shake
-        this.world.position.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake)
+        // Split Console keeps the arena stationary, including on heavy hits.
+        this.world.position.set(0, 0)
     }
 
     private persistentEffects(side: Side, player: SnapshotView['player1'], tick: number, dt: number) {
@@ -520,11 +523,23 @@ export class BattleView {
 
     // input
 
+    private combatActive() {
+        return !!this.options.me && !!this.snap && !this.snap.winner && !this.frozen && !this.overlay.visible
+    }
+
     private onKeyDown = (event: KeyboardEvent) => {
-        const index = hotkeyFor(event)
+        if (!this.combatActive()) return
+        const index = hotkeyFor({
+            code: event.code,
+            target: event.target,
+            ctrlKey: event.ctrlKey,
+            metaKey: event.metaKey,
+            altKey: event.altKey,
+            repeat: false,
+        })
         if (index === undefined) return
         event.preventDefault()
-        if (this.keysDown.has(index)) return
+        if (event.repeat || this.keysDown.has(index)) return
         this.keysDown.add(index)
         this.options.onPress?.(index)
     }

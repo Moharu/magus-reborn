@@ -180,12 +180,11 @@ describe('buttonState (#38)', () => {
             }
         })
 
-        it('keeps the cooldown fader and the longer timer on a spell that is on cooldown', () => {
+        it('keeps the cooldown fader underneath the lock timer', () => {
             const battle = setup()
             cast(battle, 'player1', 'SPELL_BLUR')
-            const { cooldown } = spellOf(battle, 'SPELL_BLUR')
             lockPlayer1(battle)
-            expect(stateOf(battle, 'SPELL_BLUR')).toEqual({ fader: 1, locked: true, timer: cooldown })
+            expect(stateOf(battle, 'SPELL_BLUR')).toEqual({ fader: 1, locked: true, timer: LOCK_TICKS })
         })
 
         it('keeps the timer of the lock when it outlasts the cooldown', () => {

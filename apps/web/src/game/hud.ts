@@ -1,7 +1,16 @@
+import 'pixi.js/accessibility'
 import { Container, Graphics, Sprite, Text } from 'pixi.js'
-import { HOTKEYS, SPELLS, ticksToSeconds, type PlayerState, type PlayerView, type SpellId } from '@magus/engine'
+import {
+    cooldownRemaining,
+    HOTKEYS,
+    SPELLS,
+    ticksToSeconds,
+    type PlayerState,
+    type PlayerView,
+    type SpellId,
+} from '@magus/engine'
 import { buttonState, type ButtonState } from './button-state'
-import { BAR, BAR_LEFT, BAR_WIDTH, buttonX, TEXT_FONT, WIDTH, type Side } from './layout'
+import { battleLayout, BATTLE_BAR, battleButtonX, HEIGHT, TEXT_FONT, WIDTH, type Side } from './layout'
 import { keybindsVisible } from './hotkeys'
 import { iconTexture } from './textures'
 
@@ -32,29 +41,43 @@ const hpColor = (hp: number) => (hp > 65 ? 0x2fb344 : hp > 30 ? 0xf08c00 : 0xe03
 export class PlayerHud extends Container {
     private readonly bars = new Graphics()
     private readonly nameText = label(18, '800')
-    private readonly hpText = label(15)
+    private readonly hpText = label(12)
     private readonly castText = label(13)
+    private readonly lockText = label(13)
     private readonly castIcon = new Sprite()
     private readonly effectIcons = new Container()
     private effectKey = ''
     private shownHp = 100
     private interrupt: { spell: SpellId; color: number; left: number } | null = null
     private readonly x0: number
-    private readonly w = 430
+    private readonly w = battleLayout(WIDTH, HEIGHT).left.hp.width
 
     constructor(private readonly side: Side) {
         super()
-        this.x0 = side === 'left' ? 20 : WIDTH - 20 - this.w
-        this.nameText.position.set(side === 'left' ? this.x0 : this.x0 + this.w, 8)
-        this.nameText.anchor.set(side === 'left' ? 0 : 1, 0)
-        this.hpText.anchor.set(0.5)
-        this.hpText.position.set(this.x0 + this.w / 2, 55)
+        this.x0 = battleLayout(WIDTH, HEIGHT)[side].hp.x
+        this.nameText.position.set(this.x0, 12)
+        this.nameText.style.fontSize = 12
+        this.nameText.style.wordWrap = false
+        this.nameText.style.fill = 0xe9e3ff
+        this.nameText.anchor.set(0, 0)
+        this.hpText.anchor.set(1, 0)
+        this.hpText.position.set(this.x0 + this.w, 12)
         this.castText.anchor.set(0.5)
         this.castText.position.set(this.x0 + this.w / 2 + 14, 89)
         this.castIcon.width = this.castIcon.height = 22
         this.castIcon.position.set(side === 'left' ? this.x0 + 1 : this.x0 + this.w - 23, 78)
+        this.lockText.anchor.set(0.5)
+        this.lockText.position.set(this.x0 + this.w / 2, 162)
         this.effectIcons.position.set(this.x0, 110)
-        this.addChild(this.bars, this.nameText, this.hpText, this.castIcon, this.castText, this.effectIcons)
+        this.addChild(
+            this.bars,
+            this.nameText,
+            this.hpText,
+            this.castIcon,
+            this.castText,
+            this.effectIcons,
+            this.lockText,
+        )
     }
 
     /** Flashes the cast bar with the spell that was interrupted. */
@@ -63,20 +86,21 @@ export class PlayerHud extends Container {
     }
 
     update(player: PlayerView, tick: number, dt: number) {
-        setText(this.nameText, player.name)
+        setText(this.nameText, `${this.side === 'left' ? 'YOU' : 'OPPONENT'} · ${player.name.slice(0, 12)}`)
         const infinite = player.hp >= INFINITE_HP
         const hp = infinite ? 100 : player.hp
-        this.shownHp += (hp - this.shownHp) * Math.min(1, dt * 14)
+        const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        this.shownHp += (hp - this.shownHp) * (reduced ? 1 : Math.min(1, dt / 0.12))
         const { x0, w } = this
         const fill = Math.max(0, Math.min(1, this.shownHp / 100)) * (w - 4)
         const g = this.bars.clear()
-        g.roundRect(x0, 40, w, 30, 6).fill({ color: 0x000000, alpha: 0.65 })
-        g.roundRect(this.side === 'left' ? x0 + 2 : x0 + w - 2 - fill, 42, fill, 26, 5).fill(hpColor(this.shownHp))
+        g.roundRect(x0, 40, w, 24, 6).fill({ color: 0x000000, alpha: 0.65 })
+        g.roundRect(this.side === 'left' ? x0 + 2 : x0 + w - 2 - fill, 42, fill, 20, 5).fill(hpColor(this.shownHp))
         g.roundRect(this.side === 'left' ? x0 + 2 : x0 + w - 2 - fill, 42, fill, 9, 4).fill({
             color: 0xffffff,
             alpha: 0.15,
         })
-        setText(this.hpText, infinite ? '∞' : `${formatHp(player.hp)} %`)
+        setText(this.hpText, infinite ? '∞' : `${formatHp(player.hp)} / 100 HP`)
 
         g.roundRect(x0, 76, w, 26, 5).fill({ color: 0x000000, alpha: 0.55 })
         // the opponent's loadout isn't sent, so their spell comes as `casting`
@@ -90,11 +114,7 @@ export class PlayerHud extends Container {
             const barX = this.side === 'left' ? x0 + 26 : x0 + w - 26 - barW
             g.roundRect(barX, 78, barW, 22, 4).fill(done ? 0x2fb344 : 0x4c6ef5)
             this.showCastLabel(spell.id, 1)
-            const total = ticksToSeconds(spell.castTime)
-            setText(
-                this.castText,
-                `${SPELLS[spell.id].label}  ${Math.min(ticksToSeconds(elapsed), total).toFixed(1)} / ${total.toFixed(1)}`,
-            )
+            setText(this.castText, `${SPELLS[spell.id].label} · ${Math.round(progress * 100)}%`)
         } else if (this.interrupt && this.interrupt.left > dt) {
             this.drawInterrupt(this.interrupt, dt)
         } else {
@@ -103,6 +123,8 @@ export class PlayerHud extends Container {
             this.castText.visible = false
         }
 
+        const lock = Math.max(0, player.lockedUntil - tick)
+        setText(this.lockText, lock > 0 ? `LOCKED ${ticksToSeconds(lock).toFixed(1)}s` : '')
         this.updateEffects(player, tick)
     }
 
@@ -126,6 +148,14 @@ export class PlayerHud extends Container {
             .fill({ color: interrupt.color, alpha: k * 0.8 })
             .roundRect(x0 - grow, 76 - grow, w + grow * 2, 26 + grow * 2, 5 + grow)
             .stroke({ width: 2, color: interrupt.color, alpha: k })
+        // A visible break distinguishes a confirmed interrupt from an ordinary cast fill.
+        this.bars.rect(x0 + w / 2 - 8, 78, 16, 22).fill(0x130f20)
+        this.bars
+            .moveTo(x0 + w / 2 - 5, 84)
+            .lineTo(x0 + w / 2 + 5, 94)
+            .moveTo(x0 + w / 2 + 5, 84)
+            .lineTo(x0 + w / 2 - 5, 94)
+            .stroke({ width: 2, color: 0xffffff })
         this.showCastLabel(interrupt.spell, Math.min(1, k * 2))
         setText(this.castText, `${SPELLS[interrupt.spell].label} interrupted!`)
     }
@@ -162,7 +192,7 @@ export class PlayerHud extends Container {
     }
 }
 
-const BUTTON = BAR.button
+const BUTTON = BATTLE_BAR.button
 
 /** The seven spell buttons. Pointer input is reported through the callbacks. */
 export class ActionBar extends Container {
@@ -180,21 +210,25 @@ export class ActionBar extends Container {
 
     constructor(onPress: (i: number) => void, onRelease: (i: number) => void) {
         super()
+        const r = battleLayout(WIDTH, HEIGHT).bar
         const panel = new Graphics()
-            .roundRect(BAR_LEFT - BAR.panelPad, BAR.panelTop, BAR_WIDTH + BAR.panelPad * 2, BAR.panelHeight, 16)
-            .fill({ color: 0x07060f, alpha: 0.72 })
-            .stroke({ width: 1, color: 0xffffff, alpha: 0.08 })
+            .roundRect(r.x, r.y, r.width, r.height, 16)
+            .fill(0x130f20)
+            .stroke({ width: 1, color: 0x756585 })
         this.addChild(panel)
         for (let i = 0; i < HOTKEYS.length; i++) {
             const root = new Container()
             root.pivot.set(BUTTON / 2, BUTTON / 2)
-            root.position.set(buttonX(i) + BUTTON / 2, BAR.buttonTop + BUTTON / 2)
+            root.position.set(battleButtonX(i) + BUTTON / 2, BATTLE_BAR.top + BUTTON / 2)
             root.eventMode = 'static'
             root.cursor = 'pointer'
+            root.accessible = true
+            root.accessibleType = 'button'
+            root.tabIndex = i + 1
             const icon = new Sprite()
             const overlay = new Graphics()
             const frame = new Graphics()
-            const center = label(26, '800', 0xfff3a0)
+            const center = label(20, '800', 0xfff3a0)
             center.anchor.set(0.5)
             center.position.set(BUTTON / 2, BUTTON / 2)
             const key = label(12, '800', 0xffffff)
@@ -202,13 +236,13 @@ export class ActionBar extends Container {
             key.position.set(BUTTON - 6, BUTTON - 3)
             key.text = HOTKEYS[i]
             key.visible = keybindsVisible()
-            const name = label(11, '600', 0xdddddd)
-            name.style.wordWrap = true
-            name.style.wordWrapWidth = BUTTON + BAR.gap - 2
+            const name = label(10, '600', 0xdddddd)
+            name.style.wordWrap = false
+            name.style.wordWrapWidth = BUTTON + BATTLE_BAR.gap - 2
             name.style.align = 'center'
             name.style.lineHeight = 12
             name.anchor.set(0.5, 0)
-            name.position.set(BUTTON / 2, BUTTON + 4)
+            name.position.set(BUTTON / 2, BUTTON + 2)
             // the cooldown sweep is drawn oversized and clipped with the icon
             const mask = new Graphics().roundRect(0, 0, BUTTON, BUTTON, 14).fill(0xffffff)
             const clip = new Container()
@@ -226,6 +260,10 @@ export class ActionBar extends Container {
             }
             root.on('pointerup', release)
             root.on('pointerupoutside', release)
+            root.on('click', () => {
+                onPress(i)
+                onRelease(i)
+            })
             this.addChild(root)
             this.buttons.push({ root, icon, overlay, frame, center, key, name, spellId: '' })
         }
@@ -240,12 +278,18 @@ export class ActionBar extends Container {
                 b.icon.width = b.icon.height = BUTTON
                 setText(b.name, SPELLS[spell.id].label)
             }
-            this.drawButton(
-                b,
-                buttonState(player, spell, tick),
-                player.cast === i,
-                keysDown.has(i) || this.pressed.has(i),
-            )
+            const state = buttonState(player, spell, tick)
+            const cooldown = cooldownRemaining(spell, tick)
+            b.root.accessibleTitle = `${SPELLS[spell.id].label}, ${HOTKEYS[i]}`
+            const reason = state.locked
+                ? `Locked, ${ticksToSeconds(state.timer).toFixed(1)} seconds. Personal cooldown ${ticksToSeconds(cooldown).toFixed(1)} seconds.`
+                : cooldown > 0
+                  ? `Cooldown, ${ticksToSeconds(cooldown).toFixed(1)} seconds.`
+                  : state.fader > 0
+                    ? 'Global cooldown.'
+                    : 'Ready.'
+            b.root.accessibleHint = `${b.root.accessibleTitle}. ${reason}`
+            this.drawButton(b, state, player.cast === i, keysDown.has(i) || this.pressed.has(i))
         })
     }
 
@@ -263,12 +307,23 @@ export class ActionBar extends Container {
                 .lineTo(c, c)
                 .fill({ color: 0x000000, alpha: 0.62 })
         }
+        if (timer > 0 && !locked) {
+            o.roundRect(0, 0, BUTTON, BUTTON, 14).fill({ color: 0x130f20, alpha: 0.5 })
+            for (let x = -BUTTON; x < BUTTON * 2; x += 10)
+                o.moveTo(x, 0)
+                    .lineTo(x + BUTTON, BUTTON)
+                    .stroke({ width: 2, color: 0xffffff, alpha: 0.22 })
+        }
         if (locked) o.roundRect(0, 0, BUTTON, BUTTON, 14).fill({ color: 0x0c8599, alpha: 0.35 })
-        setText(b.center, timer > 0 ? ticksToSeconds(timer).toFixed(1) : '')
+        setText(b.center, timer > 0 ? `${locked ? '🔒 ' : ''}${ticksToSeconds(timer).toFixed(1)}s` : '')
         b.frame
             .clear()
             .roundRect(0, 0, BUTTON, BUTTON, 14)
-            .stroke({ width: casting ? 4 : 2, color: casting ? 0xffd43b : 0xffffff, alpha: casting ? 1 : 0.35 })
+            .stroke({
+                width: casting ? 4 : 2,
+                color: casting ? 0xffd43b : 0xffffff,
+                alpha: casting || b.spellId === 'SPELL_COUNTERSPELL' ? 1 : 0.55,
+            })
         b.root.scale.set(down ? 0.94 : 1)
     }
 }
