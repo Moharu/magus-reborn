@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { Graphics } from 'pixi.js'
 import { Battle, SPELLS, type LogEntry, type PlayerKey, type SpellId } from '@magus/engine'
 import { BattleView } from '../src/game/battle-view'
-import type { PlayerHud } from '../src/game/hud'
+import { ActionBar, type PlayerHud } from '../src/game/hud'
 import { GROUND_Y, SIDE_X, type Side } from '../src/game/layout'
 import { iconTexture } from '../src/game/textures'
 import type { Vfx } from '../src/game/vfx'
@@ -383,5 +383,63 @@ describe('BattleView interrupt tell (#39)', () => {
         view.update(fresh.snapshot(), [], [])
         view.frame(FRAME)
         expect(bar.visible).toBe(false)
+    })
+})
+
+describe('cast ownership across lobby pauses', () => {
+    const setup = (battle: Battle) => {
+        const release = vi.fn((i: number) => battle.stopCast('player1', i))
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: { me: PlayerKey; onRelease: typeof release },
+        ) => Pick<BattleView, 'update' | 'setFrozen' | 'setOverlay'> & { actionBar: ActionBar; frame(dt: number): void }
+        const view = new Ctor({}, { me: 'player1', onRelease: release })
+        view.actionBar = new ActionBar(i => battle.startCast('player1', i), release)
+        return { view, release }
+    }
+
+    it('preserves an accessible Fireball through opponent pause and releases only after resume', () => {
+        const battle = newBattle()
+        const { view, release } = setup(battle)
+        view.update(battle.snapshot(), [], [])
+        // A DOM accessibility click has no pointerType.
+        view.actionBar.children[1].emit('click', {} as never)
+        view.update(battle.snapshot(), [], [])
+        battle.tick()
+        view.setFrozen(true)
+        view.setOverlay('Paused', 'Opponent disconnected')
+        view.update(battle.snapshot(), [], [])
+        view.frame(FRAME)
+        expect(release).not.toHaveBeenCalled()
+        view.setFrozen(false)
+        view.setOverlay(null)
+        while (battle.state.gameTick < battle.state.player1.spells[0].castTime) {
+            battle.tick()
+            view.update(battle.snapshot(), [], [])
+        }
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player1.cast).toBeNull()
+        expect(battle.state.player2.hp).toBeLessThan(100)
+    })
+
+    it('recovers the unowned cast from an own-reconnect snapshot and waits for resume', () => {
+        const battle = newBattle()
+        press(battle, 'player1', 'SPELL_FIREBALL')
+        battle.tick()
+        const { view, release } = setup(battle)
+        view.setFrozen(true)
+        view.setOverlay('Paused')
+        view.update(battle.snapshot(), [], [], false)
+        // Even a completed snapshot must not release while the lobby is paused.
+        while (battle.state.gameTick < battle.state.player1.spells[0].castTime) battle.tick()
+        view.update(battle.snapshot(), [], [])
+        view.frame(FRAME)
+        expect(release).not.toHaveBeenCalled()
+        view.setFrozen(false)
+        view.setOverlay(null)
+        view.frame(FRAME)
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player1.cast).toBeNull()
+        expect(battle.state.player2.hp).toBeLessThan(100)
     })
 })

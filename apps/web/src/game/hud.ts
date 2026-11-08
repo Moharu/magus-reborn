@@ -235,6 +235,13 @@ export class ActionBar extends Container {
         this.accessibleRequests.clear()
     }
 
+    /** A recreated view has no live input owner for the server's surviving cast. */
+    recoverCast(player: PlayerState) {
+        this.clearAccessibleCast()
+        if (player.cast !== null && player.castStartingTick !== null)
+            this.accessibleCast = { index: player.cast, startingTick: player.castStartingTick }
+    }
+
     constructor(
         onPress: (i: number) => void | boolean,
         private readonly onRelease: (i: number) => void,
@@ -308,7 +315,6 @@ export class ActionBar extends Container {
     update(player: PlayerState, tick: number, keysDown: Set<number>, confirmedTick = Math.floor(tick), active = true) {
         // Requests, expiry and release use engine time; interpolation is visual only.
         this.requestTick = confirmedTick
-        if (!active) this.clearAccessibleCast()
         // Bind requests to the cast the engine actually accepted, never the last clicked slot.
         if (
             active &&
@@ -329,7 +335,7 @@ export class ActionBar extends Container {
         if (pending) {
             if (player.cast !== pending.index || player.castStartingTick !== pending.startingTick) {
                 this.accessibleCast = null
-            } else if (confirmedTick >= pending.startingTick + player.spells[pending.index].castTime) {
+            } else if (active && confirmedTick >= pending.startingTick + player.spells[pending.index].castTime) {
                 this.accessibleCast = null
                 this.onRelease(pending.index)
             }

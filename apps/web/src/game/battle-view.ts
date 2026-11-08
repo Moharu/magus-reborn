@@ -209,10 +209,13 @@ export class BattleView {
 
     /** Feed a new authoritative state. `fresh` is false for catch-up state, which skips effects. */
     update(snap: SnapshotView, newLog: LogEntry[], events: HpEvent[], fresh = true) {
-        if (!fresh) this.actionBar?.clearAccessibleCast()
         this.snap = snap
         this.snapAt = performance.now()
         const mine = this.options.me ? snap[this.options.me] : null
+        if (snap.winner) this.actionBar?.clearAccessibleCast()
+        // Catch-up initializes a recreated view after reconnect. Recover the surviving
+        // authoritative cast so losing its original input cannot leave it stuck at 100%.
+        if (!fresh && mine?.spells && !snap.winner) this.actionBar?.recoverCast(mine as PlayerState)
         if (mine?.spells)
             this.actionBar?.update(
                 mine as PlayerState,
@@ -230,7 +233,7 @@ export class BattleView {
     /** Stops cast bars and cooldowns from advancing between snapshots (countdowns, pauses). */
     setFrozen(frozen: boolean) {
         if (frozen) {
-            this.actionBar?.clearAccessibleCast()
+            if (this.snap?.winner) this.actionBar?.clearAccessibleCast()
             this.releaseAll()
         }
         this.frozen = frozen
@@ -238,7 +241,7 @@ export class BattleView {
 
     setOverlay(title: string | null, sub = '') {
         if (title !== null) {
-            this.actionBar?.clearAccessibleCast()
+            if (this.snap?.winner) this.actionBar?.clearAccessibleCast()
             this.releaseAll()
         }
         this.overlay.visible = title !== null
