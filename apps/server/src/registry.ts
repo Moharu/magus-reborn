@@ -7,6 +7,8 @@ const MAX_LOBBIES = 500
 const RESERVATION_TTL = 2 * 60 * 1000
 /** Safety net for lobbies that vanished without delisting (e.g. a redeploy). */
 const LISTING_TTL = 6 * 60 * 60 * 1000
+/** The WebSocket close code for a normal close. */
+const CLOSE_NORMAL = 1000
 
 interface Entry {
     listing: LobbyListing | null
@@ -53,8 +55,15 @@ export class LobbyRegistry extends DurableObject<Env> {
         if (message === 'refresh') ws.send(JSON.stringify(await this.message()))
     }
 
-    override async webSocketClose(ws: WebSocket, code: number) {
-        ws.close(code, 'closing')
+    /**
+     * Finishes the close handshake. `web_socket_auto_reply_to_close` is on at our compatibility date, but workerd still
+     * leaves a hibernatable socket CLOSING without answering, so without this the client would never see its close
+     * complete (test/worker/registry.test.ts checks both).
+     * The reply is always 1000 rather than the peer's code: the runtime reports 1005 (no code) and 1006 (dropped
+     * without a close frame), which `close()` refuses, and nothing reads the code anyway.
+     */
+    override async webSocketClose(ws: WebSocket) {
+        ws.close(CLOSE_NORMAL, 'closing')
     }
 
     private async entries() {
