@@ -220,10 +220,16 @@ export class ActionBar extends Container {
         spellId: string
     }[] = []
     pressed = new Set<number>()
-    private accessibleCast: number | null = null
+    private accessibleCast: { index: number; startingTick: number } | null = null
+    private readonly accessibleRequests = new Set<number>()
+
+    clearAccessibleCast() {
+        this.accessibleCast = null
+        this.accessibleRequests.clear()
+    }
 
     constructor(
-        onPress: (i: number) => void,
+        onPress: (i: number) => void | boolean,
         private readonly onRelease: (i: number) => void,
     ) {
         super()
@@ -267,7 +273,7 @@ export class ActionBar extends Container {
             clip.mask = mask
             root.addChild(mask, clip, frame, center, key, name)
             root.on('pointerdown', () => {
-                this.accessibleCast = null
+                this.clearAccessibleCast()
                 if (this.pressed.has(i)) return
                 this.pressed.add(i)
                 onPress(i)
@@ -282,8 +288,9 @@ export class ActionBar extends Container {
                 // Pixi's pointer click already went through down/up. Accessibility clicks
                 // have no pointer type and need their own activation.
                 if (event?.pointerType) return
-                this.accessibleCast = i
-                onPress(i)
+                const alreadyRequested = this.accessibleRequests.has(i)
+                this.accessibleRequests.add(i)
+                if (onPress(i) === false && !alreadyRequested) this.accessibleRequests.delete(i)
             })
             this.addChild(root)
             this.buttons.push({ root, icon, overlay, frame, center, key, name, spellId: '' })
@@ -291,15 +298,20 @@ export class ActionBar extends Container {
     }
 
     update(player: PlayerState, tick: number, keysDown: Set<number>, confirmedTick = tick) {
-        const index = this.accessibleCast
-        if (
-            index !== null &&
-            player.cast === index &&
-            player.castStartingTick !== null &&
-            confirmedTick >= player.castStartingTick + player.spells[index].castTime
-        ) {
-            this.accessibleCast = null
-            this.onRelease(index)
+        // Bind requests to the cast the engine actually accepted, never the last clicked slot.
+        if (player.cast !== null && player.castStartingTick !== null && this.accessibleRequests.has(player.cast)) {
+            this.accessibleCast = { index: player.cast, startingTick: player.castStartingTick }
+            // Other requests may still be in flight to the authoritative server.
+            this.accessibleRequests.delete(player.cast)
+        }
+        const pending = this.accessibleCast
+        if (pending) {
+            if (player.cast !== pending.index || player.castStartingTick !== pending.startingTick) {
+                this.accessibleCast = null
+            } else if (confirmedTick >= pending.startingTick + player.spells[pending.index].castTime) {
+                this.accessibleCast = null
+                this.onRelease(pending.index)
+            }
         }
         player.spells.forEach((spell, i) => {
             const b = this.buttons[i]

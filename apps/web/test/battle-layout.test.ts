@@ -245,3 +245,173 @@ describe('battle input review regressions', () => {
         expect(release).toHaveBeenCalledTimes(2)
     })
 })
+
+describe('accessible cast ownership', () => {
+    const setup = () => {
+        const game = battle()
+        const release = vi.fn((i: number) => game.stopCast('player1', i))
+        const bar = new ActionBar(i => game.startCast('player1', i), release)
+        const click = (i: number) =>
+            bar.children[i + 1].emit('click', new FederatedPointerEvent(new EventBoundary(bar)))
+        const update = () => bar.update(game.state.player1, game.state.gameTick, new Set())
+        const charge = () => {
+            for (let i = 0; i < game.state.player1.spells[0].castTime; i++) game.tick()
+            update()
+        }
+        return { game, release, bar, click, update, charge }
+    }
+
+    it('does not retain an activation rejected by the combat gate', () => {
+        const game = battle()
+        const release = vi.fn()
+        const bar = new ActionBar(() => false, release)
+        bar.children[1].emit('click', new FederatedPointerEvent(new EventBoundary(bar)))
+        game.startCast('player1', 0)
+        for (let i = 0; i < game.state.player1.spells[0].castTime; i++) game.tick()
+        bar.update(game.state.player1, game.state.gameTick, new Set())
+        expect(release).not.toHaveBeenCalled()
+    })
+
+    it('keeps Fireball automatic release after rejected accessible Haste, before and after confirmation', () => {
+        for (const confirmed of [false, true]) {
+            const { game, release, click, update, charge } = setup()
+            game.startCast('player1', 5)
+            click(0)
+            if (confirmed) update()
+            click(5)
+            expect(game.state.player1.cast).toBe(0)
+            charge()
+            expect(release).toHaveBeenCalledExactlyOnceWith(0)
+            expect(game.state.player2.hp).toBeLessThan(100)
+        }
+    })
+
+    it.each(['cancel', 'replace', 'pointer'] as const)('does not release a later manual Fireball after %s', reason => {
+        const { game, release, bar, click, update, charge } = setup()
+        click(0)
+        update()
+        game.tick()
+        if (reason === 'cancel') game.stopCast('player1', 0)
+        if (reason === 'replace') game.startCast('player1', 1)
+        if (reason === 'cancel' || reason === 'replace') update()
+        if (reason === 'pointer') bar.children[1].emit('pointerdown', new FederatedPointerEvent(new EventBoundary(bar)))
+        game.startCast('player1', 0)
+        charge()
+        expect(release).not.toHaveBeenCalled()
+        expect(game.state.player1.cast).toBe(0)
+    })
+
+    it('keeps a second accessible request while an older network cast is confirmed', () => {
+        const game = battle()
+        const requests: number[] = []
+        const release = vi.fn((i: number) => game.stopCast('player1', i))
+        const bar = new ActionBar(i => {
+            requests.push(i)
+        }, release)
+        for (const i of [0, 1]) bar.children[i + 1].emit('click', new FederatedPointerEvent(new EventBoundary(bar)))
+        game.startCast('player1', requests[0])
+        bar.update(game.state.player1, game.state.gameTick, new Set())
+        game.tick()
+        game.startCast('player1', requests[1])
+        bar.update(game.state.player1, game.state.gameTick, new Set())
+        for (let i = 0; i < game.state.player1.spells[1].castTime; i++) game.tick()
+        bar.update(game.state.player1, game.state.gameTick, new Set())
+        expect(release).toHaveBeenCalledExactlyOnceWith(1)
+    })
+
+    it('invalidates a cast identity even when cancellation and replacement fall between renders', () => {
+        const { game, release, click, update, charge } = setup()
+        click(0)
+        update()
+        game.tick()
+        game.stopCast('player1', 0)
+        game.startCast('player1', 0)
+        charge()
+        expect(release).not.toHaveBeenCalled()
+    })
+
+    it.each(['freeze', 'overlay', 'reconnect'] as const)('clears automatic release on %s', transition => {
+        const { game, release, bar, click, update, charge } = setup()
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: unknown,
+        ) => {
+            actionBar: ActionBar
+            overlay: { visible: boolean }
+            update: BattleView['update']
+            setFrozen: BattleView['setFrozen']
+            setOverlay: BattleView['setOverlay']
+            onKeyDown(event: unknown): void
+        }
+        const view = new Ctor(
+            {},
+            { me: 'player1', onRelease: release, onPress: (i: number) => game.startCast('player1', i) },
+        )
+        view.actionBar = bar
+        view.overlay.visible = false
+        click(0)
+        update()
+        if (transition === 'freeze') view.setFrozen(true)
+        if (transition === 'overlay') view.setOverlay('Round over')
+        if (transition === 'reconnect') view.update(game.snapshot(), [], [], false)
+        game.tick()
+        game.startCast('player1', 0)
+        charge()
+        expect(release).not.toHaveBeenCalled()
+    })
+
+    it('clears pending ownership through the real hotkey handler', () => {
+        const { game, release, bar, click, update, charge } = setup()
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: unknown,
+        ) => {
+            actionBar: ActionBar
+            overlay: { visible: boolean }
+            update: BattleView['update']
+            onKeyDown(event: unknown): void
+        }
+        const view = new Ctor({}, { me: 'player1', onPress: (i: number) => game.startCast('player1', i) })
+        view.actionBar = bar
+        view.overlay.visible = false
+        view.update(game.snapshot(), [], [])
+        click(0)
+        update()
+        game.tick()
+        view.onKeyDown({ code: 'KeyQ', preventDefault: vi.fn() })
+        charge()
+        expect(release).not.toHaveBeenCalled()
+    })
+
+    it.each(['player1', null] as const)('keeps deciding-tick input open only for a participant (%s)', me => {
+        const game = battle()
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: unknown,
+        ) => {
+            overlay: { visible: boolean }
+            update: BattleView['update']
+            setFrozen: BattleView['setFrozen']
+            onKeyDown(event: unknown): void
+        }
+        game.state.player2.hp = 1
+        game.startCast('player1', 0)
+        game.startCast('player2', 0)
+        for (let i = 0; i < game.state.player1.spells[0].castTime; i++) game.tick()
+        game.stopCast('player1', 0)
+        expect(game.state.winner).toBe('player1')
+        expect(game.finished).toBe(false)
+        const press = vi.fn((i: number) => game.startCast('player1', i))
+        const view = new Ctor({}, { me, onPress: press })
+        view.overlay.visible = false
+        view.update(game.snapshot(), [], [], false)
+        view.onKeyDown({ code: 'Space', preventDefault: vi.fn() })
+        expect(press).toHaveBeenCalledTimes(me ? 1 : 0)
+        if (me) expect(game.state.player2.cast).toBeNull()
+        game.tick()
+        expect(game.finished).toBe(true)
+        view.setFrozen(true)
+        view.onKeyDown({ code: 'KeyQ', preventDefault: vi.fn() })
+        expect(press).toHaveBeenCalledTimes(me ? 1 : 0)
+    })
+})

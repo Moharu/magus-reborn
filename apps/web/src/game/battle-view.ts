@@ -165,7 +165,8 @@ export class BattleView {
         if (this.options.me) {
             this.actionBar = new ActionBar(
                 i => {
-                    if (this.combatActive()) this.options.onPress?.(i)
+                    if (!this.combatActive()) return false
+                    this.options.onPress?.(i)
                 },
                 i => this.options.onRelease?.(i),
             )
@@ -208,8 +209,12 @@ export class BattleView {
 
     /** Feed a new authoritative state. `fresh` is false for catch-up state, which skips effects. */
     update(snap: SnapshotView, newLog: LogEntry[], events: HpEvent[], fresh = true) {
+        if (!fresh) this.actionBar?.clearAccessibleCast()
         this.snap = snap
         this.snapAt = performance.now()
+        const mine = this.options.me ? snap[this.options.me] : null
+        if (this.combatActive() && mine?.spells)
+            this.actionBar?.update(mine as PlayerState, snap.gameTick, this.keysDown, snap.gameTick)
         if (!fresh) return
         for (const entry of newLog) if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(entry.caster, entry.spellId)
         for (const tell of interruptTells(newLog, this.sides)) this.onInterrupt(tell)
@@ -223,6 +228,7 @@ export class BattleView {
     }
 
     setOverlay(title: string | null, sub = '') {
+        if (title !== null) this.releaseAll()
         this.overlay.visible = title !== null
         setText(this.overlayTitle, title ?? '')
         setText(this.overlaySub, sub)
@@ -530,7 +536,7 @@ export class BattleView {
     // input
 
     private combatActive() {
-        return !!this.options.me && !!this.snap && !this.snap.winner && !this.frozen && !this.overlay.visible
+        return !!this.options.me && !!this.snap && !this.frozen && !this.overlay.visible
     }
 
     private onKeyDown = (event: KeyboardEvent) => {
@@ -548,6 +554,7 @@ export class BattleView {
         if (event.repeat || this.keysDown.has(index)) return
         this.handledKeyUps.add(event.code)
         this.keysDown.add(index)
+        this.actionBar?.clearAccessibleCast()
         this.options.onPress?.(index)
     }
 
@@ -564,6 +571,7 @@ export class BattleView {
         for (const index of this.keysDown) this.options.onRelease?.(index)
         this.keysDown.clear()
         if (this.actionBar) {
+            this.actionBar.clearAccessibleCast()
             for (const index of this.actionBar.pressed) this.options.onRelease?.(index)
             this.actionBar.pressed.clear()
         }
