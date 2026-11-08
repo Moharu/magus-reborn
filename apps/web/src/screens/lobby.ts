@@ -83,6 +83,7 @@ const startLobby = (root: HTMLElement, code: string) => {
     let fatal: string | null = null
     let connection: 'connecting' | 'open' | 'reconnecting' = 'connecting'
     let ping: number | null = null
+    let battleLogEnd = 0
     let battleSnap: SnapshotView | null = null
     let caughtUp = false
 
@@ -418,7 +419,7 @@ const startLobby = (root: HTMLElement, code: string) => {
                         if (!viewPending || mode !== 'battle') return created.destroy()
                         viewPending = false
                         view = created
-                        if (battleSnap) view.update(battleSnap, [], [], false)
+                        if (battleSnap) view.update(battleSnap, [], [], false, battleLogEnd, lobby?.round ?? 0)
                         decorate(info)
                     },
                     isCurrent: () => viewPending,
@@ -556,13 +557,16 @@ const startLobby = (root: HTMLElement, code: string) => {
                     if (mode === 'setup' && lobby) renderSetup(lobby, false)
                     break
                 case 'meta':
+                    if (!message.lobby.matchStarted || (lobby && message.lobby.round < lobby.round))
+                        stage.querySelector('.spell-log-history')?.replaceChildren()
                     lobby = message.lobby
                     break
                 case 'battle': {
                     const fresh = caughtUp
                     caughtUp = true
+                    battleLogEnd = message.logFrom + message.log.length
                     battleSnap = message.snap
-                    view?.update(message.snap, message.log, message.events, fresh)
+                    view?.update(message.snap, message.log, message.events, fresh, message.logFrom, lobby?.round ?? 0)
                     return
                 }
                 case 'error':
@@ -587,6 +591,7 @@ const startLobby = (root: HTMLElement, code: string) => {
         clearInterval(pinger)
         socket?.close()
         destroyView()
+        stage.querySelector('.spell-log-history')?.remove()
         netStatus.remove()
     }
 }

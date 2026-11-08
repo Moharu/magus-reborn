@@ -46,6 +46,9 @@ export class FakeElement extends FakeNode {
         }
         return null
     }
+    querySelector(selector: string): FakeElement | null {
+        return this.find(el => el.className.split(' ').includes(selector.slice(1)))
+    }
     button(label: string) {
         return this.find(el => el.tag === 'button' && el.textContent === label)
     }

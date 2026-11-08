@@ -1,7 +1,6 @@
 import { Application, Container, Graphics, Sprite, Text } from 'pixi.js'
 import {
     GAME_TICK_INTERVAL,
-    SPELLS,
     type SnapshotView,
     type HpEvent,
     type LogEntry,
@@ -16,6 +15,7 @@ import { interruptTells, type InterruptTell } from './interrupt-tell'
 import { backdropTexture, particleTexture } from './textures'
 import { Vfx } from './vfx'
 import { Wizard } from './wizard'
+import { SpellLogView } from './spell-log-view'
 
 export interface BattleViewOptions {
     /** The local player's seat, or null for spectators (no input, no action bar). */
@@ -72,6 +72,7 @@ export class BattleView {
     private readonly overlay = new Container()
     private readonly overlayTitle = new Text()
     private readonly overlaySub = new Text()
+    private spellLog!: SpellLogView
     private actionBar: ActionBar | null = null
     private readonly sides: Record<Side, PlayerKey>
     private snap: SnapshotView | null = null
@@ -145,6 +146,8 @@ export class BattleView {
 
         const top = new Graphics().rect(0, 0, WIDTH, 136).fill(0x130f20)
         stage.addChild(top, this.huds.left, this.huds.right)
+        this.spellLog = new SpellLogView(this.options.me, this.container)
+        stage.addChild(this.spellLog)
         for (const [text, size, y] of [
             [this.timer, 15, 8],
             [this.score, 24, 26],
@@ -210,7 +213,7 @@ export class BattleView {
     }
 
     /** Feed a new authoritative state. `fresh` is false for catch-up state, which skips effects. */
-    update(snap: SnapshotView, newLog: LogEntry[], events: HpEvent[], fresh = true) {
+    update(snap: SnapshotView, newLog: LogEntry[], events: HpEvent[], fresh = true, logFrom = 0, round = 0) {
         this.snap = { ...snap, finished: snap.finished ?? false }
         this.snapAt = performance.now()
         const mine = this.options.me ? snap[this.options.me] : null
@@ -227,6 +230,7 @@ export class BattleView {
                 this.combatActive() && fresh,
             )
         if (fresh) this.reconcileReleases()
+        this.spellLog?.update(newLog, logFrom, fresh, round, snap)
         if (!fresh) return
         for (const entry of newLog) if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(entry.caster, entry.spellId)
         for (const tell of interruptTells(newLog, this.sides)) this.onInterrupt(tell)
@@ -291,6 +295,7 @@ export class BattleView {
     private frame(dt: number) {
         dt = Math.min(dt, 0.1)
         this.time += dt
+        this.spellLog?.advance(dt)
         const due = this.delayed.filter(d => d.at <= this.time)
         this.delayed = this.delayed.filter(d => d.at > this.time)
         for (const d of due) d.run()
@@ -434,10 +439,6 @@ export class BattleView {
         const to = this.wizards[targetSide].chestPoint
         const self = this.wizards[casterSide].chestPoint
         const color = SPELL_COLOR[spellId]
-
-        const text = this.lastCast[casterSide]
-        setText(text, `${SPELLS[spellId].label}!`)
-        text.alpha = 1.4
 
         switch (spellId) {
             case 'SPELL_FIREBALL':
