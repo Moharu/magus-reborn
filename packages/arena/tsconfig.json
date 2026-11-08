@@ -1,5 +1,5 @@
 {
     "extends": "../../tsconfig.base.json",
     "include": ["src", "test"],
-    "exclude": ["test/match-cli.test.ts"]
+    "exclude": ["test/match-cli.test.ts", "test/tournament-cli.test.ts"]
 }
