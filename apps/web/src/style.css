@@ -611,7 +611,7 @@ footer {
 }
 
 .spell img {
-    width: 62%;
+    width: 84%;
     aspect-ratio: 1;
     border-radius: 14px;
     border: 2px solid rgba(255, 255, 255, 0.35);
@@ -654,6 +654,11 @@ footer {
     box-shadow: 0 0 0 3px #7ff3ff;
 }
 
+.book-divider {
+    background: rgba(255, 255, 255, 0.28);
+    border-radius: 1px;
+}
+
 .book-label {
     margin: 0;
     font-size: 1em;
@@ -679,6 +684,24 @@ footer {
     border-radius: 10px;
 }
 
+.details {
+    overflow-y: auto;
+}
+
+/* narrow pickers (landscape phones): tighter strip that scrolls instead of clipping */
+@container (max-width: 640px) {
+    .details {
+        grid-template-columns: 28px 1fr;
+        gap: 8px;
+        padding: 4px 8px;
+        font-size: 10px;
+    }
+    .details p {
+        margin: 0;
+        line-height: 1.2;
+    }
+}
+
 .details p {
     margin: 2px 0;
 }
@@ -701,7 +724,8 @@ footer {
 
 @media (hover: none) and (pointer: coarse) {
     .slot .key,
-    .spell .key {
+    .spell .key,
+    .desktop-only {
         display: none;
     }
 }
