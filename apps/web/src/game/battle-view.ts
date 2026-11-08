@@ -213,7 +213,7 @@ export class BattleView {
     }
 
     /** Feed a new authoritative state. `fresh` is false for catch-up state, which skips effects. */
-    update(snap: SnapshotView, newLog: LogEntry[], events: HpEvent[], fresh = true) {
+    update(snap: SnapshotView, newLog: LogEntry[], events: HpEvent[], fresh = true, logFrom = 0, round = 0) {
         this.snap = { ...snap, finished: snap.finished ?? false }
         this.snapAt = performance.now()
         const mine = this.options.me ? snap[this.options.me] : null
@@ -230,7 +230,7 @@ export class BattleView {
                 this.combatActive() && fresh,
             )
         if (fresh) this.reconcileReleases()
-        this.spellLog?.feed(newLog)
+        this.spellLog?.update(newLog, logFrom, fresh, round, snap)
         if (!fresh) return
         for (const entry of newLog) if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(entry.caster, entry.spellId)
         for (const tell of interruptTells(newLog, this.sides)) this.onInterrupt(tell)

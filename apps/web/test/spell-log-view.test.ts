@@ -1,11 +1,14 @@
-import { expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 vi.mock('pixi.js', () => {
     class Container {
         visible = true
         y = 0
         position = { set: vi.fn() }
-        addChild = vi.fn()
+        children: Container[] = []
+        addChild(...children: Container[]) {
+            this.children.push(...children)
+        }
         on = vi.fn()
     }
     class Graphics {
@@ -35,38 +38,88 @@ vi.mock('pixi.js', () => {
 })
 import { SpellLogView } from '../src/game/spell-log-view'
 
-it('reuses four objects, expires after four seconds, retains full history and respects reduced motion', () => {
-    const nodes: { textContent: string; append: ReturnType<typeof vi.fn> }[] = []
-    vi.stubGlobal('document', {
-        createElement: () => {
-            const node = { textContent: '', append: vi.fn(), setAttribute: vi.fn(), remove: vi.fn() }
-            nodes.push(node)
-            return node
-        },
-    })
+import { Battle, viewSnapshot } from '@magus/engine'
+
+const history = {
+    children: [] as { textContent: string }[],
+    append(node: { textContent: string }) {
+        this.children.push(node)
+    },
+    replaceChildren() {
+        this.children = []
+    },
+    setAttribute: vi.fn(),
+    className: '',
+}
+const host = { append: vi.fn(), querySelector: () => history }
+beforeEach(() => {
+    vi.stubGlobal('document', { createElement: () => ({ textContent: '' }) })
+    vi.stubGlobal('matchMedia', () => ({ matches: false }))
+})
+afterEach(() => vi.unstubAllGlobals())
+const makeView = () => new SpellLogView('player1', host as unknown as HTMLElement)
+const release = { type: 'SPELL_RELEASE', caster: 'player1', spellId: 'SPELL_HASTE', spellIndex: 1, tick: 0 } as const
+const snapshot = () =>
+    viewSnapshot(
+        new Battle(
+            { name: 'a', spells: ['SPELL_FIREBALL', 'SPELL_HASTE'] },
+            { name: 'b', spells: ['SPELL_HASTE'] },
+        ).snapshot(),
+        'player1',
+    )
+
+it('seeds catch-up without old announcements, deduplicates the next broadcast and resets each round', () => {
+    const view = makeView()
+    const snap = snapshot()
+    view.update([release], 0, false, 1, snap)
+    expect(history.children).toHaveLength(0)
+    expect(view.children.every(row => !row.visible)).toBe(true)
+    view.update([release, release], 0, true, 1, snap)
+    expect(history.children.map(node => node.textContent)).toEqual(['YOU: Haste'])
+    view.update([release], 1, true, 1, snap)
+    expect(history.children).toHaveLength(1)
+    view.update([], 0, true, 2, snap)
+    expect(history.children).toHaveLength(0)
+    expect(view.children.every(row => !row.visible)).toBe(true)
+    view.update([release], 0, true, 2, snap)
+    expect(history.children).toHaveLength(1)
+    makeView()
+    expect(history.children).toHaveLength(0)
+})
+
+it('recovers the public cast for an early stop after catch-up', () => {
+    const battle = new Battle({ name: 'a', spells: ['SPELL_FIREBALL'] }, { name: 'b', spells: ['SPELL_HASTE'] })
+    battle.startCast('player1', 0)
+    const view = makeView()
+    view.update(battle.state.log, 0, false, 1, viewSnapshot(battle.snapshot(), 'player1'))
+    const from = battle.state.log.length
+    battle.stopCast('player1', 0)
+    view.update(battle.state.log.slice(from), from, true, 1, viewSnapshot(battle.snapshot(), 'player1'))
+    expect(history.children.map(node => node.textContent)).toEqual(['YOU: CANCELLED Fireball'])
+})
+
+it('animates public display rows, reuses four children and expires them after four seconds', () => {
+    const view = makeView()
+    const rows = [...view.children]
+    view.feed([release])
+    view.feed([release])
+    view.advance(0.075)
+    expect(view.children.filter(row => row.visible).map(row => row.y)).toEqual([-15, 0])
+    view.advance(0.075)
+    expect(view.children.filter(row => row.visible).map(row => row.y)).toEqual([-30, 0])
+    for (let i = 0; i < 8; i++) view.feed([release])
+    expect(view.children).toEqual(rows)
+    expect(view.children.filter(row => row.visible)).toHaveLength(4)
+    expect(history.children).toHaveLength(10)
+    view.advance(3.99)
+    expect(view.children.some(row => row.visible)).toBe(true)
+    view.advance(0.01)
+    expect(view.children.every(row => !row.visible)).toBe(true)
+})
+
+it('snaps rows with reduced motion', () => {
     vi.stubGlobal('matchMedia', () => ({ matches: true }))
-    try {
-        const host = { append: vi.fn() }
-        const view = new SpellLogView('player2', host as unknown as HTMLElement)
-        const internal = view as unknown as {
-            pool: { root: { visible: boolean; y: number }; text: { text: string } }[]
-        }
-        const objects = [...internal.pool]
-        for (let i = 0; i < 10; i++)
-            view.feed([
-                { type: 'CANCEL_CAST', caster: 'player1', spellIndex: 999, spellId: 'SPELL_TEMPORAL_SHIELD', tick: i },
-            ])
-        expect(internal.pool).toHaveLength(4)
-        expect(internal.pool.every(slot => objects.includes(slot))).toBe(true)
-        expect(internal.pool.map(slot => slot.root.y)).toEqual([-90, -60, -30, 0])
-        expect(nodes[0].append).toHaveBeenCalledTimes(10)
-        expect(nodes[10].textContent).toBe('RIVAL: CANCELLED Temporal Shield')
-        expect(internal.pool[3].text.text).toContain('…')
-        view.advance(3.99)
-        expect(internal.pool.every(slot => slot.root.visible)).toBe(true)
-        view.advance(0.01)
-        expect(internal.pool.every(slot => !slot.root.visible)).toBe(true)
-    } finally {
-        vi.unstubAllGlobals()
-    }
+    const view = makeView()
+    view.feed([release, release])
+    expect(view.children.filter(row => row.visible).map(row => row.y)).toEqual([-30, 0])
 })

@@ -80,3 +80,30 @@ describe('centre spell log', () => {
         expect(logRowY(0, -90, 0, true)).toBe(-90)
     })
 })
+
+it('keeps an early Fireball cancellation before a different instant release in the same batch', () => {
+    const battle = new Battle(
+        { name: 'a', spells: ['SPELL_FIREBALL', 'SPELL_HASTE'] },
+        { name: 'b', spells: ['SPELL_HASTE'] },
+    )
+    battle.startCast('player1', 0)
+    battle.stopCast('player1', 0)
+    battle.startCast('player1', 1)
+    expect(mapSpellLog(emptySpellLog(), battle.state.log, 'player1').added.map(row => row.text)).toEqual([
+        'CANCELLED Fireball',
+        'Haste',
+    ])
+})
+
+it('does not confuse releases from a different cast slot with the stopped cast', () => {
+    const result = mapSpellLog(
+        emptySpellLog(),
+        [
+            { type: 'START_CAST', caster: 'player1', spellId: 'SPELL_FIREBALL', spellIndex: 0, tick: 0 },
+            { type: 'STOP_CAST', caster: 'player1', tick: 1 },
+            { type: 'SPELL_RELEASE', caster: 'player1', spellId: 'SPELL_FIREBALL', spellIndex: 1, tick: 1 },
+        ],
+        'player1',
+    )
+    expect(result.added.map(row => row.text)).toEqual(['CANCELLED Fireball', 'Fireball'])
+})

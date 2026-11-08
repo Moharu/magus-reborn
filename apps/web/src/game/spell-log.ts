@@ -8,6 +8,7 @@ export interface SpellLogRow {
 }
 export interface SpellLogState {
     casts: Partial<Record<PlayerKey, SpellId>>
+    castIndices?: Partial<Record<PlayerKey, number>>
     rows: SpellLogRow[]
 }
 export const emptySpellLog = (): SpellLogState => ({ casts: {}, rows: [] })
@@ -15,6 +16,7 @@ export const emptySpellLog = (): SpellLogState => ({ casts: {}, rows: [] })
 /** Only public cast events enter this projection. No snapshot or loadout is accepted. */
 export function mapSpellLog(state: SpellLogState, entries: readonly LogEntry[], me: PlayerKey | null) {
     const casts = { ...state.casts }
+    const castIndices = { ...state.castIndices }
     const added: SpellLogRow[] = []
     const append = (caster: PlayerKey, spell: SpellId, prefix = '') => {
         const side = sidesFor(me).left === caster ? 'left' : 'right'
@@ -25,6 +27,7 @@ export function mapSpellLog(state: SpellLogState, entries: readonly LogEntry[], 
     for (const [index, entry] of entries.entries()) {
         switch (entry.type) {
             case 'START_CAST':
+                castIndices[entry.caster] = entry.spellIndex
                 casts[entry.caster] = entry.spellId
                 break
             case 'SPELL_RELEASE':
@@ -38,7 +41,11 @@ export function mapSpellLog(state: SpellLogState, entries: readonly LogEntry[], 
             case 'STOP_CAST':
                 if (
                     entries[index + 1]?.type === 'SPELL_RELEASE' &&
-                    (entries[index + 1] as Extract<LogEntry, { type: 'SPELL_RELEASE' }>).caster === entry.caster
+                    (entries[index + 1] as Extract<LogEntry, { type: 'SPELL_RELEASE' }>).caster === entry.caster &&
+                    (entries[index + 1] as Extract<LogEntry, { type: 'SPELL_RELEASE' }>).spellId ===
+                        casts[entry.caster] &&
+                    (entries[index + 1] as Extract<LogEntry, { type: 'SPELL_RELEASE' }>).spellIndex ===
+                        castIndices[entry.caster]
                 )
                     break
                 if (casts[entry.caster]) append(entry.caster, casts[entry.caster]!, 'CANCELLED ')
@@ -50,7 +57,7 @@ export function mapSpellLog(state: SpellLogState, entries: readonly LogEntry[], 
                 break
         }
     }
-    return { casts, rows: [...state.rows, ...added].slice(-4), added }
+    return { casts, castIndices, rows: [...state.rows, ...added].slice(-4), added }
 }
 
 /** Fixed destinations for reduced motion; ordinary rows approach their new slot in 150ms. */

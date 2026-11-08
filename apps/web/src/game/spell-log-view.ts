@@ -1,5 +1,5 @@
 import { Container, Graphics, Text } from 'pixi.js'
-import type { LogEntry, PlayerKey } from '@magus/engine'
+import type { LogEntry, PlayerKey, SnapshotView } from '@magus/engine'
 import { battleLayout, HEIGHT, TEXT_FONT, WIDTH } from './layout'
 import { emptySpellLog, logRowY, mapSpellLog, type SpellLogRow } from './spell-log'
 
@@ -27,6 +27,8 @@ export class SpellLogView extends Container {
             elapsed: 0,
         }
     })
+    private consumed = 0
+    private round: number | undefined
     private time = 0
     private readonly history: HTMLElement
     private readonly motion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')
@@ -36,8 +38,9 @@ export class SpellLogView extends Container {
         host: HTMLElement,
     ) {
         super()
-        // The arena host outlives a round's Pixi view; retain history until leaving the match.
+        // The arena host can outlive the previous match view.
         this.history = host.querySelector?.<HTMLElement>('.spell-log-history') ?? document.createElement('div')
+        this.history.replaceChildren()
         const area = battleLayout(WIDTH, HEIGHT).centre
         this.position.set(area.x + area.width / 2, area.y + area.height - 16)
         this.addChild(...this.pool.map(slot => slot.root))
@@ -47,6 +50,31 @@ export class SpellLogView extends Container {
         this.history.setAttribute('aria-relevant', 'additions')
         this.history.setAttribute('aria-label', 'Match spell history')
         host.append(this.history)
+    }
+
+    update(entries: LogEntry[], logFrom: number, fresh: boolean, round: number, snap: SnapshotView) {
+        if (this.round !== round) {
+            this.round = round
+            this.consumed = 0
+            this.state = emptySpellLog()
+            this.history.replaceChildren()
+            for (const slot of this.pool) slot.root.visible = false
+        }
+        if (!fresh) {
+            this.consumed = logFrom + entries.length
+            this.state.casts = {}
+            this.state.castIndices = {}
+            for (const key of ['player1', 'player2'] as const) {
+                const casting = snap[key].casting
+                if (casting) {
+                    this.state.casts[key] = casting.id
+                    this.state.castIndices[key] = snap[key].cast!
+                }
+            }
+            return
+        }
+        this.feed(entries.slice(Math.max(0, this.consumed - logFrom)))
+        this.consumed = Math.max(this.consumed, logFrom + entries.length)
     }
 
     feed(entries: LogEntry[]) {
@@ -85,9 +113,13 @@ export class SpellLogView extends Container {
     advance(dt: number) {
         this.time += dt
         for (const slot of this.pool) if (slot.expires <= this.time) slot.root.visible = false
-        const active = this.pool.filter(slot => slot.root.visible)
-        active.forEach((slot, i) => {
-            const target = (i - active.length + 1) * 30
+        let count = 0
+        for (let i = 0; i < this.pool.length; i++) if (this.pool[i].root.visible) count++
+        let index = 0
+        for (let i = 0; i < this.pool.length; i++) {
+            const slot = this.pool[i]
+            if (!slot.root.visible) continue
+            const target = (index++ - count + 1) * 30
             if (slot.target !== target) {
                 slot.from = slot.root.y
                 slot.target = target
@@ -95,6 +127,6 @@ export class SpellLogView extends Container {
             }
             slot.elapsed += dt
             slot.root.y = logRowY(slot.from, target, slot.elapsed, this.motion?.matches ?? false)
-        })
+        }
     }
 }
