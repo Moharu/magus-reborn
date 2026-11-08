@@ -28,6 +28,9 @@ const stats = (id: SpellId) => {
         .join(' · ')
 }
 
+/** The spellbook: tall cards so the icons stay readable, ending 10px above the bar panel. */
+export const BOOK = { top: 118, cardHeight: 164, rowGap: 8, height: 164 * 2 + 8 } as const
+
 /** Absolute box in stage pixels, as percentages of the 960x600 stage so it scales with it. */
 const box = (x: number, y: number, w: number, hgt: number) =>
     `left:${(x / WIDTH) * 100}%;top:${(y / HEIGHT) * 100}%;width:${(w / WIDTH) * 100}%;height:${(hgt / HEIGHT) * 100}%`
@@ -207,7 +210,7 @@ export const spellPicker = (
             const slotsWide = LOADOUT_SLOTS.filter(k => (firstSlot === 0 ? k === 'element' : k === 'general')).length
             const width = slotsWide * button + (slotsWide - 1) * gap
             const cardW = (width - (columns - 1) * gap) / columns
-            const cardH = 92
+            const cardH = BOOK.cardHeight
             return ids.map((id, n) => {
                 const equipped = loadout.indexOf(id)
                 const target: Target = { kind: 'spell', id }
@@ -217,7 +220,7 @@ export const spellPicker = (
                         class: `spell${spellSelected(id) ? ' selected' : ''}${equipped !== -1 ? ' equipped' : ''}${lit(target) ? ' target' : ''}`,
                         style: box(
                             x + (n % columns) * (cardW + gap),
-                            y + Math.floor(n / columns) * (cardH + 8),
+                            y + Math.floor(n / columns) * (cardH + BOOK.rowGap),
                             cardW,
                             cardH,
                         ),
@@ -234,8 +237,9 @@ export const spellPicker = (
 
         const fireX = buttonX(0)
         const generalX = buttonX(5)
-        const bookY = 256
+        const bookY = BOOK.top
         const labelBox = (x: number, w: number) => box(x, bookY - 24, w, 20)
+        const keys = (slots: string) => h('span', { class: 'desktop-only' }, ` · ${slots}`)
 
         el.classList.toggle('locked', locked)
         el.replaceChildren(
@@ -273,7 +277,7 @@ export const spellPicker = (
                 { class: 'picker-stage' },
                 h(
                     'div',
-                    { class: 'details', style: box(30, 18, WIDTH - 60, 120) },
+                    { class: 'details', style: box(30, 10, WIDTH - 60, 72) },
                     h('img', { src: iconUrl(detail), alt: '' }),
                     h(
                         'div',
@@ -286,11 +290,23 @@ export const spellPicker = (
                 h(
                     'h3',
                     { class: 'book-label', style: labelBox(fireX, 4 * button + 3 * gap) },
-                    `${ELEMENT_LABEL[element]} spells`,
+                    `${ELEMENT_LABEL[element]} spellbook`,
+                    keys(HOTKEYS.slice(0, 4).join(' ')),
                 ),
                 ...spellCards(book.elementSpells, 0, 3, bookY),
-                h('h3', { class: 'book-label', style: labelBox(generalX, 2 * button + gap) }, 'General spells'),
+                h(
+                    'h3',
+                    { class: 'book-label', style: labelBox(generalX, 2 * button + gap) },
+                    'General',
+                    keys(HOTKEYS.slice(5).join(' ')),
+                ),
                 ...spellCards(book.generalSpells, 5, 2, bookY),
+                // a plain divider between the sections, above the fixed Counterspell slot (no label)
+                h('div', {
+                    class: 'book-divider',
+                    'aria-hidden': 'true',
+                    style: box(buttonX(FIXED_SLOT) + button / 2 - 1, bookY - 24, 2, BOOK.height + 24),
+                }),
                 h('div', {
                     class: 'bar-panel',
                     style: box(

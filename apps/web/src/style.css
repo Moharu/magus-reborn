@@ -611,7 +611,7 @@ footer {
 }
 
 .spell img {
-    width: 62%;
+    width: 56%;
     aspect-ratio: 1;
     border-radius: 14px;
     border: 2px solid rgba(255, 255, 255, 0.35);
@@ -652,6 +652,11 @@ footer {
 
 .drop-hover {
     box-shadow: 0 0 0 3px #7ff3ff;
+}
+
+.book-divider {
+    background: rgba(255, 255, 255, 0.28);
+    border-radius: 1px;
 }
 
 .book-label {
@@ -701,7 +706,8 @@ footer {
 
 @media (hover: none) and (pointer: coarse) {
     .slot .key,
-    .spell .key {
+    .spell .key,
+    .desktop-only {
         display: none;
     }
 }
