@@ -169,7 +169,7 @@
                 font-size: 14px;
             }
             .enemy {
-                text-align: right;
+                text-align: center;
             }
             .cast {
                 margin-top: 10px;
@@ -228,6 +228,7 @@
                 font-size: 13px;
             }
             .entry {
+                text-align: center;
                 background: #130f20ee;
                 padding: 8px 10px;
                 border-left: 3px solid #9cd9ff;
@@ -237,7 +238,7 @@
                 border-left: 0;
                 border-right: 3px solid #ffd18c;
                 color: #ffe0a8;
-                text-align: right;
+                text-align: center;
             }
             .entry.old {
                 opacity: 0.72;
@@ -278,7 +279,8 @@
                 font-size: 35px;
                 text-shadow: 0 2px 2px #000;
             }
-            .spell.general .icon {
+            .spell.general .icon,
+            .generalbook .icon {
                 background: radial-gradient(circle, #7d94ce, #302765 70%);
             }
             .spell strong {
@@ -294,13 +296,6 @@
                 border-radius: 4px;
                 padding: 2px 5px;
                 font: 700 13px system-ui;
-            }
-            .state {
-                display: block;
-                font-size: 11px;
-                background: #100d20;
-                padding: 4px 0;
-                color: #fff2c9;
             }
             .cool .icon {
                 background: repeating-linear-gradient(135deg, #211829dd 0 5px, #49354bdd 5px 8px), #9e2e15;
@@ -469,14 +464,9 @@
                 font-size: 10px;
                 padding: 2px 0;
             }
-            .mobile .state {
-                font-size: 9px;
-                padding: 2px;
-            }
-            .mobile .spell kbd {
-                font-size: 10px;
-                top: 2px;
-                right: 2px;
+            .mobile .spell kbd,
+            .mobile .desktop-only {
+                display: none;
             }
             .mobile .cool .time {
                 font-size: 18px;
@@ -537,17 +527,11 @@
                 height: 24px;
                 white-space: nowrap;
             }
-            .spell .state {
-                height: 21px;
-            }
             .mobile .bar {
                 height: 86px;
             }
             .mobile .spell strong {
                 height: 18px;
-            }
-            .mobile .spell .state {
-                height: 17px;
             }
             .book {
                 position: absolute;
@@ -604,9 +588,12 @@
                 background: #30264c;
                 border-color: #a399c2;
             }
-            .cards small {
-                display: block;
-                font-size: 10px;
+            .cards .icon {
+                height: 22px;
+                font-size: 20px;
+                border-radius: 5px;
+                margin: 0 auto 2px;
+                width: 36px;
             }
             .cards .selected {
                 outline: 3px solid #ffe397;
@@ -755,15 +742,9 @@
                     padding: 2px 0;
                     height: 18px;
                 }
-                main .spell .state {
-                    font-size: 9px;
-                    padding: 2px;
-                    height: 17px;
-                }
-                main .spell kbd {
-                    font-size: 10px;
-                    top: 2px;
-                    right: 2px;
+                main .spell kbd,
+                main .desktop-only {
+                    display: none;
                 }
                 main .cool .time {
                     font-size: 18px;
@@ -783,9 +764,6 @@
                     min-height: 44px;
                     font-size: 10px;
                     padding: 3px 1px;
-                }
-                .cards small {
-                    font-size: 9px;
                 }
                 .fixedbook {
                     font-size: 10px;
@@ -875,63 +853,78 @@
                 </div>
                 <div class="book" aria-label="All available spells">
                     <section class="firebook">
-                        <h2>Fire spellbook · Q W E R</h2>
+                        <h2>Fire spellbook<span class="desktop-only"> · Q W E R</span></h2>
                         <div class="cards">
-                            <button>Living Bomb<small>Equipped · Q</small></button
-                            ><button>Ignite<small>Equipped · W</small></button
-                            ><button>Combustion<small>Equipped · E</small></button
-                            ><button>Meteor<small>Equipped · R</small></button
-                            ><button class="selected" aria-pressed="true">Fireball<small>SELECTED</small></button
-                            ><button>Afterburn<small>Available</small></button>
+                            <button>
+                                <span class="icon" aria-hidden="true">●</span>Living Bomb<span class="desktop-only">
+                                    · Q</span
+                                ></button
+                            ><button>
+                                <span class="icon" aria-hidden="true">♨</span>Ignite<span class="desktop-only">
+                                    · W</span
+                                ></button
+                            ><button>
+                                <span class="icon" aria-hidden="true">☀</span>Combustion<span class="desktop-only">
+                                    · E</span
+                                ></button
+                            ><button>
+                                <span class="icon" aria-hidden="true">☄</span>Meteor<span class="desktop-only">
+                                    · R</span
+                                ></button
+                            ><button class="selected" aria-pressed="true">
+                                <span class="icon" aria-hidden="true">◆</span>Fireball</button
+                            ><button><span class="icon" aria-hidden="true">♨</span>Afterburn</button>
                         </div>
                     </section>
-                    <div class="fixedbook">Space<br />Counterspell<br />Fixed</div>
+                    <div class="fixedbook">
+                        <span class="desktop-only">Space<br /></span>Counterspell<span aria-hidden="true"> 🔒</span>
+                    </div>
                     <section class="generalbook">
-                        <h2>General · D F</h2>
+                        <h2>General<span class="desktop-only"> · D F</span></h2>
                         <div class="cards">
-                            <button>Haste<small>Equipped · D</small></button
-                            ><button>Temporal Shield<small>Equipped · F</small></button
-                            ><button>Magic Eater<small>Available</small></button
-                            ><button>Blur<small>Available</small></button>
+                            <button>
+                                <span class="icon" aria-hidden="true">ϟ</span>Haste<span class="desktop-only">
+                                    · D</span
+                                ></button
+                            ><button>
+                                <span class="icon" aria-hidden="true">◈</span>Temporal Shield<span class="desktop-only">
+                                    · F</span
+                                ></button
+                            ><button><span class="icon" aria-hidden="true">◉</span>Magic Eater</button
+                            ><button><span class="icon" aria-hidden="true">≋</span>Blur</button>
                         </div>
                     </section>
                     <p class="book-hint">
-                        Fireball SELECTED → tap E to replace · Drag spells onto the bar or within it · Tap two slots to
-                        swap
+                        Fireball selected → tap the dashed slot to replace · Drag spells onto the bar or within it · Tap
+                        two slots to swap
                     </p>
                 </div>
                 <div class="bar" aria-label="Your private spell bar; select two compatible slots to swap">
                     <button class="spell" aria-label="Living Bomb, Q, READY">
-                        <span class="icon" aria-hidden="true">●</span><kbd>Q</kbd><strong>Living Bomb</strong
-                        ><span class="state">READY</span></button
+                        <span class="icon" aria-hidden="true">●</span><kbd>Q</kbd><strong>Living Bomb</strong></button
                     ><button class="spell" aria-label="Ignite, W, READY">
-                        <span class="icon" aria-hidden="true">♨</span><kbd>W</kbd><strong>Ignite</strong
-                        ><span class="state">READY</span></button
+                        <span class="icon" aria-hidden="true">♨</span><kbd>W</kbd><strong>Ignite</strong></button
                     ><button
                         class="spell destination"
                         aria-label="Combustion, E, compatible destination for selected Fireball"
                     >
-                        <span class="icon" aria-hidden="true">☀</span><kbd>E</kbd><strong>Combustion</strong
-                        ><span class="state">READY</span></button
+                        <span class="icon" aria-hidden="true">☀</span><kbd>E</kbd><strong>Combustion</strong></button
                     ><button class="spell" aria-label="Meteor, R, READY">
-                        <span class="icon" aria-hidden="true">☄</span><kbd>R</kbd><strong>Meteor</strong
-                        ><span class="state">READY</span></button
+                        <span class="icon" aria-hidden="true">☄</span><kbd>R</kbd><strong>Meteor</strong></button
                     ><button class="spell general" disabled aria-label="Counterspell, Space, fixed">
-                        <span class="icon" aria-hidden="true">✕</span><kbd>Space</kbd><strong>Counterspell</strong
-                        ><span class="state">FIXED</span></button
+                        <span class="icon" aria-hidden="true">✕</span><kbd>Space</kbd
+                        ><strong>Counterspell</strong></button
                     ><button class="spell general" aria-label="Haste, D, READY">
-                        <span class="icon" aria-hidden="true">ϟ</span><kbd>D</kbd><strong>Haste</strong
-                        ><span class="state">READY</span></button
+                        <span class="icon" aria-hidden="true">ϟ</span><kbd>D</kbd><strong>Haste</strong></button
                     ><button class="spell general" aria-label="Temporal Shield, F, READY">
-                        <span class="icon" aria-hidden="true">◈</span><kbd>F</kbd><strong>Temporal Shield</strong
-                        ><span class="state">READY</span>
+                        <span class="icon" aria-hidden="true">◈</span><kbd>F</kbd><strong>Temporal Shield</strong>
                     </button>
                 </div>
             </section>
             <p class="note">
-                Static selected state: Fireball has a gold outline; E is a compatible destination. Click or tap
-                Fireball, then E; or drag it onto E. Drag within the bar or click/tap two compatible slots to swap.
-                Counterspell stays fixed. Escape or tap the selected spell again to cancel.
+                Static selected state: Fireball has a gold outline; the dashed slot is a compatible destination. Click
+                or tap Fireball, then the dashed slot; or drag it there. Drag within the bar or click/tap two compatible
+                slots to swap. Counterspell stays fixed. Escape or tap the selected spell again to cancel.
             </p>
         </main>
     </body>
