@@ -59,7 +59,7 @@ describe('loadout shape', () => {
         expect(FIXED_SLOT).toBe(4)
     })
 
-    it('has one hotkey per slot: Q W E R for the element, S for Counterspell, D F for general', () => {
+    it('has one hotkey per slot: Q W E R for the element, Space for Counterspell, D F for general', () => {
         expect(HOTKEYS).toEqual(['Q', 'W', 'E', 'R', 'Space', 'D', 'F'])
         expect(HOTKEYS).toHaveLength(LOADOUT_SIZE)
         expect(HOTKEYS[FIXED_SLOT]).toBe('Space')

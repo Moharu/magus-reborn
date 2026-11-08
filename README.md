@@ -1,6 +1,6 @@
 # Magus Reborn
 
-A fast 1v1 wizard duel for the browser. Hold a key to charge a spell, release it once the cast bar turns green. Pick six spells from the grimoire, out-damage and out-think the other wizard.
+A fast 1v1 wizard duel for the browser. Hold a key to charge a spell, release it once the cast bar turns green. Pick four Fire spells and two general spells (everyone carries Counterspell), then out-damage and out-think the other wizard.
 
 - **Training room**: practice against an idle dummy with infinite HP and a live damage meter. Runs entirely in the browser.
 - **Online 1v1**: public lobby list, invite links/codes, spectators, best of 1/3/5, configurable set-up time, and optional spell changes between rounds.
@@ -113,10 +113,11 @@ Searches the 0.2 loadout shape: every loadout of 4 Fire spells, Counterspell in 
 
 ## Controls
 
-| Key         | Slot       |
-| ----------- | ---------- |
-| `Q` `W` `E` | top row    |
-| `A` `S` `D` | bottom row |
+| Key             | Slot                   |
+| --------------- | ---------------------- |
+| `Q` `W` `E` `R` | the four Fire spells   |
+| `Space`         | Counterspell (fixed)   |
+| `D` `F`         | the two general spells |
 
 Keys are matched by physical position, so they work on AZERTY and other layouts. On touch screens, press and hold the spell buttons.
 
