@@ -524,14 +524,331 @@
                     padding: 14px;
                 }
             }
+
+            .entry {
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .bar {
+                height: 134px;
+            }
+            .spell strong {
+                height: 24px;
+                white-space: nowrap;
+            }
+            .spell .state {
+                height: 21px;
+            }
+            .mobile .bar {
+                height: 86px;
+            }
+            .mobile .spell strong {
+                height: 18px;
+            }
+            .mobile .spell .state {
+                height: 17px;
+            }
+            .book {
+                position: absolute;
+                bottom: 162px;
+                left: 50%;
+                transform: translateX(-50%);
+                width: 86%;
+                padding: 12px;
+                display: grid;
+                grid-template-columns: repeat(7, minmax(0, 1fr));
+                gap: 8px;
+                background: #130f20f5;
+                border: 1px solid #756585;
+                border-radius: 14px;
+            }
+            .book section {
+                min-width: 0;
+            }
+            .book h2 {
+                font-size: 14px;
+                margin: 0 0 8px;
+            }
+            .firebook {
+                grid-column: 1 / 5;
+            }
+            .fixedbook {
+                grid-column: 5;
+                text-align: center;
+                font-size: 12px;
+                color: #ded8eb;
+                align-self: center;
+            }
+            .generalbook {
+                grid-column: 6 / 8;
+            }
+            .cards {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 6px;
+            }
+            .firebook .cards {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+            .cards button {
+                min-width: 0;
+                min-height: 52px;
+                padding: 6px 3px;
+                text-align: center;
+                font-size: 12px;
+                border-color: #b98760;
+                background: #3a2429;
+            }
+            .generalbook button {
+                background: #30264c;
+                border-color: #a399c2;
+            }
+            .cards small {
+                display: block;
+                font-size: 10px;
+            }
+            .cards .selected {
+                outline: 3px solid #ffe397;
+                outline-offset: -3px;
+                background: #64412b;
+            }
+            .edit-top {
+                position: absolute;
+                top: 20px;
+                left: 7%;
+                right: 7%;
+                background: #130f20ef;
+                padding: 16px;
+                border-radius: 12px;
+            }
+            .edit-top h1 {
+                font-size: 22px;
+            }
+            .edit-top p {
+                margin: 8px 0 0;
+                font-size: 13px;
+            }
+            .edit-heading {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+            }
+            .elements {
+                display: flex;
+                margin-top: 12px;
+                gap: 8px;
+            }
+            .elements button {
+                flex: 1;
+                padding: 8px;
+                text-align: center;
+                font-size: 13px;
+            }
+            .elements small {
+                font-size: 11px;
+            }
+            .edit-top .primary {
+                padding: 8px;
+                font-size: 13px;
+                text-align: center;
+            }
+            .spell.destination {
+                border: 2px dashed #ffe397;
+            }
+            .book-hint {
+                grid-column: 1 / -1;
+                margin: 4px 0 0;
+                font-size: 12px;
+                color: #ffe397;
+            }
+            @media (max-width: 900px) {
+                main,
+                main.mobile {
+                    width: 100%;
+                    max-width: none;
+                }
+                main .arena {
+                    height: 390px;
+                    border-radius: 0;
+                }
+                main .hud {
+                    top: 8px;
+                    left: 14px;
+                    right: 14px;
+                    grid-template-columns: 1fr 88px 1fr;
+                    gap: 14px;
+                }
+                main .hud strong {
+                    font-size: 13px;
+                }
+                main .hp {
+                    height: 23px;
+                    margin-top: 3px;
+                }
+                main .score {
+                    font-size: 22px;
+                }
+                main .cast {
+                    padding: 5px;
+                    margin-top: 5px;
+                    font-size: 11px;
+                }
+                main .wizard {
+                    height: 150px;
+                    width: 88px;
+                    left: 15%;
+                    bottom: 100px;
+                }
+                main .wizard.foe {
+                    left: auto;
+                    right: 15%;
+                }
+                main .mountain {
+                    bottom: 90px;
+                    height: 150px;
+                }
+                main .near {
+                    bottom: 80px;
+                    height: 100px;
+                }
+                main .ring {
+                    bottom: 79px;
+                    height: 49px;
+                }
+                main .log {
+                    left: 33%;
+                    right: 33%;
+                    bottom: 114px;
+                    gap: 4px;
+                    font-size: 10px;
+                }
+                main .entry {
+                    padding: 4px 6px;
+                }
+                main .receipt {
+                    bottom: 248px;
+                    left: 20%;
+                    font-size: 19px;
+                }
+                main .bar,
+                main .book {
+                    width: 92%;
+                    padding: 5px;
+                    gap: 6px;
+                    border-radius: 10px;
+                }
+                main .bar {
+                    bottom: 6px;
+                    height: 86px;
+                }
+                main .icon {
+                    height: 30px;
+                    font-size: 25px;
+                }
+                main .spell strong {
+                    font-size: 10px;
+                    padding: 2px 0;
+                    height: 18px;
+                }
+                main .spell .state {
+                    font-size: 9px;
+                    padding: 2px;
+                    height: 17px;
+                }
+                main .spell kbd {
+                    font-size: 10px;
+                    top: 2px;
+                    right: 2px;
+                }
+                main .cool .time {
+                    font-size: 18px;
+                    top: 14px;
+                }
+                main .book {
+                    bottom: 102px;
+                }
+                .book h2 {
+                    font-size: 11px;
+                    margin-bottom: 5px;
+                }
+                .cards {
+                    gap: 4px;
+                }
+                .cards button {
+                    min-height: 44px;
+                    font-size: 10px;
+                    padding: 3px 1px;
+                }
+                .cards small {
+                    font-size: 9px;
+                }
+                .fixedbook {
+                    font-size: 10px;
+                }
+                .book-hint {
+                    font-size: 10px;
+                    margin: 0;
+                }
+                .edit-top {
+                    top: 8px;
+                    left: 4%;
+                    right: 4%;
+                    padding: 8px;
+                }
+                .edit-top h1 {
+                    font-size: 16px;
+                }
+                .edit-top p {
+                    font-size: 10px;
+                    margin: 4px 0 0;
+                }
+                .edit-top .tag {
+                    font-size: 10px;
+                }
+                .edit-top .primary {
+                    font-size: 11px;
+                    min-height: 44px;
+                    padding: 4px 8px;
+                }
+                .elements {
+                    margin-top: 6px;
+                    gap: 6px;
+                }
+                .elements button {
+                    font-size: 11px;
+                    padding: 3px;
+                    min-height: 44px;
+                }
+                .elements small {
+                    font-size: 9px;
+                }
+            }
+            @media (max-width: 843px) {
+                main .arena {
+                    height: 375px;
+                }
+                main .bar,
+                main .book {
+                    width: 96%;
+                    gap: 4px;
+                }
+                main .wizard {
+                    left: 12%;
+                }
+                main .wizard.foe {
+                    right: 12%;
+                }
+                main .spell strong,
+                main.mobile .spell strong {
+                    font-size: 9px;
+                }
+            }
         </style>
     </head>
     <body>
         <main class="">
-            <header>
-                <span class="tag">SPLIT CONSOLE / DESKTOP / STATIC STUDY</span>
-                <h1>The arena stays. The feedback gets sharper.</h1>
-            </header>
             <section class="arena" aria-label="Mid-fight battle study">
                 <div class="stars"></div>
                 <div class="mountain"></div>
@@ -600,13 +917,10 @@
                 </div>
                 <div class="receipt">−12 HP</div>
                 <div class="log" aria-label="Recent spell log, oldest first">
-                    <div class="entry them old">◆ RIVAL · Ignite · HIT</div>
-                    <div class="entry old">
-                        ● YOU · Counterspell<br />× INTERRUPTED Fireball<span class="broken">━━ × ━━</span
-                        ><small>Earlier lock expired</small>
-                    </div>
-                    <div class="entry them">◆ RIVAL · Meteor · MISS</div>
-                    <div class="entry">● YOU · Living Bomb · HIT</div>
+                    <div class="entry them old" aria-label="Rival: Ignite">◆ Ignite</div>
+                    <div class="entry old" aria-label="You: interrupted Fireball">● INTERRUPTED Fireball</div>
+                    <div class="entry them" aria-label="Rival: Haste">◆ Haste</div>
+                    <div class="entry" aria-label="You: Living Bomb">● Living Bomb</div>
                 </div>
                 <div class="bar" aria-label="Your spell bar">
                     <button class="spell" aria-label="Living Bomb, Q, READY">
@@ -621,15 +935,15 @@
                     ><button class="spell" aria-label="Meteor, R, READY">
                         <span class="icon" aria-hidden="true">☄</span><kbd>R</kbd><strong>Meteor</strong
                         ><span class="state">READY</span></button
-                    ><button class="spell general ready" aria-label="Counterspell, Space, READY · OFF GCD">
+                    ><button class="spell general ready" aria-label="Counterspell, Space, READY">
                         <span class="icon" aria-hidden="true">✕</span><kbd>Space</kbd><strong>Counterspell</strong
-                        ><span class="state">READY · OFF GCD</span></button
-                    ><button class="spell general" aria-label="Haste, D, READY · OFF GCD">
+                        ><span class="state">READY</span></button
+                    ><button class="spell general" aria-label="Haste, D, READY">
                         <span class="icon" aria-hidden="true">ϟ</span><kbd>D</kbd><strong>Haste</strong
-                        ><span class="state">READY · OFF GCD</span></button
-                    ><button class="spell general" aria-label="Temporal Shield, F, READY · OFF GCD">
+                        ><span class="state">READY</span></button
+                    ><button class="spell general" aria-label="Temporal Shield, F, READY">
                         <span class="icon" aria-hidden="true">◈</span><kbd>F</kbd><strong>Temporal Shield</strong
-                        ><span class="state">READY · OFF GCD</span>
+                        ><span class="state">READY</span>
                     </button>
                 </div>
             </section>

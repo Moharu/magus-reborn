@@ -10,11 +10,11 @@ You stand left, opponent right, each with numeric HP above. Round score and time
 
 ## Floating spell log
 
-Newest event enters at the bottom of a narrow central stack; older names move upward and leave after about 4 seconds. Show at most four on desktop and phone, coalescing repeated ticks into one named event. Event ordering follows server resolution order; simultaneous events retain their side labels. Never expose an equipped or hovered spell before it is used.
+Newest event enters at the bottom of a narrow central stack; older names move upward and leave after about 4 seconds. Show at most four on desktop and phone, coalescing repeated ticks into one named event. Event ordering follows server resolution order; simultaneous events retain their side cues. Every entry is exactly one short, non-wrapping line: one spell name or a compact outcome plus name. No sentences, receipts, secondary lines or historical lock explanations in the log. Examples: **Living Bomb**, **INTERRUPTED Fireball**, **Haste**. Keep the names short enough to fit the phone layout; ellipsis is a last-resort text-zoom safeguard, with the full event available to assistive technology and retained history. Never expose an equipped or hovered spell before it is used.
 
-- **● YOU**: pale sky blue `#B6E3FF`, left rule and left alignment.
-- **◆ RIVAL**: pale gold `#FFE0A8`, right rule and right alignment. These colours distinguish the log independently of the blue/red wizard robes.
-- Include spell name and explicit outcome: **HIT**, **× INTERRUPTED [spell]**, **CANCELLED**, **MISS**. Do not conflate a cancelled cast with a failed Counterspell. Active casting remains by its caster; completed events enter the log.
+- **● own event** (YOU in its accessible label): pale sky blue `#B6E3FF`, left rule and left alignment.
+- **◆ enemy event** (RIVAL in its accessible label): pale gold `#FFE0A8`, right rule and right alignment. These colours distinguish the log independently of the blue/red wizard robes.
+- Successful use shows only the spell name. When needed, prefix the name with **INTERRUPTED**, **CANCELLED** or **MISS** on the same line. An interrupt entry uses the interrupting side’s cue (the source of the action), then the interrupted spell name. Do not conflate a cancelled cast with a failed Counterspell. Active casting remains by its caster; completed events enter the log.
 - Interrupt breaks the affected cast track into two segments with ×; show **LOCKED 3.0s** at that caster and on their own seven slots while active. Historical interrupt entries must not imply a current lock. The sheets show an expired previous lock and a new enemy cast.
 - Damage receipts such as **−12 HP** appear beside the hit wizard, paired with HP reduction. Healing uses **+**. Receipts do not replace spell outcomes.
 
@@ -29,7 +29,7 @@ Exactly seven equal-width targets: **Q Living Bomb · W Ignite · E Combustion �
 | Locked   | Lock glyph + LOCKED + remaining seconds on every affected slot; personal cooldown continues underneath and is available in accessible description |
 | GCD      | Short local sweep only when applicable; distinguish from personal cooldown and all-spell lock                                                     |
 
-Space/D/F are **OFF GCD**: no GCD trigger or wait, but personal cooldowns and all-spell locks still apply. Accepted instants cancel your ongoing cast unless usable while casting. Rejected actions do not cancel it. A blocked touch gives the reason locally, without moving focus. Scope Space handling to active combat and prevent page scrolling there.
+Space/D/F do not trigger or wait for the global cooldown; personal cooldowns and all-spell locks still apply. Do not add a global-cooldown exemption label to the interface. Accepted instants cancel your ongoing cast unless usable while casting. Rejected actions do not cancel it. A blocked touch gives the reason locally, without moving focus. Scope Space handling to active combat and prevent page scrolling there.
 
 ## Feedback and motion
 
@@ -43,11 +43,22 @@ Seven targets remain in a single row, equal width, at least **44×44px**, with a
 
 ## Two private loadout flows
 
-**Pre-game:** [setup sheet](mockups/split-console/setup-pregame.html). Choose Fire; Frost and Lightning are disabled with “Locked · coming later”. Choose a slot, then choose a compatible spell from the catalog. Four element slots, fixed Counterspell, two general slots. Selection highlights both slot and equipped catalog entry; choosing a replacement commits it and announces the change. Prevent duplicates and incompatible choices with a written reason. Confirm a complete loadout before lobby/queue. Element then stays locked for the match.
+**Shared geometry:** The editable bar is the battle bar, anchored inside the same arena viewport with identical width, height, seven equal slots, icon/name/key sizing, padding and gaps. Desktop: 1200×720 arena, 86% bar width, 134px height, 18px bottom offset. At 844×390: 92% width, 86px height, 6px bottom offset. At 667×375: 96% width with 4px gaps, same 86px height and 6px bottom offset. These dimensions apply to battle, pre-game and swapping; changing screens must never move or resize a slot. The dedicated phone battle sheet also previews this compact geometry on desktop. The setup and swap sheets switch to it automatically below 901px viewport width.
 
-**Between rounds:** [swap sheet](mockups/split-console/swap-between-rounds.html). Compact overlay on the paused arena after every non-final round of Bo3/Bo5. Show score, upcoming round, countdown, own editing/ready and opponent ready state. Element is locked; only Q–R and D/F are editable. No element picker. Same slot-first catalog, with immediate valid saves. Countdown expiry retains the latest complete valid loadout; incomplete drag/selection never empties a slot. Ready locks editing; Edit loadout reopens it until phase end. Both ready advances to round countdown. Server owns phase deadlines; at expiry selection closes. Match result replaces swapping after a final round or draw resolution.
+**Spellbook placement:** Show all six available Fire spells (Living Bomb, Ignite, Combustion, Meteor, Fireball, Afterburn) directly above Q/W/E/R, and all four swappable general spells (Haste, Temporal Shield, Magic Eater, Blur) directly above D/F. Keep both groups visible together, including equipped entries labelled with their slot. Counterspell occupies the fixed Space column between the groups; it has no replacement tile. Use the same seven-column grid, inner padding and gap as the bar so group edges align with their destinations. No slot-first filtering or separate catalog panel. The spellbook bottom sits 10px above the bar. Touch spellbook entries and bar slots remain at least 44px high; all entries fit at 844×390 and 667×375 without scrolling the controls.
 
-In both flows, dragging is optional; click/tap and keyboard selection are complete paths. Return focus to the chosen slot after replacement. Opponents and spectators see readiness only, never loadout names, slots, catalog choices or swap activity. Authoritative transport must preserve that privacy, not merely hide UI.
+**Pre-game:** [setup sheet](mockups/split-console/setup-pregame.html). Choose Fire; Frost and Lightning are disabled with “Locked · coming later”. Confirm a complete loadout before lobby/queue. Element then stays locked for the match. The frozen sheet selects Fireball in the spellbook (gold outline and SELECTED text), with E marked as a compatible destination.
+
+**Between rounds:** [swap sheet](mockups/split-console/swap-between-rounds.html). Quick private editor over the paused arena after every non-final round of Bo3/Bo5. Show score, upcoming round, countdown, own editing/ready and opponent ready state. Element is locked; no element picker. Reuse the exact same bar, complete spellbook and selection treatment as pre-game. Valid changes save immediately. Countdown expiry retains the latest complete valid loadout; incomplete drag/selection never empties a slot. Ready locks editing and exposes **Edit loadout**, which reopens it until phase end. Both ready advances to round countdown. Server owns phase deadlines; at expiry selection closes. Match result replaces swapping after a final round or draw resolution.
+
+**Interaction on desktop and landscape phone:**
+
+- Drag any spellbook entry onto a compatible bar slot to equip it. Drag a bar slot onto another compatible bar slot to swap them. Keep the source equipped until a valid drop commits atomically. Highlight compatible targets; show a written reason for an invalid target, including the fixed Space slot.
+- Click a spellbook entry, then click a compatible bar slot to equip it. Click one bar slot, then another compatible bar slot to swap. On touch, the same paths use tap-tap. A selected source has a persistent gold outline plus SELECTED text and an accessible pressed state; a destination cue is visually distinct (dashed border). Tap/click the selected source again, press Escape or leave the phase to cancel selection.
+- Element spells only enter Q/W/E/R; general spells only enter D/F. Space cannot be selected, dragged, swapped or replaced. No duplicate spells: moving an already equipped spell to another compatible slot swaps the two; a new spell replaces only the destination. Invalid drops or clicks retain the current loadout and selected source, with an accessible explanation.
+- Keyboard users focus a source and press Enter/Space, then focus a destination and activate it. Suppress browser drag/scroll gestures only during an intentional spell drag; support pointer capture and cancellation without committing. These are implementation requirements; the script-free sheets freeze the selected state.
+
+Return focus to the destination after replacement. Opponents and spectators see readiness only, never loadout names, slots, spellbook choices or swap activity. Authoritative transport must preserve that privacy, not merely hide UI.
 
 ## Accessibility and follow-through
 
