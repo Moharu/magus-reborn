@@ -237,6 +237,11 @@ export class Lobby {
         }
     }
 
+    /** Whether this player holds a seat, connected or not. */
+    holdsSeat(playerId: string) {
+        return this.seatOf(playerId) !== null
+    }
+
     // views
 
     info(): LobbyInfo {
