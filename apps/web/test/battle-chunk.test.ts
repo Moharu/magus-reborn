@@ -8,7 +8,7 @@ import {
     RECONNECT_GRACE,
     START_COUNTDOWN,
 } from '../../server/src/lobby'
-import { loadBattleChunk } from '../src/screens/battle-chunk'
+import { BATTLE_CREATE_ERROR, loadBattleChunk } from '../src/screens/battle-chunk'
 import { FakeElement, FakeNode } from './fake-dom'
 
 // The screens run for real against a real server Lobby, and only the browser is faked: enough DOM for `h`, and a
@@ -93,10 +93,10 @@ const WORKING_CHUNK: Chunk = async () => ({ BattleView: { create: async () => fa
 const BROKEN_RENDERER: Chunk = async () => ({
     BattleView: { create: () => Promise.reject(new Error('WebGL is not available')) },
 })
-const pendingChunk = () => {
+const pendingChunk = (error = new TypeError('Failed to fetch')) => {
     let reject!: (error: Error) => void
     const promise = new Promise<never>((_, rej) => (reject = rej))
-    return { chunk: () => promise, fail: () => reject(new TypeError('Failed to fetch')) }
+    return { chunk: () => promise, fail: () => reject(error) }
 }
 
 /** A fresh copy of the client, as a page load gets. `localStorage` survives, so a refresh keeps the player id. */
@@ -153,7 +153,6 @@ const spectatingClient = async (chunk: Chunk) => {
 
 const expectNoNewVersionMessage = (root: FakeElement) => {
     expect(root.textContent).not.toContain(NEW_VERSION_MESSAGE)
-    expect(root.button('Refresh')).toBeNull()
 }
 
 const expectNewVersionMessage = (root: FakeElement) => {
@@ -211,6 +210,7 @@ describe('loadBattleChunk', () => {
     const handlers = (current = true) => ({
         onLoaded: vi.fn((module: string) => `${module} loaded`),
         onFailed: vi.fn(),
+        onCreateFailed: vi.fn(),
         isCurrent: () => current,
     })
 
@@ -233,17 +233,16 @@ describe('loadBattleChunk', () => {
         expect(h.onFailed).not.toHaveBeenCalled()
     })
 
-    it('does not report a failure after loading as a failed load', async () => {
-        const failure = new Error('renderer')
-        const onFailed = vi.fn()
+    it('reports a create failure separately and resolves', async () => {
+        const h = handlers()
         await expect(
             loadBattleChunk(async () => 'chunk', {
-                onLoaded: () => Promise.reject(failure),
-                onFailed,
-                isCurrent: () => true,
+                ...h,
+                onLoaded: () => Promise.reject(new Error('renderer')),
             }),
-        ).rejects.toBe(failure)
-        expect(onFailed).not.toHaveBeenCalled()
+        ).resolves.toBeUndefined()
+        expect(h.onFailed).not.toHaveBeenCalled()
+        expect(h.onCreateFailed).toHaveBeenCalledWith(BATTLE_CREATE_ERROR)
     })
 })
 
@@ -275,7 +274,8 @@ describe('training room', () => {
         const { root } = await openTraining(BROKEN_RENDERER)
         await settle()
         expectNoNewVersionMessage(root)
-        expect(unhandled).toEqual([new Error('WebGL is not available')])
+        expect(root.textContent).toContain(BATTLE_CREATE_ERROR)
+        expect(unhandled).toEqual([])
     })
 
     it('shows no message when the import works', async () => {
@@ -379,12 +379,13 @@ describe('online, for a player', () => {
         expect(unhandled).toEqual([])
     })
 
-    it('does not report a failed BattleView.create as a new version, and stays connected', async () => {
+    it('shows a generic create error and disconnects', async () => {
         const { root } = await seatedClient(BROKEN_RENDERER)
         expectNoNewVersionMessage(root)
-        expect(sockets.size).toBe(1)
-        expect(lobby.paused).toBe(false)
-        expect(unhandled).toEqual([new Error('WebGL is not available')])
+        expect(sockets.size).toBe(0)
+        expect(lobby.paused).toBe(true)
+        expect(root.textContent).toContain(BATTLE_CREATE_ERROR)
+        expect(unhandled).toEqual([])
     })
 
     it('stays connected with no message when the import works', async () => {
@@ -426,5 +427,90 @@ describe('online, for a spectator', () => {
         expect(lobby.info().spectators).toEqual(['Carol'])
         expect(lobby.seats.player1!.playerId).toBe('alice-id')
         expectNoNewVersionMessage(root)
+    })
+})
+
+// Exercise renderer imports independently of the outer battle-view import.
+describe.each([
+    ['chunk', new TypeError('Failed to fetch dynamically imported module: /assets/WebGL.js'), NEW_VERSION_MESSAGE],
+    ['Safari chunk', new TypeError('Importing a module script failed.'), NEW_VERSION_MESSAGE],
+    ['Firefox chunk', new TypeError('error loading dynamically imported module'), NEW_VERSION_MESSAGE],
+    ['renderer', new Error('WebGL is not available'), BATTLE_CREATE_ERROR],
+])('BattleView.create: %s', (_kind, error, message) => {
+    const failingCreate: Chunk = async () => ({ BattleView: { create: () => Promise.reject(error) } })
+    const pendingCreate = () => {
+        const pending = pendingChunk(error)
+        return { chunk: async () => ({ BattleView: { create: pending.chunk } }), fail: pending.fail }
+    }
+
+    it('shows the appropriate training message without an unhandled rejection', async () => {
+        const page = await loadPage(failingCreate)
+        page.openTraining()
+        await settle()
+        expect(page.root.textContent).toContain(message)
+        if (message === NEW_VERSION_MESSAGE) {
+            expectNewVersionMessage(page.root)
+            expect(page.root.textContent).not.toContain(BATTLE_CREATE_ERROR)
+        } else expectNoNewVersionMessage(page.root)
+        expect(unhandled).toEqual([])
+    })
+
+    it('pauses online and rejoins the seat after refresh', async () => {
+        const { root } = await seatedClient(failingCreate)
+        expect(root.textContent).toContain(message)
+        if (message === NEW_VERSION_MESSAGE) {
+            expectNewVersionMessage(root)
+            expect(root.textContent).not.toContain(BATTLE_CREATE_ERROR)
+        } else expectNoNewVersionMessage(root)
+        expect(sockets.size).toBe(0)
+        expect(lobby.paused).toBe(true)
+        await openLobby(WORKING_CHUNK)
+        expect(lobby.info()).toMatchObject({ paused: false, player1: { name: 'Carol', connected: true } })
+        expect(unhandled).toEqual([])
+    })
+
+    it('disconnects a spectator without pausing the players', async () => {
+        const { root } = await spectatingClient(failingCreate)
+        expect(root.textContent).toContain(message)
+        expect(sockets.size).toBe(0)
+        expect(lobby.paused).toBe(false)
+        expect(unhandled).toEqual([])
+    })
+
+    it('ignores a late training failure after leaving', async () => {
+        const { chunk, fail } = pendingCreate()
+        const page = await loadPage(chunk)
+        const leave = page.openTraining()
+        await settle()
+        leave()
+        fail()
+        await settle()
+        expect(page.root.textContent).not.toContain(message)
+        expect(unhandled).toEqual([])
+    })
+
+    it('ignores a late online failure after leaving', async () => {
+        const { chunk, fail } = pendingCreate()
+        const { root, leave } = await seatedClient(chunk)
+        leave()
+        const before = lobby.info()
+        fail()
+        await settle()
+        expect(root.textContent).not.toContain(message)
+        expect(lobby.info()).toEqual(before)
+        expect(unhandled).toEqual([])
+    })
+
+    it('ignores a late online failure after the battle ends', async () => {
+        const { chunk, fail } = pendingCreate()
+        const { root } = await seatedClient(chunk)
+        lobby.disconnect('bob')
+        await seconds(RECONNECT_GRACE)
+        fail()
+        await settle()
+        expect(root.textContent).toContain('Victory!')
+        expect(root.textContent).not.toContain(message)
+        expect(sockets.size).toBe(1)
+        expect(unhandled).toEqual([])
     })
 })

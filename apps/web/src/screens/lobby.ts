@@ -395,6 +395,14 @@ const startLobby = (root: HTMLElement, code: string) => {
             if (!view && !viewPending) {
                 viewPending = true
                 const mine = me()
+                const failView = (message: string) => {
+                    viewPending = false
+                    // Disconnect so the opponent pauses while this player cannot see the battle.
+                    socket?.close()
+                    netStatus.remove()
+                    fatal = message
+                    render()
+                }
                 loadBattleChunk(() => import('../game/battle-view'), {
                     onLoaded: ({ BattleView }) =>
                         BattleView.create(stage, {
@@ -409,14 +417,8 @@ const startLobby = (root: HTMLElement, code: string) => {
                             decorate(info)
                         }),
                     isCurrent: () => viewPending,
-                    onFailed: () => {
-                        // A connected player who can't see the battle would leave the opponent fighting someone idle.
-                        // Leaving pauses the match, and the server holds the seat for its reconnect grace period.
-                        socket?.close()
-                        netStatus.remove()
-                        fatal = NEW_VERSION_MESSAGE
-                        render()
-                    },
+                    onFailed: () => failView(NEW_VERSION_MESSAGE),
+                    onCreateFailed: failView,
                 })
             }
         }

@@ -4,7 +4,7 @@ import type { BattleView } from '../game/battle-view'
 import { iconUrl } from '../game/icons'
 import { getLoadout, getName, setLoadout } from '../identity'
 import { spellPicker } from '../ui/spell-picker'
-import { loadBattleChunk, newVersionPanel } from './battle-chunk'
+import { battleErrorPanel, loadBattleChunk, newVersionPanel } from './battle-chunk'
 
 /** Big enough that nothing in the game can kill it; shown as ∞. */
 const DUMMY_HP = 1e9
@@ -175,6 +175,7 @@ export const trainingScreen = (root: HTMLElement) => {
             }),
         isCurrent: () => !disposed,
         onFailed: () => stage.replaceChildren(newVersionPanel()),
+        onCreateFailed: message => stage.replaceChildren(battleErrorPanel(message)),
     })
 
     return () => {
