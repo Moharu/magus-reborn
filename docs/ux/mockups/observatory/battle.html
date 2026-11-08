@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Astral Observatory — Battle | Magus Reborn</title>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                background: #100f25;
+                color: #f5f1ff;
+                font:
+                    16px/1.5 system-ui,
+                    sans-serif;
+            }
+            a {
+                color: inherit;
+            }
+            main {
+                max-width: 1200px;
+                margin: auto;
+                padding: 28px;
+            }
+            header,
+            nav,
+            .row {
+                display: flex;
+                justify-content: space-between;
+                gap: 20px;
+                align-items: center;
+            }
+            header {
+                border-bottom: 1px solid #c3b9df;
+                padding-bottom: 18px;
+            }
+            nav {
+                font: 14px system-ui;
+            }
+            h1 {
+                font-size: 38px;
+                line-height: 1.15;
+                margin: 16px 0;
+            }
+            h2 {
+                font-size: 21px;
+            }
+            p {
+                color: #c3b9df;
+            }
+            .kicker,
+            small {
+                font: 12px/1.5 system-ui;
+                letter-spacing: 0.08em;
+            }
+            .panel,
+            .slot,
+            .card {
+                background: #211d3c;
+                border: 1px solid #c3b9df;
+                padding: 18px;
+                border-radius: 24px;
+            }
+            .hud {
+                display: grid;
+                grid-template-columns: 1fr 130px 1fr;
+                gap: 24px;
+                margin-top: 26px;
+            }
+            .bar {
+                height: 18px;
+                background: #100f25;
+                border: 1px solid #c3b9df;
+                margin: 8px 0 14px;
+            }
+            .fill {
+                height: 100%;
+                background: #91dbff;
+            }
+            .cast .fill {
+                background: #f6c76a;
+            }
+            .arena {
+                min-height: 245px;
+                display: flex;
+                align-items: center;
+                justify-content: space-around;
+                position: relative;
+                margin: 22px 0;
+                border-bottom: 1px solid #c3b9df;
+            }
+            .wizard {
+                font-size: 72px;
+                text-align: center;
+                line-height: 1.2;
+            }
+            .wizard small {
+                display: block;
+                font-size: 14px;
+                margin: 14px;
+            }
+            .tell {
+                border: 2px dashed #f6c76a;
+                padding: 12px;
+                text-align: center;
+                color: #f5f1ff;
+                background: #211d3c;
+            }
+            .slots {
+                display: grid;
+                grid-template-columns: repeat(7, minmax(0, 1fr));
+                gap: 10px;
+            }
+            .slot {
+                padding: 12px;
+                font: 14px/1.5 system-ui;
+                min-height: 126px;
+            }
+            .slot strong {
+                display: block;
+                margin: 10px 0;
+            }
+            kbd {
+                font: bold 19px monospace;
+                border: 1px solid #c3b9df;
+                padding: 3px 8px;
+                display: inline-block;
+            }
+            .fixed {
+                border: 3px double #f6c76a;
+            }
+            .status {
+                display: block;
+                font-size: 12px;
+                color: #c3b9df;
+            }
+            .cooldown {
+                background: repeating-linear-gradient(135deg, #211d3c, #211d3c 8px, #100f25 8px, #100f25 16px);
+            }
+            .loadout {
+                display: grid;
+                grid-template-columns: 230px 1fr;
+                gap: 28px;
+                margin: 28px 0;
+            }
+            .loadout .slots {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+            .catalog {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 12px;
+            }
+            .card {
+                font-family: system-ui;
+            }
+            .selected {
+                outline: 2px solid #91dbff;
+                outline-offset: -5px;
+            }
+            .action {
+                display: inline-block;
+                padding: 12px 20px;
+                background: #f5f1ff;
+                color: #100f25;
+                font: bold 16px system-ui;
+            }
+            footer {
+                margin-top: 24px;
+                font: 14px/1.6 system-ui;
+                color: #c3b9df;
+            }
+            :focus-visible {
+                outline: 3px solid #f6c76a;
+                outline-offset: 4px;
+            }
+            @media (max-width: 800px) {
+                main {
+                    padding: 16px;
+                }
+                header {
+                    align-items: flex-start;
+                    flex-direction: column;
+                }
+                .hud {
+                    grid-template-columns: 1fr 1fr;
+                }
+                .score {
+                    grid-column: 1/-1;
+                    grid-row: 1;
+                }
+                .slots {
+                    grid-template-columns: repeat(4, 1fr);
+                }
+                .loadout {
+                    grid-template-columns: 1fr;
+                }
+                .catalog {
+                    grid-template-columns: 1fr;
+                }
+                .arena {
+                    flex-wrap: wrap;
+                }
+            }
+            h1 {
+                letter-spacing: -0.04em;
+            }
+            .arena {
+                border-radius: 50% 50% 24px 24px;
+                border: 1px solid #c3b9df;
+                background: radial-gradient(ellipse at center, #39335c 0%, #100f25 75%);
+            }
+            .wizard {
+                border: 1px solid #91dbff;
+                border-radius: 50%;
+                width: 130px;
+                padding: 18px;
+            }
+            .wizard small {
+                font-size: 12px;
+            }
+            .slot {
+                border-radius: 18px;
+            }
+            .loadout aside {
+                border: 1px solid #c3b9df;
+                border-radius: 120px 120px 20px 20px;
+                padding: 24px;
+            }
+            body {
+                font-variant-numeric: tabular-nums;
+            }
+            .cast .fill {
+                border-right: 3px solid currentColor;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <header>
+                <b>MAGUS / REBORN</b>
+                <nav aria-label="Mockup pages">
+                    <a href="loadout.html">Loadout mockup</a><a href="../../directions.md">Design notes</a>
+                </nav>
+            </header>
+            <p class="kicker">CONSTELLATION / PRIVATE DUEL · LOBBY M4GUS2 · 3 SPECTATORS</p>
+            <div class="hud">
+                <section class="panel" aria-label="Your status">
+                    <div class="row"><b>You / Rowan</b><b>72.0 / 100 HP</b></div>
+                    <div class="bar" role="img" aria-label="Your HP 72 percent">
+                        <div class="fill" style="width: 72%"></div>
+                    </div>
+                    <div class="row"><span>Fireball · charging</span><span>1.2 / 1.8 s</span></div>
+                    <div class="bar cast" role="img" aria-label="Fireball two thirds charged">
+                        <div class="fill" style="width: 67%"></div>
+                    </div>
+                    <small>Hold Q · release when READY</small>
+                </section>
+                <div class="score">
+                    <b>1 — 0</b>
+                    <p>Round 2<br />Best of 3</p>
+                </div>
+                <section class="panel" aria-label="Opponent status">
+                    <div class="row"><b>Opponent / Ash</b><b>48.0 / 100 HP</b></div>
+                    <div class="bar" role="img" aria-label="Opponent HP 48 percent">
+                        <div class="fill" style="width: 48%"></div>
+                    </div>
+                    <div class="tell">× FIREBALL INTERRUPTED</div>
+                    <small>Counterspell lock · 2.1 s remaining</small>
+                </section>
+            </div>
+            <section class="arena" aria-label="Illustrative duel arena">
+                <div class="wizard">♟<small>ROWAN · YOU</small></div>
+                <div>
+                    <p class="kicker">FIRE / MIRROR DUEL</p>
+                    <p>Cast timing stays above the action.</p>
+                </div>
+                <div class="wizard">♟<small>ASH · OPPONENT</small></div>
+            </section>
+            <div class="slots" aria-label="Seven spell slots">
+                <div class="slot"><kbd>Q</kbd><strong>Fireball</strong><span class="status">Ready</span></div>
+                <div class="slot"><kbd>W</kbd><strong>Ignite</strong><span class="status">Ready</span></div>
+                <div class="slot cooldown">
+                    <kbd>E</kbd><strong>Living Bomb</strong><span class="status">4.2 s</span>
+                </div>
+                <div class="slot"><kbd>R</kbd><strong>Combustion</strong><span class="status">Ready</span></div>
+                <div class="slot fixed">
+                    <kbd>S</kbd><strong>Counterspell</strong><span class="status">Fixed · OFF GCD</span>
+                </div>
+                <div class="slot"><kbd>D</kbd><strong>Haste</strong><span class="status">OFF GCD</span></div>
+                <div class="slot"><kbd>F</kbd><strong>Temporal Shield</strong><span class="status">OFF GCD</span></div>
+            </div>
+            <p>Q W E R · element spells &nbsp; / &nbsp; S · fixed interrupt &nbsp; / &nbsp; D F · general spells</p>
+            <footer>
+                Static design proposal 03 · Astral Observatory. Illustrative values, no live game state. Only navigation
+                links work.<br />OFF GCD = does not trigger or wait for global cooldown; other restrictions still apply.
+                Instants cancel a current cast unless explicitly usable while casting.
+            </footer>
+        </main>
+    </body>
+</html>
