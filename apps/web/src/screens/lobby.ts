@@ -1,4 +1,4 @@
-import { SPELLS, ticksToSeconds, type BattleSnapshot, type PlayerKey, type SpellId } from '@magus/engine'
+import { ticksToSeconds, type PlayerKey, type SnapshotView, type SpellId } from '@magus/engine'
 import {
     BEST_OF_OPTIONS,
     MAX_SPECTATORS,
@@ -81,7 +81,7 @@ const startLobby = (root: HTMLElement, code: string) => {
     let fatal: string | null = null
     let connection: 'connecting' | 'open' | 'reconnecting' = 'connecting'
     let ping: number | null = null
-    let battleSnap: BattleSnapshot | null = null
+    let battleSnap: SnapshotView | null = null
     let caughtUp = false
 
     let view: BattleView | null = null
@@ -494,24 +494,6 @@ const startLobby = (root: HTMLElement, code: string) => {
                                       h('td', null, round.player1.hp.toFixed(1)),
                                       h('td', null, round.player2.hp.toFixed(1)),
                                   ),
-                              ),
-                          ),
-                      )
-                    : null,
-                info.rounds.length
-                    ? h(
-                          'details',
-                          null,
-                          h('summary', null, 'Spells used'),
-                          ['player1', 'player2'].map(key =>
-                              h(
-                                  'p',
-                                  null,
-                                  h('strong', null, `${name(key)}: `),
-                                  info.rounds
-                                      .at(-1)!
-                                      [key as PlayerKey].spells.map(id => SPELLS[id].label)
-                                      .join(', '),
                               ),
                           ),
                       )

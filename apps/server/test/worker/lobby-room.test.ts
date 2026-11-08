@@ -239,6 +239,12 @@ describe('malformed messages', () => {
         ['an unknown spell', ['SPELL_NOPE', ...DEFAULT_SPELLS.slice(1)]],
         ['too few spells', DEFAULT_SPELLS.slice(1)],
         ['spells that are not a list', 'SPELL_FIREBALL'],
+        ['an old 6-slot loadout', DEFAULT_SPELLS.filter(id => id !== 'SPELL_COUNTERSPELL')],
+        [
+            'Counterspell in another slot',
+            [DEFAULT_SPELLS[4], ...DEFAULT_SPELLS.slice(1, 4), DEFAULT_SPELLS[0], ...DEFAULT_SPELLS.slice(5)],
+        ],
+        ['a duplicate', [DEFAULT_SPELLS[0], DEFAULT_SPELLS[0], ...DEFAULT_SPELLS.slice(2)]],
         [
             'names every object inherits',
             ['toString', 'constructor', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', '__proto__'],
@@ -251,6 +257,37 @@ describe('malformed messages', () => {
         expect(await alice.sync()).toEqual([{ t: 'error', message: 'Invalid spell selection' }])
         expect(await bob.sync()).toEqual([])
         const { welcome } = await join(code, 'alice-id')
+        expect(welcome.spells).toEqual(DEFAULT_SPELLS)
+    })
+
+    it('echoes a valid loadout to its owner only, and never shows it to the opponent or a spectator', async () => {
+        const { code, alice, bob } = await lobbyWithTwoPlayers()
+        const { client: carol } = await join(code, 'carol-id', 'Carol')
+        await carol.sync()
+
+        bob.send({ t: 'set_spells', spells: CUSTOM_LOADOUT })
+        expect((await bob.next('loadout')).spells).toEqual(CUSTOM_LOADOUT)
+        alice.send({ t: 'ready' })
+        bob.send({ t: 'ready' })
+        await alice.nextLobby(lobby => lobby.matchStarted)
+
+        // the frames the opponent and a spectator got, lobby state included, hold no copy of Bob's loadout
+        const seen = JSON.stringify([...(await alice.sync()), ...(await carol.sync())])
+        expect(seen).not.toContain(JSON.stringify(CUSTOM_LOADOUT))
+        expect(seen).not.toContain('"loadout"')
+        expect(seen).not.toContain('SPELL_')
+    })
+
+    it('rejects a loadout change once the player is ready, with a non-fatal error', async () => {
+        const { code, alice, bob } = await lobbyWithTwoPlayers()
+        bob.send({ t: 'ready' })
+        await bob.sync()
+
+        bob.send({ t: 'set_spells', spells: CUSTOM_LOADOUT })
+
+        expect(await bob.sync()).toEqual([{ t: 'error', message: "Spells can't be changed now" }])
+        expect(await alice.sync()).toEqual(expect.not.arrayContaining([expect.objectContaining({ t: 'error' })]))
+        const { welcome } = await join(code, 'bob-id')
         expect(welcome.spells).toEqual(DEFAULT_SPELLS)
     })
 

@@ -156,7 +156,13 @@ describe('global cooldown and instant-cancel (#25)', () => {
             expect(b.state.player1.cast).toBeNull()
             expect(b.state.player1.castStartingTick).toBeNull()
             expect(cancels(b)).toEqual([
-                { type: 'CANCEL_CAST', caster: 'player1', spellIndex: fireball, tick: b.state.gameTick },
+                {
+                    type: 'CANCEL_CAST',
+                    caster: 'player1',
+                    spellIndex: fireball,
+                    spellId: 'SPELL_FIREBALL',
+                    tick: b.state.gameTick,
+                },
             ])
             expect(b.state.player1.gcdUntil).toBe(0)
             expect(b.startCast('player1', fireball)).toBe(true)

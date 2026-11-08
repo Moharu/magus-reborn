@@ -20,9 +20,9 @@ describe('replacing a cast (#34)', () => {
 
         const tick = b.state.gameTick
         expect(b.state.log).toEqual([
-            { type: 'START_CAST', caster: 'player1', spellIndex: fireball, tick: tick - 10 },
-            { type: 'CANCEL_CAST', caster: 'player1', spellIndex: fireball, tick },
-            { type: 'START_CAST', caster: 'player1', spellIndex: meteor, tick },
+            { type: 'START_CAST', caster: 'player1', spellIndex: fireball, spellId: 'SPELL_FIREBALL', tick: tick - 10 },
+            { type: 'CANCEL_CAST', caster: 'player1', spellIndex: fireball, spellId: 'SPELL_FIREBALL', tick },
+            { type: 'START_CAST', caster: 'player1', spellIndex: meteor, spellId: 'SPELL_METEOR', tick },
         ])
     })
 
@@ -54,7 +54,13 @@ describe('replacing a cast (#34)', () => {
         advance(b, b.state.player1.spells[fireball].castTime)
         expect(b.stopCast('player1', fireball)).toBe(true)
         expect(releases(b, 'player1')).toEqual([
-            { type: 'SPELL_RELEASE', caster: 'player1', spellIndex: fireball, tick: b.state.gameTick },
+            {
+                type: 'SPELL_RELEASE',
+                caster: 'player1',
+                spellIndex: fireball,
+                spellId: 'SPELL_FIREBALL',
+                tick: b.state.gameTick,
+            },
         ])
         expect(b.state.player2.hp).toBe(MAX_HP - FIREBALL_DAMAGE)
     })
@@ -70,6 +76,7 @@ describe('replacing a cast (#34)', () => {
             type: 'CANCEL_CAST',
             caster: 'player1',
             spellIndex: fireball,
+            spellId: 'SPELL_FIREBALL',
             tick: b.state.gameTick,
         })
         expect(b.state.log.at(-1)).toMatchObject({ type: 'START_CAST', spellIndex: fireball })
@@ -114,6 +121,7 @@ describe('Counterspell interrupts (#35)', () => {
                 type: 'INTERRUPTED',
                 player: victim,
                 spellIndex: fireball,
+                spellId: 'SPELL_FIREBALL',
                 tick: b.state.gameTick,
                 source: 'SPELL_COUNTERSPELL',
             },

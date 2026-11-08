@@ -100,6 +100,9 @@ export class LobbyRoom extends DurableObject<Env> {
                 const payload = JSON.stringify(message)
                 for (const connId of this.sockets.keys()) this.send(connId, payload)
             },
+            sendEach: messages => {
+                for (const [connId, message] of messages) this.send(connId, message)
+            },
             close: (connId, reason) => {
                 const ws = this.sockets.get(connId)
                 this.sockets.delete(connId)
