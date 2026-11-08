@@ -10,13 +10,15 @@ import {
 } from '@magus/engine/protocol'
 import { Lobby, RECONNECT_GRACE, type LobbyTransport } from '../src/lobby'
 
-const FIRE: SpellId[] = [
+/** A valid loadout other than the default, with Fireball in slot 0. */
+const LOADOUT: SpellId[] = [
     'SPELL_FIREBALL',
-    'SPELL_IGNITE',
-    'SPELL_COMBUSTION',
-    'SPELL_AFTERBURN',
     'SPELL_LIVING_BOMB',
     'SPELL_METEOR',
+    'SPELL_AFTERBURN',
+    'SPELL_COUNTERSPELL',
+    'SPELL_BLUR',
+    'SPELL_MAGIC_EATER',
 ]
 
 class FakeTransport implements LobbyTransport {
@@ -92,7 +94,7 @@ const holdFireball = (lobby: Lobby) => {
 
 /** From set up, a live battle where player 1 holds a Fireball that is ready to release. */
 const toHeldFireball = (lobby: Lobby) => {
-    lobby.message('c1', { t: 'set_spells', spells: FIRE })
+    lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
     toBattle(lobby)
     holdFireball(lobby)
 }
@@ -282,10 +284,10 @@ describe('match flow', () => {
 
     it('uses the chosen spells in battle', () => {
         const { lobby, transport } = startMatch()
-        lobby.message('c1', { t: 'set_spells', spells: FIRE })
-        expect(transport.to('c1').at(-1)).toEqual({ t: 'loadout', spells: FIRE })
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        expect(transport.to('c1').at(-1)).toEqual({ t: 'loadout', spells: LOADOUT })
         toBattle(lobby)
-        expect(lobby.battle!.state.player1.spells.map(s => s.id)).toEqual(FIRE)
+        expect(lobby.battle!.state.player1.spells.map(s => s.id)).toEqual(LOADOUT)
     })
 
     it('rejects invalid loadouts', () => {
@@ -293,8 +295,8 @@ describe('match flow', () => {
         const before = lobby.seats.player1!.spells
         for (const spells of [
             ['SPELL_FIREBALL'],
-            [...FIRE.slice(0, 5), 'SPELL_FIREBALL'],
-            [...FIRE.slice(0, 5), 'NOPE'],
+            [...LOADOUT.slice(0, 6), 'SPELL_FIREBALL'],
+            [...LOADOUT.slice(0, 6), 'NOPE'],
             'x',
         ]) {
             lobby.message('c1', { t: 'set_spells', spells } as never)
@@ -463,7 +465,7 @@ describe('match flow', () => {
 
     /** Player 2 holds a Fireball (slot 0) that is ready to release, and player 1 is low enough for it to kill. */
     const toReadyFireball = (lobby: Lobby) => {
-        lobby.message('c2', { t: 'set_spells', spells: FIRE })
+        lobby.message('c2', { t: 'set_spells', spells: LOADOUT })
         toBattle(lobby)
         const battle = lobby.battle!
         lobby.message('c2', { t: 'start_cast', i: 0 })
@@ -489,7 +491,7 @@ describe('match flow', () => {
 
     it('a same-tick instant after a winner decided inside the tick makes the round a draw', () => {
         const { lobby } = startMatch()
-        lobby.message('c2', { t: 'set_spells', spells: FIRE })
+        lobby.message('c2', { t: 'set_spells', spells: LOADOUT })
         toBattle(lobby)
         const battle = lobby.battle!
         battle.state.player2.spells[0].castTime = 0 // no catalog spell is both instant and damaging
@@ -519,21 +521,21 @@ describe('match flow', () => {
 
     it('skips set up after round 1 when spell changes are not allowed', () => {
         const { lobby } = startMatch({ allowSpellChange: false })
-        lobby.message('c1', { t: 'set_spells', spells: FIRE })
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
         toBattle(lobby)
         killPlayer2(lobby)
         seconds(10)
         expect(lobby.phase).toBe('battle_countdown')
-        lobby.message('c1', { t: 'set_spells', spells: [...FIRE].reverse() })
+        lobby.message('c1', { t: 'set_spells', spells: [...LOADOUT.slice(0, 4).reverse(), ...LOADOUT.slice(4)] })
         seconds(3)
-        expect(lobby.battle!.state.player1.spells.map(s => s.id)).toEqual(FIRE)
+        expect(lobby.battle!.state.player1.spells.map(s => s.id)).toEqual(LOADOUT)
     })
 
     it('locks loadouts once a player is ready in set up', () => {
         const { lobby } = startMatch()
         lobby.message('c1', { t: 'ready' })
-        lobby.message('c1', { t: 'set_spells', spells: FIRE })
-        expect(lobby.seats.player1!.spells).not.toEqual(FIRE)
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
+        expect(lobby.seats.player1!.spells).not.toEqual(LOADOUT)
     })
 })
 
@@ -620,7 +622,7 @@ describe('disconnects during a match', () => {
 
     /** Draw decided by an action in the winner's tick, so the phase is still 'battle' when the disconnect pauses it. */
     const drawByAction = (lobby: Lobby) => {
-        lobby.message('c2', { t: 'set_spells', spells: FIRE })
+        lobby.message('c2', { t: 'set_spells', spells: LOADOUT })
         toBattle(lobby)
         const battle = lobby.battle!
         lobby.message('c2', { t: 'start_cast', i: 0 })
@@ -893,7 +895,7 @@ describe('joining mid-battle', () => {
     /** Two Fireball releases, calling `join` at each kind of point a join can land between two broadcasts. */
     const twoReleases = (join: (lobby: Lobby) => void = () => {}) => {
         const { lobby, transport } = startMatch()
-        lobby.message('c1', { t: 'set_spells', spells: FIRE })
+        lobby.message('c1', { t: 'set_spells', spells: LOADOUT })
         toBattle(lobby)
         transport.broadcasts = []
         for (let release = 0; release < 2; release++) {

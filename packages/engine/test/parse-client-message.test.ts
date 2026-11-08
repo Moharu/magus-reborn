@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SPELLS, LOADOUT_SIZE, parseClientMessage } from '../src'
+import { DEFAULT_SPELLS, FIXED_SLOT, LOADOUT_SIZE, parseClientMessage } from '../src'
 import type { ClientMessage } from '../src/protocol'
 
 describe('parseClientMessage', () => {
@@ -7,6 +7,20 @@ describe('parseClientMessage', () => {
         [{ t: 'ready' }],
         [{ t: 'unready' }],
         [{ t: 'set_spells', spells: DEFAULT_SPELLS }],
+        [
+            {
+                t: 'set_spells',
+                spells: [
+                    'SPELL_METEOR',
+                    'SPELL_LIVING_BOMB',
+                    'SPELL_AFTERBURN',
+                    'SPELL_FIREBALL',
+                    'SPELL_COUNTERSPELL',
+                    'SPELL_MAGIC_EATER',
+                    'SPELL_BLUR',
+                ],
+            },
+        ],
         [{ t: 'start_cast', i: 0 }],
         [{ t: 'start_cast', i: LOADOUT_SIZE - 1 }],
         [{ t: 'stop_cast', i: 0 }],
@@ -46,6 +60,8 @@ describe('parseClientMessage', () => {
     })
 
     const [first, ...rest] = DEFAULT_SPELLS
+    const swapped = (a: number, b: number) =>
+        DEFAULT_SPELLS.map((_, i) => DEFAULT_SPELLS[i === a ? b : i === b ? a : i])
     it.each<[string, unknown]>([
         ['no spells', undefined],
         ['spells that are not a list', first],
@@ -57,6 +73,20 @@ describe('parseClientMessage', () => {
         ['a spell that is not a string', [1, ...rest]],
         ['a spell named after a property every object inherits', ['toString', ...rest]],
         ['a spell named after the prototype', ['__proto__', ...rest]],
+        [
+            'the old 6-slot shape',
+            [
+                'SPELL_FIREBALL',
+                'SPELL_IGNITE',
+                'SPELL_COMBUSTION',
+                'SPELL_HASTE',
+                'SPELL_COUNTERSPELL',
+                'SPELL_TEMPORAL_SHIELD',
+            ],
+        ],
+        ['Counterspell out of its slot', swapped(0, FIXED_SLOT)],
+        ['a general spell in a Fire slot', swapped(0, LOADOUT_SIZE - 1)],
+        ['5 Fire spells and 1 general spell', [...DEFAULT_SPELLS.slice(0, -1), 'SPELL_METEOR']],
     ])('rejects set_spells with %s', (_, spells) => {
         expect(parseClientMessage({ t: 'set_spells', spells })).toBeNull()
     })
