@@ -1,4 +1,4 @@
-import { Battle, type PlayerKey, type SpellId } from '../src'
+import { Battle, SPELLS, type PlayerKey, type SpellId } from '../src'
 
 export const FIRE: SpellId[] = [
     'SPELL_FIREBALL',
@@ -51,3 +51,23 @@ export const releases = (battle: Battle, caster: PlayerKey) =>
     battle.state.log.filter(l => l.type === 'SPELL_RELEASE' && l.caster === caster)
 
 export const effectIds = (battle: Battle, player: PlayerKey) => battle.state[player].effects.map(e => e.id)
+
+const clearedOffGcd = new Set<SpellId>()
+
+/**
+ * Since #84 no shipped instant is on the GCD, so tests that need one (to start a GCD, or to be blocked by it)
+ * clear `offGlobalCooldown` on a spell. Call it before creating the battle when the spell must also start the
+ * GCD: `createSpellState` reads the flag then. Undo with `restoreOffGcd` in `afterEach`.
+ */
+export const putOnGcd = (...ids: SpellId[]) => {
+    for (const id of ids) {
+        if (!SPELLS[id].offGlobalCooldown) continue
+        clearedOffGcd.add(id)
+        delete SPELLS[id].offGlobalCooldown
+    }
+}
+
+export const restoreOffGcd = () => {
+    for (const id of clearedOffGcd) SPELLS[id].offGlobalCooldown = true
+    clearedOffGcd.clear()
+}

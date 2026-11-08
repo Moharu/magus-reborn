@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createSpellState, DamageMeter, GLOBAL_COOLDOWN } from '../src'
-import { advance, castFull, effectIds, FIRE, GENERAL, releases, setup, slot } from './helpers'
+import { advance, castFull, effectIds, FIRE, GENERAL, putOnGcd, releases, restoreOffGcd, setup, slot } from './helpers'
 
 const IGNITE_PER_TICK = 13.3 / 200
 
@@ -14,10 +14,17 @@ describe('spell timings', () => {
         expect(createSpellState('SPELL_HASTE').castTime).toBe(0)
     })
 
+    it('no shipped spell starts a global cooldown (#84)', () => {
+        for (const id of [...FIRE, ...GENERAL]) expect(createSpellState(id).globalCooldown).toBe(0)
+    })
+
     it('only on-GCD instants start a global cooldown', () => {
-        const onGcd = ['SPELL_HASTE', 'SPELL_TEMPORAL_SHIELD', 'SPELL_MAGIC_EATER']
-        for (const id of [...FIRE, ...GENERAL])
-            expect(createSpellState(id).globalCooldown).toBe(onGcd.includes(id) ? GLOBAL_COOLDOWN : 0)
+        putOnGcd('SPELL_HASTE')
+        try {
+            expect(createSpellState('SPELL_HASTE').globalCooldown).toBe(GLOBAL_COOLDOWN)
+        } finally {
+            restoreOffGcd()
+        }
     })
 })
 

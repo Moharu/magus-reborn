@@ -45,9 +45,12 @@ describe('enumeratePolicies', () => {
         expect(enumeratePolicies(four, { variants: {}, prune: false, cap: 5 })).toHaveLength(5)
         expect(enumeratePolicies(four, { cap: 0 })).toEqual([])
         // with pruning only the last rule may be terminal; Fireball, Ignite and Meteor all are, so no policy
-        // uses all four (each behaviour is covered by a smaller loadout instead)
-        expect(enumeratePolicies(four, { variants: {} })).toEqual([])
+        // uses all three (each behaviour is covered by a smaller loadout instead)
+        expect(enumeratePolicies(POOL, { variants: {} })).toEqual([])
+        // Haste is off-GCD since #84, which turns pruning off for any loadout holding it
+        expect(enumeratePolicies(four, { variants: {} })).toHaveLength(24)
         expect(enumeratePolicies(['SPELL_FIREBALL', 'SPELL_HASTE'], { variants: {} })).toEqual([
+            [{ spell: 'SPELL_FIREBALL' }, { spell: 'SPELL_HASTE' }],
             [{ spell: 'SPELL_HASTE' }, { spell: 'SPELL_FIREBALL' }],
         ])
     })
