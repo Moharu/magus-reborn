@@ -1,5 +1,5 @@
 import { ENGINE_VERSION } from './constants'
-import type { BattleSnapshot, HpEvent, LogEntry, PlayerKey, SpellId, Winner } from './types'
+import type { SnapshotView, HpEvent, LogEntry, PlayerKey, SpellId, Winner } from './types'
 
 export type BestOf = 1 | 3 | 5
 export const BEST_OF_OPTIONS: BestOf[] = [1, 3, 5]
@@ -52,8 +52,9 @@ export interface RoundResult {
     round: number
     winner: Winner
     ticks: number
-    player1: { hp: number; spells: SpellId[] }
-    player2: { hp: number; spells: SpellId[] }
+    /** `spells` (the round's loadout) is sent to spectators only, never to a player. */
+    player1: { hp: number; spells?: SpellId[] }
+    player2: { hp: number; spells?: SpellId[] }
 }
 
 export interface LobbyInfo {
@@ -102,7 +103,8 @@ export type ServerMessage =
     | { t: 'loadout'; spells: SpellId[] }
     | {
           t: 'battle'
-          snap: BattleSnapshot
+          /** Redacted per viewer: the opponent's loadout is absent; spectators get both. See `viewSnapshot`. */
+          snap: SnapshotView
           /** Log entries starting at index `logFrom`. */
           log: LogEntry[]
           logFrom: number

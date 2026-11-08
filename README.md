@@ -1,6 +1,6 @@
 # Magus Reborn
 
-A fast 1v1 wizard duel for the browser. Hold a key to charge a spell, release it once the cast bar turns green. Pick six spells from the grimoire, out-damage and out-think the other wizard.
+A fast 1v1 wizard duel for the browser. Hold a key to charge a spell, release it once the cast bar turns green. Pick four Fire spells and two general spells (everyone carries Counterspell), then out-damage and out-think the other wizard.
 
 - **Training room**: practice against an idle dummy with infinite HP and a live damage meter. Runs entirely in the browser.
 - **Online 1v1**: public lobby list, invite links/codes, spectators, best of 1/3/5, configurable set-up time, and optional spell changes between rounds.
@@ -92,18 +92,20 @@ In the unpressured run the dummy has no Counterspell, so `enemyCounterspellOnCoo
 #### Rotation search
 
 ```sh
-npm run sim:search -- --size N [--top K] [--jobs J] [--pool fireball,ignite,...] [--duration 60] [--reaction 0.4] [--cap C] [--no-dedupe]
+npm run sim:search -- [--top K] [--jobs J] [--fire fireball,ignite,...] [--general haste,blur,...] [--duration 60] [--reaction 0.4] [--cap C] [--no-dedupe]
 ```
 
-Runs every loadout of 1 to `N` pool spells times every policy through `simulate` and prints the top `K` (default 10) as JSON: `{ options, evaluated, results: [{ loadout, policy, description, dps, dpsUnderPressure, risk, totalDamage, pressuredDamage, cast, castUnderPressure, interrupts, equivalents }] }`. The library API is `search`, `enumerateLoadouts(pool, size)` and `enumeratePolicies(loadout, { cap, variants, prune })` from `@magus/engine`.
+Searches the 0.2 loadout shape: every loadout of 4 Fire spells, Counterspell in its fixed slot and 2 general spells, times every policy, through `simulate`, and prints the top `K` (default 10) as JSON: `{ options, evaluated, pairs, results: [{ loadout, elementSpells, generalSpells, policy, description, dps, dpsUnderPressure, risk, totalDamage, pressuredDamage, cast, castUnderPressure, interrupts, equivalents }] }`. `loadout` is the full 7-slot loadout in slot order (it passes `isValidLoadout`), `elementSpells` its four Fire spells and `generalSpells` its general pair. `evaluated` counts simulator runs and `pairs` the (loadout, policy) pairs they cover. The library API is `search`, `searchCandidates`, `enumerateShapeLoadouts`, `enumeratePolicies(spells, { cap, variants, prune })` and `canPrune` from `@magus/engine`.
 
-- **Ranking**: `dpsUnderPressure` descending, then `dps` descending, then fewer spells, then fewer conditions, then the JSON of `[loadout, policy]` ascending. That is a total order, so the output is stable and does not depend on `--jobs`.
-- **Pool**: by default the 7 spells that can change dummy damage (Fireball, Ignite, Combustion, Afterburn, Living Bomb, Meteor, Haste). Counterspell, Temporal Shield, Magic Eater and Blur deal no damage and the dummy casts nothing at you, so a real 6-slot loadout fills its spare slots with them. A result's `loadout` lists only the spells its policy uses.
-- **Policies** for a loadout use each of its spells exactly once: every priority order times every combination of rule variants (`DEFAULT_RULE_VARIANTS`: Ignite bare / `< 3` / `< 6` stacks, Combustion bare / `>= 3` / `>= 6`, Afterburn bare / after 4 or 6 Fireballs in its lookback (`LOOKBACK_TIME`, 10 s), Living Bomb bare / not active, Meteor bare / held for the enemy Counterspell; others bare). So "top" means best within these fixed menus with each spell listed once: rules like `ignite [< 3] > combustion > ignite`, or other thresholds, are not searched.
-- **Pruning**: a terminal rule (unconditional, cast-time, no cooldown) is only allowed last, since nothing after it can fire. A policy that would put one earlier is the same behaviour as a smaller loadout's. Not applied when the loadout has an off-GCD spell.
-- **Dedupe** (default on): results that cast the same spells in both runs (`cast`, `castUnderPressure`), deal the same damage in both and get countered at the same moments (`interrupts`) are the same behaviour; they are folded into the first-ranked one and `equivalents` counts the others.
-- **Bounds**: candidates per `--size` with the default pool and menus: 1: 15, 2: 127, 3: 785, 4: 3,653, 5: 12,053, 6: 25,493. `--cap C` limits the policies per loadout (first `C` in enumeration order).
-- **Runtime** (60 s fight, R = 0.4 s, about 6 ms per candidate on one core): `--size 4` takes about 23 s with `--jobs 1` and 9 s with 16 jobs; the full `--size 6` search takes about 3 minutes with `--jobs 1` and about 70 s with 16 jobs. `--jobs` defaults to the available cores (at most 16); each job is a child process running one shard. CI only runs small searches (3-spell pool, size 2).
+- **Loadouts**: C(6, 4) = 15 Fire sets x C(4, 2) = 6 general pairs = 90. Slot order inside a group doesn't change what the simulator does (the policy decides what is cast), so only combinations are enumerated and Counterspell is never moved. `--fire` and `--general` narrow the pools (at least 4 Fire and 2 general spells), for example to study one Fire set. The free `--size N` / `--pool` mode of 0.1 is removed: it searched loadouts that can't be played in 0.2.
+- **What a policy casts**: the loadout's Fire spells and Haste. Counterspell, Temporal Shield, Magic Eater and Blur deal no damage and the dummy casts nothing at you, so they stay equipped but are never cast (casting one would only cost a tick).
+- **Policies** are priority lists over those spells, each used at most once: every subset in every order, times every combination of rule variants (`DEFAULT_RULE_VARIANTS`: Ignite bare / `< 3` / `< 6` stacks, Combustion bare / `>= 3` / `>= 6`, Afterburn bare / after 4 or 6 Fireballs in its lookback (`LOOKBACK_TIME`, 10 s), Living Bomb bare / not active, Meteor bare / held for the enemy Counterspell; Fireball and Haste bare). So "top" means best within these fixed menus with each spell listed once: rules like `ignite [< 3] > combustion > ignite`, or other thresholds, are not searched.
+- **Pruning**: a terminal rule (unconditional, cast-time, no cooldown, see `isTerminalRule`) ends a policy, so lists that go on after one are not enumerated. This is exact, not a heuristic: `startCast` only rejects a terminal rule while the battle is over, the caster is locked out by Counterspell (both block every spell, off-GCD ones too) or the GCD runs. Only the GCD lets an off-GCD spell through, and nothing in 0.2 starts the GCD. So the rules after a terminal rule never fire and the longer list behaves exactly like its prefix, which is enumerated. Haste and the other general spells being off-GCD doesn't change that. Pruning is only turned off (`canPrune`) when a loadout's policies could cast both an on-GCD instant and an off-GCD spell, which no 0.2 loadout can. Tests check that every pruned list gives the same results as its prefix and that turning pruning off (`prune: false`) leaves the top results unchanged.
+- **Shared policies**: a policy only casts its own spells, and equipped spells that are never cast don't change the engine's result. So a policy is simulated once and its result applies to every loadout that holds its spells. For example, `fireball` alone is one run for 60 loadouts. A test checks that the results really are identical across those loadouts.
+- **Ranking**: `dpsUnderPressure` descending, then `dps` descending, then fewer rules, then fewer conditions, then the JSON of `[loadout, policy]` ascending. That is a total order, so the output is stable and does not depend on `--jobs`.
+- **Dedupe** (default on): results that cast the same spells in both runs (`cast`, `castUnderPressure`), deal the same damage in both and get countered at the same moments (`interrupts`) are the same behaviour. They are folded into the first-ranked one and `equivalents` counts the others. So a result's `loadout` is one of the loadouts it applies to (the first by JSON order), and any spell outside `cast` / `castUnderPressure` is just filler: the same result holds with any other spell in that slot. With `--no-dedupe` every (loadout, policy) pair is listed.
+- **Bounds** with the default menus: 74 to 2,877 policies per loadout (2,877 for Ignite, Combustion, Afterburn and Living Bomb or Meteor with Haste), 56,661 (loadout, policy) pairs, and 9,749 distinct policies to simulate. `--cap C` limits the policies per loadout (the first `C` in enumeration order) before they are shared.
+- **Runtime** (60 s fight, R = 0.4 s, about 8 ms per run on one core): the full search is roughly 80 s of CPU, so about 40 s with 2 jobs and 20 to 25 s with 4 (a `--cap 300` run, 3,807 runs, takes 16 s with 2 jobs). `--jobs` defaults to the available cores, but at most 4. A larger `--jobs` is used as given. Each job is a child process running one shard. Before this pruning and sharing, the same 90 loadouts needed about 143,000 runs (pruning was off for every loadout with Haste), almost 15 times as many. CI only runs small searches (one loadout with `--cap`).
 
 ### CI
 
@@ -111,10 +113,11 @@ Runs every loadout of 1 to `N` pool spells times every policy through `simulate`
 
 ## Controls
 
-| Key         | Slot       |
-| ----------- | ---------- |
-| `Q` `W` `E` | top row    |
-| `A` `S` `D` | bottom row |
+| Key             | Slot                   |
+| --------------- | ---------------------- |
+| `Q` `W` `E` `R` | the four Fire spells   |
+| `Space`         | Counterspell (fixed)   |
+| `D` `F`         | the two general spells |
 
 Keys are matched by physical position, so they work on AZERTY and other layouts. On touch screens, press and hold the spell buttons.
 
@@ -122,12 +125,12 @@ Keys are matched by physical position, so they work on AZERTY and other layouts.
 
 Both apps run on the Cloudflare free tier, with no custom domain:
 
-| App                 | Hosting            | URL                                                 |
-| ------------------- | ------------------ | --------------------------------------------------- |
-| Client (`apps/web`) | Cloudflare Pages   | `https://magus-reborn.pages.dev`                    |
-| Server              | Cloudflare Workers | `https://magus-reborn.<your-subdomain>.workers.dev` |
+| App                 | Hosting            | URL                                       |
+| ------------------- | ------------------ | ----------------------------------------- |
+| Client (`apps/web`) | Cloudflare Pages   | `https://magus-reborn.pages.dev`          |
+| Server              | Cloudflare Workers | `https://magus-reborn.moharu.workers.dev` |
 
-If another account already holds the `magus-reborn` subdomain on `pages.dev`, Cloudflare adds a suffix to it. The real URL is shown on the Pages project in the Cloudflare dashboard.
+On a fork deployed to another account, the server URL is `https://magus-reborn.<account-subdomain>.workers.dev`, and if the `magus-reborn` subdomain on `pages.dev` is already taken, Cloudflare adds a suffix to it. The real URL is shown on the Pages project in the Cloudflare dashboard.
 
 The free Workers plan is enough. Durable Objects on the free plan allow 100k requests and 13,000 GB-s of duration per day, which is roughly 29 hours of active lobby time per day. Incoming WebSocket messages are billed at 20:1 and outgoing messages are free, and an idle lobby list costs nothing thanks to WebSocket hibernation. If the daily limit is reached, new connections fail until 00:00 UTC; nothing is billed.
 
@@ -151,15 +154,13 @@ It needs the following in the GitHub repo settings:
 | ----------------------- | -------- | ------------------------------------------------------------------------------------ |
 | `CLOUDFLARE_API_TOKEN`  | Secret   | API token with Workers Scripts Edit, Cloudflare Pages Edit and Account Settings Read |
 | `CLOUDFLARE_ACCOUNT_ID` | Secret   | Cloudflare account ID                                                                |
-| `VITE_SERVER_URL`       | Variable | `https://magus-reborn.<your-subdomain>.workers.dev`                                  |
+| `VITE_SERVER_URL`       | Variable | `https://magus-reborn.<account-subdomain>.workers.dev`                               |
 
 The account also needs a `workers.dev` subdomain. Registering one is a one-time step in the Workers section of the Cloudflare dashboard, and CI can't answer the prompt to do it.
 
 ### Client hosting
 
 `apps/web/public/_headers` marks `/assets/*` as immutable, and Vite copies it into the build. The SPA fallback is Pages' default behaviour for a site with no top-level `404.html`, so don't add one. `apps/web/public/assets/404.html` is different and has to stay: it makes a missing asset a real 404 instead of the fallback page, which the `/assets/*` rule would cache as immutable under that asset's name. A tab left open across a deploy asks for such names, and a refresh couldn't recover if the name came back in a rollback. Don't add a `/* /index.html 200` rule to a `_redirects` file either: wrangler treats it as an infinite loop and ignores it.
-
-`vercel.json` is no longer used for new deploys. It stays in the repository until the first Cloudflare deploy has been verified.
 
 ### Manual deploys
 
@@ -170,7 +171,8 @@ npx wrangler login
 npm run deploy:server
 
 # From the repository root:
-VITE_SERVER_URL=https://magus-reborn.<your-subdomain>.workers.dev npm run build
+# Use your own account's workers.dev URL; for this project it is https://magus-reborn.moharu.workers.dev.
+VITE_SERVER_URL=https://magus-reborn.<account-subdomain>.workers.dev npm run build
 npx wrangler pages deploy apps/web/dist --project-name=magus-reborn --branch=main
 ```
 
@@ -189,9 +191,9 @@ A request with a missing or disallowed `Origin` gets a 403 and no CORS headers. 
 
 Per-deployment URLs such as `https://<hash>.magus-reborn.pages.dev` are refused on purpose, so only the production URL can use online features. Those URLs still load the client and the training room.
 
-**If Cloudflare gave the Pages project a suffixed subdomain** (see [Deploying](#deploying)), the production value is wrong and every online feature will fail in production. The last deploy check catches this by sending the server a preflight from the project's real production URL, and it fails the run. It runs after both deploys, so that release is already live when the run fails. Set `ALLOWED_ORIGINS` to the real URL and release again.
+**If Cloudflare gave the Pages project a suffixed subdomain** (see [Deploying](#deploying)), which can happen on a fork but not on this project's `magus-reborn.pages.dev`, the production value is wrong and every online feature will fail in production. The last deploy check catches this by sending the server a preflight from the project's real production URL, and it fails the run. It runs after both deploys, so that release is already live when the run fails. Set `ALLOWED_ORIGINS` to the real URL and release again.
 
-That check works out the production URL by removing the first label from the deployment URL, so it assumes the form `https://<hash>.<subdomain>.pages.dev`. No real deploy has confirmed that form yet. If the check fails, compare the origin in its error message with the URL on the Pages project before changing `ALLOWED_ORIGINS`.
+That check works out the production URL by removing the first label from the deployment URL, which has the form `https://<hash>.<subdomain>.pages.dev`. If the check fails, compare the origin in its error message with the URL on the Pages project before changing `ALLOWED_ORIGINS`.
 
 The `Origin` check only stops other websites from using the server through a visitor's browser. A non-browser client can send any `Origin`, so it isn't authentication or abuse protection.
 

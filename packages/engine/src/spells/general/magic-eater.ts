@@ -13,6 +13,7 @@ export const MagicEater: SpellDefinition = {
     description: 'For a moderate duration, you are healed by a percentage of all damage dealt.',
     advancedDescription: `For ${BUFF_DURATION} seconds, you are healed for ${HEALING_PERCENTAGE}% of all damage dealt.`,
     cooldownSeconds: COOLDOWN,
+    offGlobalCooldown: true,
     reducer: (state, { caster }) =>
         simpleBuff<MagicEaterBuff>(state, caster, {
             id: 'BUFF_MAGIC_EATER',

@@ -1,7 +1,8 @@
 import { Container, Graphics, Sprite, Text } from 'pixi.js'
-import { HOTKEYS, SPELLS, ticksToSeconds, type PlayerState, type SpellId } from '@magus/engine'
+import { HOTKEYS, SPELLS, ticksToSeconds, type PlayerState, type PlayerView, type SpellId } from '@magus/engine'
 import { buttonState, type ButtonState } from './button-state'
-import { TEXT_FONT, WIDTH, type Side } from './layout'
+import { BAR, BAR_LEFT, BAR_WIDTH, buttonX, TEXT_FONT, WIDTH, type Side } from './layout'
+import { keybindsVisible } from './hotkeys'
 import { iconTexture } from './textures'
 
 export const INFINITE_HP = 1e8
@@ -61,7 +62,7 @@ export class PlayerHud extends Container {
         this.interrupt = { spell, color, left: INTERRUPT_FLASH }
     }
 
-    update(player: PlayerState, tick: number, dt: number) {
+    update(player: PlayerView, tick: number, dt: number) {
         setText(this.nameText, player.name)
         const infinite = player.hp >= INFINITE_HP
         const hp = infinite ? 100 : player.hp
@@ -78,9 +79,10 @@ export class PlayerHud extends Container {
         setText(this.hpText, infinite ? '∞' : `${formatHp(player.hp)} %`)
 
         g.roundRect(x0, 76, w, 26, 5).fill({ color: 0x000000, alpha: 0.55 })
-        if (player.cast !== null && player.castStartingTick !== null) {
+        // the opponent's loadout isn't sent, so their spell comes as `casting`
+        const spell = player.cast === null ? null : (player.casting ?? player.spells?.[player.cast])
+        if (spell && player.castStartingTick !== null) {
             this.interrupt = null
-            const spell = player.spells[player.cast]
             const elapsed = Math.max(0, tick - player.castStartingTick)
             const done = elapsed >= spell.castTime
             const progress = spell.castTime ? Math.min(1, elapsed / spell.castTime) : 1
@@ -128,7 +130,7 @@ export class PlayerHud extends Container {
         setText(this.castText, `${SPELLS[interrupt.spell].label} interrupted!`)
     }
 
-    private updateEffects(player: PlayerState, tick: number) {
+    private updateEffects(player: PlayerView, tick: number) {
         const key = player.effects.map(e => e.id + e.startingTick).join()
         if (key !== this.effectKey) {
             this.effectKey = key
@@ -160,11 +162,9 @@ export class PlayerHud extends Container {
     }
 }
 
-const BUTTON = 78
-const GAP = 10
-const GROUP_GAP = 24
+const BUTTON = BAR.button
 
-/** The six spell buttons. Pointer input is reported through the callbacks. */
+/** The seven spell buttons. Pointer input is reported through the callbacks. */
 export class ActionBar extends Container {
     private readonly buttons: {
         root: Container
@@ -180,20 +180,15 @@ export class ActionBar extends Container {
 
     constructor(onPress: (i: number) => void, onRelease: (i: number) => void) {
         super()
-        const total = BUTTON * 6 + GAP * 4 + GROUP_GAP
-        const startX = (WIDTH - total) / 2
         const panel = new Graphics()
-            .roundRect(startX - 16, 470, total + 32, 122, 16)
+            .roundRect(BAR_LEFT - BAR.panelPad, BAR.panelTop, BAR_WIDTH + BAR.panelPad * 2, BAR.panelHeight, 16)
             .fill({ color: 0x07060f, alpha: 0.72 })
             .stroke({ width: 1, color: 0xffffff, alpha: 0.08 })
         this.addChild(panel)
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < HOTKEYS.length; i++) {
             const root = new Container()
             root.pivot.set(BUTTON / 2, BUTTON / 2)
-            root.position.set(
-                startX + i * (BUTTON + GAP) + (i >= 3 ? GROUP_GAP - GAP : 0) + BUTTON / 2,
-                482 + BUTTON / 2,
-            )
+            root.position.set(buttonX(i) + BUTTON / 2, BAR.buttonTop + BUTTON / 2)
             root.eventMode = 'static'
             root.cursor = 'pointer'
             const icon = new Sprite()
@@ -206,9 +201,10 @@ export class ActionBar extends Container {
             key.anchor.set(1, 1)
             key.position.set(BUTTON - 6, BUTTON - 3)
             key.text = HOTKEYS[i]
+            key.visible = keybindsVisible()
             const name = label(11, '600', 0xdddddd)
             name.style.wordWrap = true
-            name.style.wordWrapWidth = BUTTON + GAP - 2
+            name.style.wordWrapWidth = BUTTON + BAR.gap - 2
             name.style.align = 'center'
             name.style.lineHeight = 12
             name.anchor.set(0.5, 0)

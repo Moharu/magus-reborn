@@ -2,6 +2,69 @@
 
 All notable changes to Magus Reborn are listed here. Versions follow [semantic versioning](https://semver.org/). Each release is tagged `vX.Y.Z` on `dev` and then merged into `main`, which deploys it.
 
+## [0.2.0] - 2026-11-08
+
+The "Loadouts" release. Your loadout is now seven spells: four Fire spells, Counterspell in its own fixed slot, and two general spells. Counterspell moves to the Space bar, general spells no longer use the global cooldown, and you can change your loadout between rounds. This release includes every pull request merged into `dev` since v0.1.0: [#79](https://github.com/Moharu/magus-reborn/pull/79) to [#98](https://github.com/Moharu/magus-reborn/pull/98).
+
+**Engine version:** `ENGINE_VERSION` changes from `reborn-0.1.0` to `reborn-0.2.0`. The loadout shape, the messages between client and server and the battle rules all changed. Players with the game open on the old version are asked to refresh when they try to create or join a lobby. Between the server deploy and the client deploy, online play is briefly unavailable for everyone, because the two are on different versions.
+
+### Gameplay and engine
+
+#### Changed
+
+- **Seven-slot loadouts.** A loadout is 4 Fire spells (slots Q W E R), Counterspell (fixed in slot 5) and 2 general spells (slots D F). Order inside each group is free. Fire is the only element for now. The default loadout is Fireball, Ignite, Combustion, Afterburn, Counterspell, Haste, Temporal Shield. Old six-spell loadouts are no longer valid and stored ones are discarded. ([#91](https://github.com/Moharu/magus-reborn/pull/91), closes [#83](https://github.com/Moharu/magus-reborn/issues/83))
+- **General spells are off the global cooldown.** Haste, Temporal Shield and Magic Eater join Counterspell and Blur: they don't start the global cooldown and the global cooldown doesn't block them. They still obey their own cooldown and the Counterspell lockout, and using one still cancels the cast you are charging. No spell numbers change. ([#92](https://github.com/Moharu/magus-reborn/pull/92), closes [#84](https://github.com/Moharu/magus-reborn/issues/84))
+
+### Server and online play
+
+#### Added
+
+- **Loadout changes between rounds.** Players can change their loadout during set-up before each round. This is on by default and the host can turn it off for a lobby. Invalid loadouts are refused with a message and the previous one is kept. Changes are refused once a battle has started or the player is ready. ([#93](https://github.com/Moharu/magus-reborn/pull/93), closes [#85](https://github.com/Moharu/magus-reborn/issues/85))
+
+#### Changed
+
+- **Your loadout is private.** Your opponent never sees your loadout. Spectators do, once the round starts. ([#93](https://github.com/Moharu/magus-reborn/pull/93), closes [#86](https://github.com/Moharu/magus-reborn/issues/86))
+- **Rate limit per player.** The message limit now belongs to the player, not the connection, so reconnecting no longer resets it. A player disconnected for flooding has to wait 10 seconds before reconnecting. ([#82](https://github.com/Moharu/magus-reborn/pull/82), closes [#75](https://github.com/Moharu/magus-reborn/issues/75))
+
+#### Fixed
+
+- The server no longer logs an invalid close code (1006) when a lobby-list connection drops; it replies with a normal close (1000). ([#80](https://github.com/Moharu/magus-reborn/pull/80), closes [#74](https://github.com/Moharu/magus-reborn/issues/74))
+
+### Web client
+
+#### Added
+
+- **Seven-button spell bar.** Hotkeys are now Q W E R, Space (Counterspell), D F. Space casts Counterspell and the old S key no longer does anything. ([#96](https://github.com/Moharu/magus-reborn/pull/96), closes [#88](https://github.com/Moharu/magus-reborn/issues/88))
+- **Loadout picker.** Pick spells by drag and drop or by tapping a spell and then a slot, before the game and between rounds (element locked, with countdown and Ready button). It is read-only when the host turned changes off. The training room uses the same picker. The spellbook cards are larger and clearer. ([#96](https://github.com/Moharu/magus-reborn/pull/96), closes [#87](https://github.com/Moharu/magus-reborn/issues/87); [#97](https://github.com/Moharu/magus-reborn/pull/97))
+
+#### Fixed
+
+- **Blank screen after an update.** If the battle renderer's files fail to load, for example after an update while the tab was open, you now see the refresh prompt. Other renderer start-up errors show a separate message about browser support, and online matches disconnect cleanly so you can rejoin. ([#94](https://github.com/Moharu/magus-reborn/pull/94), closes [#76](https://github.com/Moharu/magus-reborn/issues/76))
+
+### Simulator and balance tools
+
+#### Changed
+
+- **`npm run sim:search`** searches the new seven-slot shape (90 loadouts) with exact pruning, so it finds the same best rotations in far less time. `--jobs` now defaults to at most 4 workers. ([#98](https://github.com/Moharu/magus-reborn/pull/98), part of [#89](https://github.com/Moharu/magus-reborn/issues/89))
+
+### Design and docs
+
+#### Added
+
+- **Split Console UX spec.** The approved direction for the next battle screen: left/right combatants, a central spell log, seven equal slots and phone rules. This is design only and is not implemented yet, apart from the spellbook layout in the picker. See `docs/ux/split-console.md`. ([#95](https://github.com/Moharu/magus-reborn/pull/95), closes [#90](https://github.com/Moharu/magus-reborn/issues/90))
+
+### Infrastructure and CI
+
+#### Changed
+
+- The Vercel config was removed now that the Cloudflare deploy is verified, and the docs list the real URLs. ([#79](https://github.com/Moharu/magus-reborn/pull/79), closes [#17](https://github.com/Moharu/magus-reborn/issues/17) and [#18](https://github.com/Moharu/magus-reborn/issues/18))
+- The devops agent description now matches the live Cloudflare deploy. ([#81](https://github.com/Moharu/magus-reborn/pull/81))
+
+### Known issues
+
+- The HP bar and text in the HUD use unrounded numbers, so the colour or the figure can look slightly off. ([#23](https://github.com/Moharu/magus-reborn/issues/23))
+- Only Fire exists as an element, and the Split Console battle screen and spell log are not built yet.
+
 ## [0.1.0] - 2026-11-07
 
 The first release of Magus Reborn, a fast 1v1 wizard duel for the browser. Pick six spells from the grimoire, hold a key to charge a spell, and release it once the cast bar turns green. Practise in the training room against a dummy, or play online 1v1 through the public lobby list or an invite link, with spectators and best-of-1/3/5 matches.
@@ -82,4 +145,5 @@ This is the first release deployed to Cloudflare: the client on Pages, the serve
 - The per-connection rate limit starts again from full when a client reconnects. ([#75](https://github.com/Moharu/magus-reborn/issues/75))
 - The game screen can go blank if one of the renderer's files fails to load, for example after an update while the tab is open, and no refresh prompt appears. ([#76](https://github.com/Moharu/magus-reborn/issues/76))
 
+[0.2.0]: https://github.com/Moharu/magus-reborn/tree/v0.2.0
 [0.1.0]: https://github.com/Moharu/magus-reborn/tree/v0.1.0

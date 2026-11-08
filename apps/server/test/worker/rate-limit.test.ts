@@ -1,8 +1,14 @@
 import { VERSION_QUERY, type ServerMessage } from '@magus/engine/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ABUSE_DROP_ALLOWANCE, RATE_LIMIT_BURST } from '../../src/rate-limit'
+import {
+    ABUSE_DROP_ALLOWANCE,
+    ABUSE_DROPS_FORGIVEN_PER_SECOND,
+    ABUSE_RECONNECT_COOLDOWN_SECONDS,
+    RATE_LIMIT_BURST,
+} from '../../src/rate-limit'
 import {
     closeAllSockets,
+    connect,
     createLobby,
     join,
     lobbyClientFrom,
@@ -12,6 +18,22 @@ import {
 } from './helpers'
 
 afterEach(closeAllSockets)
+
+/**
+ * Moves `Date.now` ahead, for the Durable Object as well, since it runs in the same isolate as the tests. Timers are
+ * left alone, so the lobby's countdowns and forfeit timer still run on real time. Call it while nothing is being waited
+ * on, because `waitFor` takes its deadline from `Date.now`.
+ */
+const realNow = Date.now.bind(Date)
+let skipped = 0
+const skipAhead = (ms: number) => {
+    skipped += ms
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + skipped)
+}
+afterEach(() => {
+    vi.restoreAllMocks()
+    skipped = 0
+})
 
 const POLICY_VIOLATION = { code: 1008, reason: 'Too many messages' }
 
@@ -149,8 +171,8 @@ describe('sustained abuse', () => {
         expect(pongs).toHaveLength(RATE_LIMIT_BURST - 1)
     })
 
-    it('pauses a match in progress, and the player can come back to their seat on a new limit', async () => {
-        const { code, alice, bob } = await startedMatch()
+    it('pauses a match in progress', async () => {
+        const { alice, bob } = await startedMatch()
 
         floodPings(alice, FLOOD)
 
@@ -159,12 +181,75 @@ describe('sustained abuse', () => {
             pauseReason: 'Alice disconnected',
             player1: { name: 'Alice', connected: false },
         })
+    })
+})
 
+describe('across reconnects', () => {
+    const COOLDOWN_MS = ABUSE_RECONNECT_COOLDOWN_SECONDS * 1000
+
+    /** Starts a match and gets Alice closed for flooding, which pauses it. */
+    const floodedMatch = async () => {
+        const match = await startedMatch()
+        floodPings(match.alice, FLOOD)
+        expect(await match.alice.closed).toMatchObject(POLICY_VIOLATION)
+        await match.bob.nextLobby(lobby => lobby.paused)
+        return match
+    }
+
+    /** Connects as Alice and expects to be turned away without the lobby ever hearing of it. */
+    const expectRefused = async (code: string) => {
+        const refused = await connect(code, 'alice-id')
+        expect(await refused.closed).toMatchObject(POLICY_VIOLATION)
+        await expect(refused.next('welcome')).rejects.toThrow('never arrived')
+    }
+
+    it('refuses the player during the cooldown, which keeps the match paused', async () => {
+        const { code, bob } = await floodedMatch()
+
+        for (let i = 0; i < 3; i++) await expectRefused(code)
+        skipAhead(COOLDOWN_MS - 1000)
+        await expectRefused(code)
+
+        // nothing resumed it, not even for a moment
+        const since = await bob.sync()
+        expect(since.filter(message => message.t === 'meta' && !message.lobby.paused)).toEqual([])
+    })
+
+    it('lets the player back to their seat after the cooldown, on the allowance their flood left them', async () => {
+        const { code, bob } = await floodedMatch()
+
+        skipAhead(COOLDOWN_MS)
+        const { client: aliceAgain, welcome } = await join(code, 'alice-id')
+        expect(welcome.role).toBe('player1')
+        expect(await bob.nextLobby(lobby => !lobby.paused)).toMatchObject({ player1: { connected: true } })
+
+        // The cooldown won back the burst and 100 drops. On top of that, the real time the test takes refills about
+        // 10 drops a second, so this closes a kept limit with room to spare. A new limit would only drop the excess.
+        const fullAllowance = RATE_LIMIT_BURST + ABUSE_DROP_ALLOWANCE
+        const keptAllowance = RATE_LIMIT_BURST + ABUSE_RECONNECT_COOLDOWN_SECONDS * ABUSE_DROPS_FORGIVEN_PER_SECOND
+        const secondFlood = fullAllowance - 140
+        expect(secondFlood).toBeGreaterThan(keptAllowance + 100)
+        floodPings(aliceAgain, secondFlood)
+
+        const outcome = await Promise.race([aliceAgain.closed, aliceAgain.syncOverLimit().then(() => 'still open')])
+        expect(outcome).toMatchObject(POLICY_VIOLATION)
+        await bob.nextLobby(lobby => lobby.paused)
+        // and the cooldown starts again
+        await expectRefused(code)
+    })
+
+    it('does not touch an honest reconnect under the rate', async () => {
+        const { code, alice, bob } = await startedMatch()
+        await alice.sync()
+
+        alice.close()
+        await bob.nextLobby(lobby => lobby.paused)
         const { client: aliceAgain, welcome } = await join(code, 'alice-id')
 
         expect(welcome.role).toBe('player1')
         expect(await bob.nextLobby(lobby => !lobby.paused)).toMatchObject({ player1: { connected: true } })
-        floodPings(aliceAgain, RATE_LIMIT_BURST - 1)
-        expect(floodPongs(await aliceAgain.sync())).toHaveLength(RATE_LIMIT_BURST - 1)
+        // `ready` and a sync before the drop leave at least the burst less two, and this sends that many with its sync
+        floodPings(aliceAgain, RATE_LIMIT_BURST - 3)
+        expect(floodPongs(await aliceAgain.sync())).toHaveLength(RATE_LIMIT_BURST - 3)
     })
 })

@@ -1,4 +1,4 @@
-import { SPELLS, ticksToSeconds, type BattleSnapshot, type PlayerKey, type SpellId } from '@magus/engine'
+import { DEFAULT_ELEMENT, SPELLS, ticksToSeconds, type PlayerKey, type SnapshotView, type SpellId } from '@magus/engine'
 import {
     BEST_OF_OPTIONS,
     MAX_SPECTATORS,
@@ -19,8 +19,10 @@ import type { BattleView } from '../game/battle-view'
 import { getLoadout, getName, playerId, setLoadout } from '../identity'
 import { connect, type Socket } from '../net'
 import { navigate } from '../router'
+import { loadoutValid } from '../ui/loadout-logic'
+import { canSendLoadout, setupAccess } from '../ui/setup-flow'
 import { spellPicker, type SpellPicker } from '../ui/spell-picker'
-import { loadBattleChunk, newVersionPanel } from './battle-chunk'
+import { BATTLE_SETUP_ERROR, battleErrorPanel, loadBattleChunk } from './battle-chunk'
 import { nameField } from './home'
 
 type Mode = 'connecting' | 'lobby' | 'setup' | 'watch-setup' | 'battle' | 'over' | 'error'
@@ -81,7 +83,7 @@ const startLobby = (root: HTMLElement, code: string) => {
     let fatal: string | null = null
     let connection: 'connecting' | 'open' | 'reconnecting' = 'connecting'
     let ping: number | null = null
-    let battleSnap: BattleSnapshot | null = null
+    let battleSnap: SnapshotView | null = null
     let caughtUp = false
 
     let view: BattleView | null = null
@@ -136,22 +138,8 @@ const startLobby = (root: HTMLElement, code: string) => {
                     h('div', { class: 'center' }, h('p', { class: 'muted' }, 'Connecting to lobby…')),
                 )
             case 'error':
-                if (fatal === NEW_VERSION_MESSAGE) {
-                    return content.replaceChildren(
-                        newVersionPanel(h('a', { class: 'btn', href: '/', 'data-link': true }, 'Back home')),
-                    )
-                }
                 return content.replaceChildren(
-                    h(
-                        'div',
-                        { class: 'center' },
-                        h(
-                            'section',
-                            { class: 'panel narrow' },
-                            h('h2', null, fatal),
-                            h('a', { class: 'btn primary', href: '/', 'data-link': true }, 'Back home'),
-                        ),
-                    ),
+                    battleErrorPanel(fatal!, h('a', { class: 'btn', href: '/', 'data-link': true }, 'Back home')),
                 )
             case 'lobby':
                 return content.replaceChildren(renderLobby(lobby!))
@@ -363,19 +351,31 @@ const startLobby = (root: HTMLElement, code: string) => {
     const setupHead = h('header', { class: 'setup-head' })
     const renderSetup = (info: LobbyInfo, entering: boolean) => {
         const mine = me()!
+        const access = setupAccess(info, info[mine])
         const ready = !!info[mine]?.ready
+        const valid = loadoutValid(loadout, DEFAULT_ELEMENT)
         if (entering || !picker) {
-            picker = spellPicker(loadout, next => {
-                loadout = next
-                setLoadout(next)
-                send({ t: 'set_spells', spells: next })
-            })
+            picker = spellPicker(
+                loadout,
+                next => {
+                    loadout = next
+                    setLoadout(next)
+                    if (canSendLoadout(setupAccess(lobby ?? info, seatInfo(mine)), loadoutValid(next, DEFAULT_ELEMENT)))
+                        send({ t: 'set_spells', spells: next })
+                },
+                { elementLocked: access.elementLocked },
+            )
             content.replaceChildren(h('section', { class: 'panel setup' }, setupHead, picker.el))
         }
-        picker.setLocked(ready)
+        picker.setLocked(!access.editable, access.lockedReason ?? undefined)
         const opponent = seatInfo(mine === 'player1' ? 'player2' : 'player1')
         setupHead.replaceChildren(
-            h('div', null, h('h2', null, `Round ${info.round}`), h('span', { class: 'muted' }, 'Choose your spells')),
+            h(
+                'div',
+                null,
+                h('h2', null, `Round ${info.round}`),
+                h('span', { class: 'muted' }, access.flow === 'pregame' ? 'Choose your spells' : 'Swap spells'),
+            ),
             h('div', { class: 'timer', 'aria-live': 'polite' }, `${info.countdown ?? 0}s`),
             h(
                 'div',
@@ -383,7 +383,11 @@ const startLobby = (root: HTMLElement, code: string) => {
                 h('span', { class: 'muted' }, opponent?.ready ? `${opponent.name} is ready` : ''),
                 ready
                     ? h('strong', { class: 'ready-label' }, 'Ready!')
-                    : h('button', { class: 'btn primary', onclick: () => send({ t: 'ready' }) }, 'Ready'),
+                    : h(
+                          'button',
+                          { class: 'btn primary', disabled: !valid, onclick: () => valid && send({ t: 'ready' }) },
+                          'Ready',
+                      ),
             ),
         )
     }
@@ -395,28 +399,32 @@ const startLobby = (root: HTMLElement, code: string) => {
             if (!view && !viewPending) {
                 viewPending = true
                 const mine = me()
+                const failView = (message: string) => {
+                    viewPending = false
+                    // Disconnect so the opponent pauses while this player cannot see the battle.
+                    socket?.close()
+                    netStatus.remove()
+                    fatal = message
+                    render()
+                }
                 loadBattleChunk(() => import('../game/battle-view'), {
                     onLoaded: ({ BattleView }) =>
                         BattleView.create(stage, {
                             me: mine,
                             onPress: i => send({ t: 'start_cast', i }),
                             onRelease: i => send({ t: 'stop_cast', i }),
-                        }).then(created => {
-                            if (!viewPending || mode !== 'battle') return created.destroy()
-                            viewPending = false
-                            view = created
-                            if (battleSnap) view.update(battleSnap, [], [], false)
-                            decorate(info)
                         }),
-                    isCurrent: () => viewPending,
-                    onFailed: () => {
-                        // A connected player who can't see the battle would leave the opponent fighting someone idle.
-                        // Leaving pauses the match, and the server holds the seat for its reconnect grace period.
-                        socket?.close()
-                        netStatus.remove()
-                        fatal = NEW_VERSION_MESSAGE
-                        render()
+                    onCreated: created => {
+                        if (!viewPending || mode !== 'battle') return created.destroy()
+                        viewPending = false
+                        view = created
+                        if (battleSnap) view.update(battleSnap, [], [], false)
+                        decorate(info)
                     },
+                    isCurrent: () => viewPending,
+                    onFailed: () => failView(NEW_VERSION_MESSAGE),
+                    onCreateFailed: failView,
+                    onSetupFailed: () => failView(BATTLE_SETUP_ERROR),
                 })
             }
         }
@@ -498,7 +506,7 @@ const startLobby = (root: HTMLElement, code: string) => {
                           ),
                       )
                     : null,
-                info.rounds.length
+                info.rounds.at(-1)?.player1.spells
                     ? h(
                           'details',
                           null,
@@ -508,9 +516,8 @@ const startLobby = (root: HTMLElement, code: string) => {
                                   'p',
                                   null,
                                   h('strong', null, `${name(key)}: `),
-                                  info.rounds
-                                      .at(-1)!
-                                      [key as PlayerKey].spells.map(id => SPELLS[id].label)
+                                  (info.rounds.at(-1)![key as PlayerKey].spells ?? [])
+                                      .map(id => SPELLS[id].label)
                                       .join(', '),
                               ),
                           ),
@@ -546,6 +553,7 @@ const startLobby = (root: HTMLElement, code: string) => {
                     loadout = message.spells
                     setLoadout(loadout)
                     picker?.setLoadout(loadout)
+                    if (mode === 'setup' && lobby) renderSetup(lobby, false)
                     break
                 case 'meta':
                     lobby = message.lobby

@@ -164,9 +164,9 @@ describe('using the safe window after the enemy Counterspell', () => {
         expect(smart.pressure.interrupts.some(i => i.spell === 'SPELL_METEOR')).toBe(false)
         expect(naive.pressure.interrupts.every(i => i.spell === 'SPELL_METEOR')).toBe(true)
 
-        // the whole old policy space: all 3! priority permutations of bare ids
+        // the whole old policy space and more: every plain priority list of bare ids (3 + 6 + 3! orders)
         const plain = enumeratePolicies(loadout, { variants: {}, prune: false })
-        expect(plain).toHaveLength(6)
+        expect(plain).toHaveLength(15)
         const bestPlain = rankResults(
             plain.map(policy => evaluateCandidate({ loadout, policy })),
             1,

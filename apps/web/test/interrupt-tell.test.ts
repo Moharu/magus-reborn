@@ -28,7 +28,7 @@ const castTicks = (battle: Battle, player: PlayerKey, id: SpellId) =>
 
 const start = (battle: Battle, player: PlayerKey, id: SpellId) => expect(press(battle, player, id)).toBe(true)
 
-const tellsOf = (battle: Battle, sides = SEATS) => interruptTells(battle.state, battle.state.log, sides)
+const tellsOf = (battle: Battle, sides = SEATS) => interruptTells(battle.state.log, sides)
 
 /** Player 1 is interrupted, on the left: what a view seated as player 1 gets for player 2's Counterspell. */
 const interrupted = (spell: SpellId): InterruptTell => ({
@@ -145,7 +145,7 @@ describe('interruptTells (#39)', () => {
             start(battle, 'player1', 'SPELL_FIREBALL')
             expect(press(battle, 'player2', 'SPELL_COUNTERSPELL')).toBe(false)
             expect(battle.state.player1.cast).toBe(LOADOUTS.player1.indexOf('SPELL_FIREBALL'))
-            expect(interruptTells(battle.state, battle.state.log.slice(seen), SEATS)).toEqual([])
+            expect(interruptTells(battle.state.log.slice(seen), SEATS)).toEqual([])
         })
     })
 
@@ -156,7 +156,7 @@ describe('interruptTells (#39)', () => {
         const flush = () => {
             const newLog = battle.state.log.slice(seen)
             seen = battle.state.log.length
-            tells.push(...interruptTells(battle.state, newLog, SEATS))
+            tells.push(...interruptTells(newLog, SEATS))
         }
 
         start(battle, 'player1', 'SPELL_FIREBALL')
@@ -172,16 +172,13 @@ describe('interruptTells (#39)', () => {
         expect(tells).toEqual([interrupted('SPELL_FIREBALL')])
     })
 
-    it('resolves the spell from the snapshot and entries a client gets over the wire', () => {
+    it('resolves the spell from the entries a client gets over the wire', () => {
         const battle = setup()
         start(battle, 'player1', 'SPELL_METEOR')
         start(battle, 'player2', 'SPELL_COUNTERSPELL')
         battle.tick()
-        const { snap, log } = JSON.parse(JSON.stringify({ snap: battle.snapshot(), log: battle.state.log })) as {
-            snap: ReturnType<Battle['snapshot']>
-            log: LogEntry[]
-        }
-        expect(interruptTells(snap, log, SEATS)).toEqual([interrupted('SPELL_METEOR')])
+        const log = JSON.parse(JSON.stringify(battle.state.log)) as LogEntry[]
+        expect(interruptTells(log, SEATS)).toEqual([interrupted('SPELL_METEOR')])
     })
 
     it.each<[PlayerKey | null, InterruptTell['interruptedSide'], InterruptTell['casterSide']]>([
@@ -195,17 +192,5 @@ describe('interruptTells (#39)', () => {
         expect(tellsOf(battle, sidesFor(me))).toEqual([
             { interruptedSide, casterSide, spell: 'SPELL_FIREBALL', source: 'SPELL_COUNTERSPELL' },
         ])
-    })
-
-    it('ignores an entry whose spell index is not in the loadout', () => {
-        const battle = setup()
-        const entry: LogEntry = {
-            type: 'INTERRUPTED',
-            player: 'player1',
-            spellIndex: LOADOUTS.player1.length,
-            tick: 0,
-            source: 'SPELL_COUNTERSPELL',
-        }
-        expect(interruptTells(battle.state, [entry], SEATS)).toEqual([])
     })
 })

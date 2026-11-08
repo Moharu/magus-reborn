@@ -1,15 +1,17 @@
 // Usage:
-//   npm run sim:search -- --size N [--top K] [--jobs J] [--pool fireball,ignite,...] [--duration 60]
-//                         [--reaction 0.4] [--cap C] [--no-dedupe]
-// Runs every loadout of 1..N pool spells times every policy (see enumeratePolicies) through the real
-// engine and prints the top K by dpsUnderPressure as JSON. The output does not depend on --jobs.
+//   npm run sim:search -- [--top K] [--jobs J] [--fire fireball,ignite,...] [--general haste,blur,...]
+//                         [--duration 60] [--reaction 0.4] [--cap C] [--no-dedupe]
+// Runs every 0.2 loadout (4 Fire spells, Counterspell, 2 general spells; --fire and --general narrow the
+// pools) times every policy (see searchCandidates) through the real engine and prints the top K by
+// dpsUnderPressure as JSON. The output does not depend on --jobs (default: the cores, at most 4).
 // Progress and timing go to stderr.
 import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import {
-    DAMAGE_POOL,
+    DEFAULT_ELEMENT,
     DEFAULT_REACTION_SECONDS,
+    enumerateShapeLoadouts,
     rankResults,
     search,
     type SearchOptions,
@@ -41,10 +43,14 @@ const intFlag = (name: string, fallback?: number) => {
     return n
 }
 const numFlag = (name: string) => (flag(name) === undefined ? undefined : Number(flag(name)))
+const listFlag = (name: string) => flag(name)?.split(',').filter(Boolean).map(toId)
+
+/** Default worker count: one per core, but never more than this, so a default run stays a light load. */
+const MAX_DEFAULT_JOBS = 4
 
 /** Runs one shard as a child process of this same script (same tsx loader) and parses its JSON. */
 const runShard = (index: number, count: number) =>
-    new Promise<{ evaluated: number; results: SearchResult[] }>((resolve, reject) => {
+    new Promise<{ evaluated: number; pairs: number; results: SearchResult[] }>((resolve, reject) => {
         const script = fileURLToPath(import.meta.url)
         const child = spawn(process.execPath, [...process.execArgv, script, ...args, '--shard', `${index}/${count}`], {
             stdio: ['ignore', 'pipe', 'inherit'],
@@ -61,10 +67,17 @@ const main = async () => {
     const duration = numFlag('duration')
     const reaction = numFlag('reaction')
     const cap = flag('cap') === undefined ? undefined : intFlag('cap')
+    for (const removed of ['size', 'pool'])
+        if (args.includes(`--${removed}`))
+            throw new Error(
+                `--${removed} was removed: the search covers the 0.2 loadouts; narrow them with --fire/--general`,
+            )
+    const elementSpells = listFlag('fire')
+    const generalSpells = listFlag('general')
     const options: SearchOptions = {
-        size: intFlag('size'),
         top: intFlag('top', 10),
-        pool: flag('pool') ? flag('pool')!.split(',').filter(Boolean).map(toId) : DAMAGE_POOL,
+        ...(elementSpells ? { elementSpells } : {}),
+        ...(generalSpells ? { generalSpells } : {}),
         ...(duration !== undefined ? { durationSeconds: duration } : {}),
         ...(reaction !== undefined ? { pressure: { reactionSeconds: reaction } } : {}),
         ...(cap !== undefined ? { cap } : {}),
@@ -79,15 +92,18 @@ const main = async () => {
         return
     }
 
-    const jobs = intFlag('jobs', Math.min(availableParallelism(), 16))
+    const loadouts = enumerateShapeLoadouts(options).length // validates --fire/--general before forking
+    const jobs = intFlag('jobs', Math.min(availableParallelism(), MAX_DEFAULT_JOBS))
     const started = performance.now()
     let evaluated: number
+    let pairs: number
     let results: SearchResult[]
     if (jobs === 1) {
-        ;({ evaluated, results } = search(options))
+        ;({ evaluated, pairs, results } = search(options))
     } else {
         const shards = await Promise.all(Array.from({ length: jobs }, (_, i) => runShard(i, jobs)))
         evaluated = shards.reduce((n, s) => n + s.evaluated, 0)
+        pairs = shards.reduce((n, s) => n + s.pairs, 0)
         results = rankResults(
             shards.flatMap(s => s.results),
             options.top!,
@@ -95,11 +111,23 @@ const main = async () => {
         )
     }
     const seconds = ((performance.now() - started) / 1000).toFixed(1)
-    console.error(`evaluated ${evaluated} (loadout, policy) pairs in ${seconds}s with ${jobs} job(s)`)
-    const { top, pool, durationSeconds = 60, dedupe } = options
+    console.error(
+        `simulated ${evaluated} policies covering ${pairs} (loadout, policy) pairs over ${loadouts} loadouts in ${seconds}s with ${jobs} job(s)`,
+    )
+    const { top, durationSeconds = 60, dedupe } = options
     const reactionSeconds = options.pressure?.reactionSeconds ?? DEFAULT_REACTION_SECONDS
-    const header = { size: options.size, top, pool, durationSeconds, reactionSeconds, cap: cap ?? null, dedupe }
-    console.log(JSON.stringify({ options: header, evaluated, results }, null, 2))
+    const header = {
+        element: DEFAULT_ELEMENT,
+        fire: elementSpells ?? null,
+        general: generalSpells ?? null,
+        loadouts,
+        top,
+        durationSeconds,
+        reactionSeconds,
+        cap: cap ?? null,
+        dedupe,
+    }
+    console.log(JSON.stringify({ options: header, evaluated, pairs, results }, null, 2))
 }
 
 main().catch(error => {

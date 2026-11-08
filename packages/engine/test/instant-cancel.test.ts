@@ -25,6 +25,7 @@ describe('using an instant mid-cast (#25)', () => {
             type: 'CANCEL_CAST',
             caster: 'player2',
             spellIndex: fireball,
+            spellId: 'SPELL_FIREBALL',
             tick: b.state.gameTick,
         })
         expect(b.state.log.at(-1)).toMatchObject({ type: 'SPELL_RELEASE', caster: 'player2' })

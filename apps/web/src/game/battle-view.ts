@@ -2,13 +2,15 @@ import { Application, Container, Graphics, Sprite, Text } from 'pixi.js'
 import {
     GAME_TICK_INTERVAL,
     SPELLS,
-    type BattleSnapshot,
+    type SnapshotView,
     type HpEvent,
     type LogEntry,
     type PlayerKey,
+    type PlayerState,
     type SpellId,
 } from '@magus/engine'
 import { ActionBar, INFINITE_HP, PlayerHud, setText } from './hud'
+import { hotkeyFor, KEY_CODES } from './hotkeys'
 import { GROUND_Y, HEIGHT, SIDE_X, sidesFor, TEXT_FONT, WIDTH, type Side } from './layout'
 import { interruptTells, type InterruptTell } from './interrupt-tell'
 import { backdropTexture, particleTexture } from './textures'
@@ -22,7 +24,6 @@ export interface BattleViewOptions {
     onRelease?: (spellIndex: number) => void
 }
 
-const KEY_CODES: Record<string, number> = { KeyQ: 0, KeyW: 1, KeyE: 2, KeyA: 3, KeyS: 4, KeyD: 5 }
 const SIDES: Side[] = ['left', 'right']
 const opposite = (side: Side): Side => (side === 'left' ? 'right' : 'left')
 
@@ -73,7 +74,7 @@ export class BattleView {
     private readonly overlaySub = new Text()
     private actionBar: ActionBar | null = null
     private readonly sides: Record<Side, PlayerKey>
-    private snap: BattleSnapshot | null = null
+    private snap: SnapshotView | null = null
     private snapAt = 0
     private frozen = false
     private dotTimer = 0
@@ -199,13 +200,12 @@ export class BattleView {
     }
 
     /** Feed a new authoritative state. `fresh` is false for catch-up state, which skips effects. */
-    update(snap: BattleSnapshot, newLog: LogEntry[], events: HpEvent[], fresh = true) {
+    update(snap: SnapshotView, newLog: LogEntry[], events: HpEvent[], fresh = true) {
         this.snap = snap
         this.snapAt = performance.now()
         if (!fresh) return
-        for (const entry of newLog)
-            if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(snap, entry.caster, entry.spellIndex)
-        for (const tell of interruptTells(snap, newLog, this.sides)) this.onInterrupt(tell)
+        for (const entry of newLog) if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(entry.caster, entry.spellId)
+        for (const tell of interruptTells(newLog, this.sides)) this.onInterrupt(tell)
         for (const event of events) this.onHpEvent(event)
     }
 
@@ -246,7 +246,7 @@ export class BattleView {
         this.app.stage.scale.set(scale)
     }
 
-    private displayTick(snap: BattleSnapshot) {
+    private displayTick(snap: SnapshotView) {
         if (this.frozen || snap.winner) return snap.gameTick
         const ahead = (performance.now() - this.snapAt) / GAME_TICK_INTERVAL
         return snap.gameTick + Math.min(1, Math.max(0, ahead))
@@ -277,11 +277,14 @@ export class BattleView {
                           : player.cast !== null
                             ? 'casting'
                             : 'idle'
-                if (player.cast !== null) wizard.orbColor = SPELL_COLOR[player.spells[player.cast].id]
+                const casting = player.cast === null ? null : (player.casting ?? player.spells?.[player.cast])
+                if (casting) wizard.orbColor = SPELL_COLOR[casting.id]
                 this.persistentEffects(side, player, tick, dt)
             }
             setText(this.timer, formatTime(snap.gameTick))
-            if (this.actionBar && this.options.me) this.actionBar.update(snap[this.options.me], tick, this.keysDown)
+            const mine = this.options.me && snap[this.options.me]
+            // a player always has their own loadout
+            if (this.actionBar && mine?.spells) this.actionBar.update(mine as PlayerState, tick, this.keysDown)
         }
 
         for (const side of SIDES) {
@@ -311,7 +314,7 @@ export class BattleView {
         this.world.position.set((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake)
     }
 
-    private persistentEffects(side: Side, player: BattleSnapshot['player1'], tick: number, dt: number) {
+    private persistentEffects(side: Side, player: SnapshotView['player1'], tick: number, dt: number) {
         const wizard = this.wizards[side]
         const aura = this.auras[side].clear()
         const has = (id: string) => player.effects.filter(e => e.id === id)
@@ -387,21 +390,19 @@ export class BattleView {
         }
     }
 
-    private onSpellRelease(snap: BattleSnapshot, caster: PlayerKey, spellIndex: number) {
-        const spell = snap[caster].spells[spellIndex]
-        if (!spell) return
+    private onSpellRelease(caster: PlayerKey, spellId: SpellId) {
         const casterSide: Side = this.sides.left === caster ? 'left' : 'right'
         const targetSide = opposite(casterSide)
         const from = this.wizards[casterSide].castPoint
         const to = this.wizards[targetSide].chestPoint
         const self = this.wizards[casterSide].chestPoint
-        const color = SPELL_COLOR[spell.id]
+        const color = SPELL_COLOR[spellId]
 
         const text = this.lastCast[casterSide]
-        setText(text, `${SPELLS[spell.id].label}!`)
+        setText(text, `${SPELLS[spellId].label}!`)
         text.alpha = 1.4
 
-        switch (spell.id) {
+        switch (spellId) {
             case 'SPELL_FIREBALL':
                 this.vfx.projectile(from, to, color, { size: 1.5 })
                 break
@@ -520,10 +521,8 @@ export class BattleView {
     // input
 
     private onKeyDown = (event: KeyboardEvent) => {
-        const index = KEY_CODES[event.code]
-        if (index === undefined || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return
-        const target = event.target as HTMLElement | null
-        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+        const index = hotkeyFor(event)
+        if (index === undefined) return
         event.preventDefault()
         if (this.keysDown.has(index)) return
         this.keysDown.add(index)
@@ -533,6 +532,8 @@ export class BattleView {
     private onKeyUp = (event: KeyboardEvent) => {
         const index = KEY_CODES[event.code]
         if (index === undefined || !this.keysDown.delete(index)) return
+        // Firefox clicks the focused button when Space is released; a cast hotkey must not do that
+        event.preventDefault()
         this.options.onRelease?.(index)
     }
 

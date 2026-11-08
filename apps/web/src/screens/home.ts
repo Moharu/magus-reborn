@@ -184,7 +184,7 @@ export const homeScreen = (root: HTMLElement) => {
             h(
                 'footer',
                 { class: 'muted' },
-                'Keys: Q W E / A S D. Hold a key to charge, release when the bar turns green.',
+                'Keys: Q W E R (Fire), Space (Counterspell), D F (general). Hold a key to charge, release when the bar turns green.',
             ),
         ),
     )

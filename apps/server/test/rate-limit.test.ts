@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { RECONNECT_GRACE } from '../src/lobby'
 import {
     ABUSE_DROP_ALLOWANCE,
     ABUSE_DROPS_FORGIVEN_PER_SECOND,
+    ABUSE_RECONNECT_COOLDOWN_SECONDS,
     ConnectionLimiter,
+    IDLE_LIMIT_KEPT_MS,
+    MAX_IDLE_LIMITS,
+    PlayerLimiters,
     RATE_LIMIT_BURST,
     RATE_LIMIT_PER_SECOND,
     TokenBucket,
@@ -246,6 +251,290 @@ describe('ConnectionLimiter', () => {
             send(ctx, messagesPerSecond(6), 60)
 
             expect(burst(ctx, Math.ceil(messagesPerSecond(6) * 30))).not.toContain('close')
+        })
+    })
+})
+
+describe('PlayerLimiters', () => {
+    const COOLDOWN_MS = ABUSE_RECONNECT_COOLDOWN_SECONDS * 1000
+    const setup = (pinned: string[] = []) => {
+        const clock = fakeClock()
+        return { clock, limits: new PlayerLimiters(id => pinned.includes(id), clock.now) }
+    }
+    const checks = (limiter: ConnectionLimiter, count: number) => {
+        const verdicts: RateLimitVerdict[] = []
+        for (let i = 0; i < count; i++) verdicts.push(limiter.check())
+        return verdicts
+    }
+    /** Runs the limiter out, as a flood that gets the connection closed. */
+    const floodUntilClosed = (limiter: ConnectionLimiter) => {
+        while (limiter.check() !== 'close');
+    }
+    const PING = 1 / 5
+    const messagesPerSecond = (keyPressesPerSecond: number) => keyPressesPerSecond * 2 + PING
+    /** Sends at a steady rate on one limiter. */
+    const steady = (
+        clock: ReturnType<typeof fakeClock>,
+        limiter: ConnectionLimiter,
+        perSecond: number,
+        seconds: number,
+    ) => {
+        const start = clock.ms
+        const verdicts: RateLimitVerdict[] = []
+        for (let i = 0; i < perSecond * seconds; i++) {
+            clock.ms = start + Math.round((i * 1000) / perSecond)
+            verdicts.push(limiter.check())
+        }
+        return verdicts
+    }
+
+    describe('across a reconnect', () => {
+        it('hands the same player the buckets their last connection left', () => {
+            const { limits } = setup()
+            const first = limits.acquire('alice')
+            checks(first, RATE_LIMIT_BURST)
+            limits.release('alice', false)
+
+            const again = limits.acquire('alice')
+
+            expect(again).toBe(first)
+            expect(again.check()).toBe('drop')
+        })
+
+        it('gives a different player their own buckets', () => {
+            const { limits } = setup()
+            checks(limits.acquire('alice'), RATE_LIMIT_BURST)
+
+            expect(limits.acquire('bob').check()).toBe('allow')
+        })
+
+        it('shares one limit between connections of the same player', () => {
+            const { limits } = setup()
+            const tab = limits.acquire('alice')
+            const otherTab = limits.acquire('alice')
+
+            checks(tab, RATE_LIMIT_BURST)
+
+            expect(otherTab.check()).toBe('drop')
+        })
+
+        it('starts a reconnect after a close on the allowance it has won back, not a full one', () => {
+            const { clock, limits } = setup()
+            floodUntilClosed(limits.acquire('alice'))
+            limits.release('alice', true)
+
+            clock.ms += COOLDOWN_MS
+            const verdicts = checks(limits.acquire('alice'), RATE_LIMIT_BURST + ABUSE_DROP_ALLOWANCE + 1)
+
+            // a full burst back, and 10 s of the allowance forgiven
+            const regained = ABUSE_RECONNECT_COOLDOWN_SECONDS * ABUSE_DROPS_FORGIVEN_PER_SECOND
+            expect(verdicts.indexOf('close')).toBe(RATE_LIMIT_BURST + regained)
+        })
+    })
+
+    describe('the cooldown after a close', () => {
+        it('refuses the player for the cooldown after a close for flooding', () => {
+            const { clock, limits } = setup()
+            limits.acquire('alice')
+            limits.release('alice', true)
+
+            expect(limits.refusedFor('alice')).toBe(COOLDOWN_MS)
+            clock.ms += COOLDOWN_MS - 1
+            expect(limits.refusedFor('alice')).toBe(1)
+            clock.ms += 1
+            expect(limits.refusedFor('alice')).toBe(0)
+        })
+
+        it('refuses nobody else', () => {
+            const { limits } = setup()
+            limits.acquire('alice')
+            limits.release('alice', true)
+
+            expect(limits.refusedFor('bob')).toBe(0)
+        })
+
+        it('never refuses a player who left normally', () => {
+            const { limits } = setup()
+            checks(limits.acquire('alice'), RATE_LIMIT_BURST + 10)
+            limits.release('alice', false)
+
+            expect(limits.refusedFor('alice')).toBe(0)
+        })
+
+        it('lets a loop of flood, close and reconnect in at most once per cooldown', () => {
+            const { clock, limits } = setup()
+            let admitted = 0
+            // a client that tries again every 100 ms for a minute, and floods each time it gets in
+            for (let ms = 0; ms < 60_000; ms += 100) {
+                clock.ms += 100
+                if (limits.refusedFor('alice') > 0) continue
+                admitted++
+                floodUntilClosed(limits.acquire('alice'))
+                limits.release('alice', true)
+            }
+
+            expect(admitted).toBe(60 / ABUSE_RECONNECT_COOLDOWN_SECONDS)
+        })
+
+        it('ends well inside the reconnect grace, so a seated player closed by mistake keeps the match', () => {
+            expect(ABUSE_RECONNECT_COOLDOWN_SECONDS).toBeLessThan(RECONNECT_GRACE / 2)
+        })
+    })
+
+    describe('normal play across a reconnect', () => {
+        it('does not drop the inputs of a player who reconnects after a drop at 6 keys a second', () => {
+            const { clock, limits } = setup()
+            steady(clock, limits.acquire('alice'), messagesPerSecond(6), 60)
+            limits.release('alice', false)
+
+            clock.ms += 1000
+            const verdicts = steady(clock, limits.acquire('alice'), messagesPerSecond(16), 60)
+
+            expect(limits.refusedFor('alice')).toBe(0)
+            expect(verdicts).not.toContain('drop')
+            expect(verdicts).not.toContain('close')
+        })
+
+        it('does not close over what a 30 s stall replays on reconnecting at 6 keys a second', () => {
+            const { clock, limits } = setup()
+            steady(clock, limits.acquire('alice'), messagesPerSecond(6), 60)
+            limits.release('alice', false)
+
+            const replay = checks(limits.acquire('alice'), Math.ceil(messagesPerSecond(6) * 30))
+
+            expect(replay).not.toContain('close')
+        })
+
+        it('does not close a player who replays a 30 s stall, reconnects at once and plays on', () => {
+            const { clock, limits } = setup()
+            const first = limits.acquire('alice')
+            steady(clock, first, messagesPerSecond(6), 60)
+            expect(checks(first, Math.ceil(messagesPerSecond(6) * 30))).not.toContain('close')
+            limits.release('alice', false)
+
+            const after = steady(clock, limits.acquire('alice'), messagesPerSecond(6), 60)
+
+            expect(after).not.toContain('close')
+        })
+    })
+
+    describe('bounds on what is kept', () => {
+        it('keeps a limit while a connection holds it, however long', () => {
+            const { clock, limits } = setup()
+            const limiter = limits.acquire('alice')
+
+            clock.ms += IDLE_LIMIT_KEPT_MS * 10
+            limits.acquire('bob')
+
+            expect(limits.acquire('alice')).toBe(limiter)
+        })
+
+        it('keeps a limit until a connection of the player is gone for as long as a full refill takes', () => {
+            const { clock, limits } = setup()
+            const limiter = limits.acquire('alice')
+            limits.acquire('alice')
+            limits.release('alice', false)
+
+            clock.ms += IDLE_LIMIT_KEPT_MS
+            expect(limits.size).toBe(1)
+            limits.release('alice', false)
+            clock.ms += IDLE_LIMIT_KEPT_MS - 1
+            expect(limits.refusedFor('alice')).toBe(0)
+            expect(limits.size).toBe(1)
+            expect(limits.acquire('alice')).toBe(limiter)
+        })
+
+        it('forgets an idle limit once it has refilled, which gives back nothing a new one would not', () => {
+            const { clock, limits } = setup()
+            const limiter = limits.acquire('alice')
+            floodUntilClosed(limiter)
+            limits.release('alice', true)
+
+            clock.ms += IDLE_LIMIT_KEPT_MS
+            expect(limits.refusedFor('alice')).toBe(0)
+            expect(limits.size).toBe(0)
+            // the one it forgot had refilled all the way
+            expect(checks(limiter, RATE_LIMIT_BURST + ABUSE_DROP_ALLOWANCE + 1).indexOf('close')).toBe(
+                RATE_LIMIT_BURST + ABUSE_DROP_ALLOWANCE,
+            )
+        })
+
+        it('keeps the cooldown for as long as it lasts', () => {
+            expect(IDLE_LIMIT_KEPT_MS).toBeGreaterThanOrEqual(ABUSE_RECONNECT_COOLDOWN_SECONDS * 1000)
+        })
+
+        it('keeps no more idle limits than the cap, forgetting the longest idle first', () => {
+            const { clock, limits } = setup()
+            for (let i = 0; i < MAX_IDLE_LIMITS + 5; i++) {
+                limits.acquire(`player-${i}`)
+                limits.release(`player-${i}`, true)
+                clock.ms += 1
+            }
+
+            expect(limits.size).toBe(MAX_IDLE_LIMITS)
+            expect(limits.refusedFor('player-4')).toBe(0)
+            expect(limits.refusedFor('player-5')).toBeGreaterThan(0)
+        })
+
+        it('never forgets a limit in use to make room', () => {
+            const { limits } = setup()
+            const limiter = limits.acquire('alice')
+            for (let i = 0; i < MAX_IDLE_LIMITS * 2; i++) {
+                limits.acquire(`player-${i}`)
+                limits.release(`player-${i}`, false)
+            }
+
+            expect(limits.size).toBe(MAX_IDLE_LIMITS + 1)
+            expect(limits.acquire('alice')).toBe(limiter)
+        })
+
+        it('never forgets a pinned limit early, so a seated player cannot reset theirs under made-up ids', () => {
+            const { clock, limits } = setup(['alice'])
+            limits.acquire('alice')
+            limits.release('alice', true)
+            for (let i = 0; i < MAX_IDLE_LIMITS * 2; i++) {
+                clock.ms += 1
+                limits.acquire(`made-up-${i}`)
+                limits.release(`made-up-${i}`, false)
+            }
+
+            expect(limits.size).toBe(MAX_IDLE_LIMITS)
+            expect(limits.refusedFor('alice')).toBeGreaterThan(0)
+        })
+
+        it('still forgets a pinned limit once it has refilled', () => {
+            const { clock, limits } = setup(['alice'])
+            limits.acquire('alice')
+            limits.release('alice', true)
+
+            clock.ms += IDLE_LIMIT_KEPT_MS
+
+            expect(limits.refusedFor('alice')).toBe(0)
+            expect(limits.size).toBe(0)
+        })
+
+        it('forgets everything on clear', () => {
+            const { limits } = setup()
+            limits.acquire('alice')
+            limits.acquire('bob')
+            limits.release('bob', true)
+
+            limits.clear()
+
+            expect(limits.size).toBe(0)
+            expect(limits.refusedFor('bob')).toBe(0)
+        })
+
+        it('ignores a release with no connection to give back', () => {
+            const { limits } = setup()
+            const limiter = limits.acquire('alice')
+            limits.release('alice', false)
+            limits.release('alice', true)
+            limits.release('bob', true)
+
+            expect(limits.refusedFor('alice')).toBe(0)
+            expect(limits.refusedFor('bob')).toBe(0)
+            expect(limits.acquire('alice')).toBe(limiter)
         })
     })
 })

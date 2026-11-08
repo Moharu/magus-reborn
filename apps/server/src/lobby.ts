@@ -4,7 +4,9 @@ import {
     GAME_TICK_INTERVAL,
     parseClientMessage,
     type PlayerKey,
+    type SnapshotView,
     type SpellId,
+    viewSnapshot,
 } from '@magus/engine'
 import {
     BEST_OF_OPTIONS,
@@ -33,6 +35,8 @@ export const RECONNECT_GRACE = 30
 export interface LobbyTransport {
     send(connId: string, message: ServerMessage): void
     broadcast(message: ServerMessage): void
+    /** Sends each connection its own message, all as one step of a stream. */
+    sendEach(messages: Map<string, ServerMessage>): void
     close(connId: string, reason: string): void
     /** Called when the public listing changes. Null means the lobby should be delisted. */
     listingChanged(listing: LobbyListing | null): void
@@ -146,7 +150,7 @@ export class Lobby {
             role,
             spells: role === 'spectator' ? null : this.seats[role]!.spells,
         })
-        if (this.battle) this.transport.send(connId, this.battleCatchUp())
+        if (this.battle) this.transport.send(connId, this.battleCatchUp(role))
 
         if (role !== 'spectator' && this.paused && this.bothConnected()) this.resume()
         this.changed()
@@ -214,7 +218,10 @@ export class Lobby {
                 }
                 return
             case 'set_spells':
-                if (!this.canChangeSpells(seat)) return
+                if (!this.canChangeSpells(seat)) {
+                    this.transport.send(connId, { t: 'error', message: "Spells can't be changed now" })
+                    return
+                }
                 seat.spells = [...msg.spells]
                 this.transport.send(connId, { t: 'loadout', spells: seat.spells })
                 return
@@ -237,9 +244,15 @@ export class Lobby {
         }
     }
 
+    /** Whether this player holds a seat, connected or not. */
+    holdsSeat(playerId: string) {
+        return this.seatOf(playerId) !== null
+    }
+
     // views
 
-    info(): LobbyInfo {
+    /** The lobby as `role` may see it: the round history holds each player's spells for spectators only. */
+    info(role: Role | null = null): LobbyInfo {
         const player = (key: PlayerKey): LobbyPlayerInfo | null => {
             const seat = this.seats[key]
             return seat && { name: seat.name, ready: seat.ready, wins: seat.wins, connected: seat.connId !== null }
@@ -258,7 +271,14 @@ export class Lobby {
             player2: player('player2'),
             spectators: [...this.connections.values()].filter(c => c.role === 'spectator').map(c => c.name),
             settings: this.settings,
-            rounds: this.rounds,
+            rounds:
+                role === 'spectator'
+                    ? this.rounds
+                    : this.rounds.map(({ player1, player2, ...round }) => ({
+                          ...round,
+                          player1: { hp: player1.hp },
+                          player2: { hp: player2.hp },
+                      })),
         }
     }
 
@@ -328,7 +348,7 @@ export class Lobby {
         this.phase = 'battle_countdown'
         this.battle = new Battle({ name: p1.name, spells: p1.spells }, { name: p2.name, spells: p2.spells })
         this.logSent = 0
-        this.transport.broadcast(this.battleBroadcast())
+        this.sendBattleStream()
         this.countdown(BATTLE_COUNTDOWN, () => this.enterBattle())
         this.changed()
     }
@@ -342,7 +362,7 @@ export class Lobby {
     private onTick() {
         const battle = this.battle!
         battle.tick()
-        this.transport.broadcast(this.battleBroadcast())
+        this.sendBattleStream()
         // a win waits for its tick to end, since actions in that tick can still turn it into a draw; a draw can't change
         if (battle.finished || battle.state.winner === 'draw') this.endRound()
     }
@@ -461,22 +481,34 @@ export class Lobby {
 
     // helpers
 
-    /** The next part of the stream every client follows. It moves the stream on, so it must go to all of them. */
-    private battleBroadcast(): ServerMessage {
+    /**
+     * The next part of the stream every client follows. It moves the stream on, so it goes to all of them, each with
+     * the snapshot it may see: never a player's loadout to their opponent (`viewSnapshot`).
+     */
+    private sendBattleStream() {
         const battle = this.battle!
         const logFrom = this.logSent
         const log = battle.state.log.slice(logFrom)
         this.logSent = battle.state.log.length
-        return { t: 'battle', snap: battle.snapshot(), log, logFrom, events: battle.drainEvents() }
+        const snap = battle.snapshot()
+        const events = battle.drainEvents()
+        const views = new Map<Role, SnapshotView>()
+        const messages = new Map<string, ServerMessage>()
+        for (const [connId, { role }] of this.connections) {
+            if (!views.has(role)) views.set(role, viewSnapshot(snap, role))
+            messages.set(connId, { t: 'battle', snap: views.get(role)!, log, logFrom, events })
+        }
+        this.transport.sendEach(messages)
     }
 
     /**
      * The battle so far, for one connection that just joined. It leaves the stream alone: whatever is pending goes
      * to everyone in the next broadcast, the joiner included, which is why the events aren't repeated here.
      */
-    private battleCatchUp(): ServerMessage {
+    private battleCatchUp(role: Role): ServerMessage {
         const battle = this.battle!
-        return { t: 'battle', snap: battle.snapshot(), log: battle.state.log.slice(), logFrom: 0, events: [] }
+        const snap = viewSnapshot(battle.snapshot(), role)
+        return { t: 'battle', snap, log: battle.state.log.slice(), logFrom: 0, events: [] }
     }
 
     private canCast() {
@@ -484,8 +516,9 @@ export class Lobby {
     }
 
     private canChangeSpells(seat: Seat) {
+        if (seat.ready) return false
         if (this.phase === 'lobby') return true
-        return this.phase === 'set_up' && !seat.ready && (this.round === 1 || this.settings.allowSpellChange)
+        return this.phase === 'set_up' && (this.round === 1 || this.settings.allowSpellChange)
     }
 
     private seatOf(playerId: string): PlayerKey | null {
@@ -512,7 +545,19 @@ export class Lobby {
     }
 
     private changed() {
-        this.transport.broadcast({ t: 'meta', lobby: this.info() })
+        const watching = [...this.connections].filter(([, conn]) => conn.role === 'spectator')
+        if (this.rounds.length && watching.length) {
+            // only spectators get the spells in the round history; everyone else gets it without
+            const messages = new Map<string, ServerMessage>()
+            const players: ServerMessage = { t: 'meta', lobby: this.info() }
+            const spectators: ServerMessage = { t: 'meta', lobby: this.info('spectator') }
+            for (const [connId, conn] of this.connections) {
+                messages.set(connId, conn.role === 'spectator' ? spectators : players)
+            }
+            this.transport.sendEach(messages)
+        } else {
+            this.transport.broadcast({ t: 'meta', lobby: this.info() })
+        }
         const listing = this.phase === 'match_over' ? null : this.listing()
         const serialized = JSON.stringify(listing)
         if (serialized !== this.lastListing) {
