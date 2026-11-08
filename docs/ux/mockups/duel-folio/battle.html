@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Duel Folio — battle | Magus Reborn</title>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--text);
+                font:
+                    16px/1.45 system-ui,
+                    sans-serif;
+            }
+            main {
+                max-width: 1440px;
+                margin: auto;
+                padding: 24px;
+            }
+            a {
+                color: inherit;
+            }
+            a:focus-visible {
+                outline: 3px solid var(--accent);
+                outline-offset: 5px;
+            }
+            header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 24px;
+                border-bottom: 1px solid var(--line);
+                margin-bottom: 24px;
+            }
+            h1 {
+                font-size: 28px;
+            }
+            h2 {
+                font-size: 22px;
+                margin: 0 0 12px;
+            }
+            h3 {
+                margin: 0 0 8px;
+            }
+            small {
+                display: block;
+                font-size: 13px;
+            }
+            p {
+                margin: 10px 0;
+            }
+            .panel,
+            .spell {
+                background: var(--panel);
+                border: 1px solid var(--line);
+                padding: 16px;
+            }
+            .spell {
+                min-height: 92px;
+            }
+            .spell b {
+                display: block;
+            }
+            kbd {
+                display: inline-block;
+                font: bold 20px monospace;
+                border: 1px solid currentColor;
+                padding: 2px 9px;
+                margin-bottom: 6px;
+            }
+            .fixed {
+                border: 4px double var(--accent);
+            }
+            .cool {
+                background: repeating-linear-gradient(135deg, var(--panel) 0 8px, var(--bg) 8px 12px);
+            }
+            .attention {
+                border: 3px solid var(--accent);
+                padding: 14px;
+                background: var(--panel);
+            }
+            .bar {
+                height: 16px;
+                background: var(--bg);
+                border: 1px solid var(--line);
+                margin: 8px 0;
+            }
+            .bar i {
+                display: block;
+                height: 100%;
+                background: var(--hp);
+                width: var(--fill);
+            }
+            .cast i {
+                background: var(--accent);
+            }
+            .window {
+                border: 2px dashed var(--accent);
+                padding: 8px;
+                margin-top: 8px;
+                font-weight: 700;
+            }
+            .wizard {
+                display: grid;
+                place-items: center;
+                min-height: 180px;
+            }
+            .wizard svg {
+                width: 110px;
+                height: 160px;
+                fill: var(--text);
+                stroke: var(--accent);
+                stroke-width: 3;
+            }
+            .muted {
+                color: var(--muted);
+            }
+            .log {
+                border-left: 4px solid var(--line);
+                padding: 10px 16px;
+            }
+            .pill {
+                display: inline-block;
+                border: 1px solid var(--line);
+                padding: 4px 10px;
+                margin: 3px;
+            }
+            .note {
+                margin-top: 24px;
+                border-top: 1px solid var(--line);
+                padding-top: 14px;
+            }
+            .catalog {
+                display: grid;
+                gap: 12px;
+            }
+            .catalog article {
+                border-bottom: 1px solid var(--line);
+                padding: 12px;
+            }
+            .step {
+                font-size: 13px;
+                text-transform: uppercase;
+                letter-spacing: 0.12em;
+            }
+            .ready {
+                background: var(--accent);
+                color: var(--bg);
+                padding: 12px;
+                font-weight: 700;
+                display: inline-block;
+            }
+            footer {
+                margin-top: 24px;
+            }
+            @media (max-width: 850px) {
+                main {
+                    padding: 14px;
+                }
+                header {
+                    display: block;
+                }
+                .battle,
+                .loadout {
+                    display: flex !important;
+                    flex-direction: column;
+                }
+                .keys {
+                    display: flex !important;
+                    flex-wrap: wrap;
+                }
+                .spell {
+                    flex: 1;
+                    min-width: 130px;
+                }
+                .stage {
+                    min-height: 400px;
+                }
+                .orbit-controls {
+                    position: static !important;
+                    display: grid !important;
+                    grid-template-columns: repeat(2, 1fr);
+                    width: auto !important;
+                }
+                .stage .station {
+                    position: static !important;
+                    width: auto !important;
+                    margin: 12px;
+                }
+                .arena-label {
+                    position: static !important;
+                }
+                .spread {
+                    display: block !important;
+                }
+                .page {
+                    margin: 12px 0;
+                }
+            }
+            :root {
+                --bg: #f4eddd;
+                --panel: #fffaf0;
+                --text: #252b30;
+                --muted: #48535b;
+                --line: #65727b;
+                --accent: #70430b;
+                --hp: #245d62;
+            }
+            h1,
+            h2 {
+                font-family: Georgia, serif;
+            }
+            .battle {
+                display: grid;
+                grid-template-columns: 1.3fr 1fr;
+                gap: 28px;
+            }
+            .lane {
+                display: grid;
+                grid-template-columns: 1fr 150px;
+                border-bottom: 2px solid var(--line);
+                padding: 16px;
+            }
+            .lane .wizard {
+                min-height: 140px;
+            }
+            .lane .wizard svg {
+                height: 130px;
+            }
+            .keys {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 10px;
+                align-content: start;
+            }
+            .keys .fixed {
+                grid-column: 2/3;
+                margin-top: 12px;
+            }
+            .keys .spell:nth-child(6),
+            .keys .spell:nth-child(7) {
+                margin-top: 12px;
+            }
+            .spread {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                border: 2px solid var(--line);
+                box-shadow: 8px 8px 0 #d4cbb8;
+            }
+            .page {
+                padding: 28px;
+            }
+            .page:first-child {
+                border-right: 3px double var(--line);
+            }
+            .folio {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+            .binding {
+                margin-top: 24px;
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <header>
+                <div>
+                    <small>MAGUS REBORN / DIRECTION STUDY</small>
+                    <h1>Duel Folio · Battle</h1>
+                </div>
+                <nav><a href="../index.html">Compare all</a> · <a href="loadout.html">Loadout</a></nav>
+            </header>
+            <p class="step">Round II · 00:38 / vertical opponent-to-self reading</p>
+            <section class="battle">
+                <article class="panel">
+                    <div class="lane">
+                        <div>
+                            <h2>Opponent · Rune</h2>
+                            <strong>HP 48 / 100</strong>
+                            <div class="bar" style="--fill: 48%"><i></i></div>
+                            <p><b>Opponent casting · Fireball</b><br />Charge 1.4 s · release controlled by opponent</p>
+                            <div class="bar cast" style="--fill: 64%"><i></i></div>
+                            <div class="window">
+                                ◇ CAST ACTIVE · interrupt opportunity<br />S Counterspell ready · OFF GCD
+                            </div>
+                        </div>
+                        <div class="wizard" aria-label="Wizard silhouette">
+                            <svg viewBox="0 0 110 160" role="img" aria-label="Pointed hat and robe">
+                                <path d="M55 8 20 63h70Z M40 70h30v22H40Z M40 96 15 150h80L70 96Z" />
+                                <path d="M85 82v73M76 83h18" fill="none" />
+                            </svg>
+                        </div>
+                    </div>
+                    <p class="log">↓ Incoming Fireball · keep your eyes on the upper lane</p>
+                    <div class="lane">
+                        <div>
+                            <h2>You · Ash</h2>
+                            <strong>HP 62 / 100</strong>
+                            <div class="bar" style="--fill: 62%"><i></i></div>
+                            <p>Not casting</p>
+                            <p>−12 received · previous Ignite: × interrupted, lock expired</p>
+                        </div>
+                        <div class="wizard" aria-label="Wizard silhouette">
+                            <svg viewBox="0 0 110 160" role="img" aria-label="Pointed hat and robe">
+                                <path d="M55 8 20 63h70Z M40 70h30v22H40Z M40 96 15 150h80L70 96Z" />
+                                <path d="M85 82v73M76 83h18" fill="none" />
+                            </svg>
+                        </div>
+                    </div>
+                </article>
+                <aside>
+                    <h2>Your hand</h2>
+                    <p>Top row: element spells. S directly beneath W: interrupt by feel.</p>
+                    <div class="keys">
+                        <div class="spell"><kbd>Q</kbd><b>Fireball</b><small>Ready</small><small>◆ Fire</small></div>
+                        <div class="spell"><kbd>W</kbd><b>Ignite</b><small>Ready</small><small>◆ Fire</small></div>
+                        <div class="spell cool">
+                            <kbd>E</kbd><b>Combustion</b><small>Cooldown · 6.2 s</small><small>◆ Fire</small>
+                        </div>
+                        <div class="spell"><kbd>R</kbd><b>Meteor</b><small>Ready</small><small>◆ Fire</small></div>
+                        <div class="spell fixed">
+                            <kbd>S</kbd><b>Counterspell</b><small>Ready</small><small>OFF GCD</small>
+                        </div>
+                        <div class="spell"><kbd>D</kbd><b>Haste</b><small>Ready</small><small>OFF GCD</small></div>
+                        <div class="spell">
+                            <kbd>F</kbd><b>Temporal Shield</b><small>Ready</small><small>OFF GCD</small>
+                        </div>
+                    </div>
+                    <div class="attention" style="margin-top: 20px">
+                        <b>S / Counterspell decision</b>
+                        <p>Enemy cast active. Your interrupt is ready. Instant use can cancel your own cast.</p>
+                    </div>
+                </aside>
+            </section>
+            <p class="note">
+                Static feedback: incoming direction arrow; E stamped with cooldown; dashed cast opportunity; previous
+                confirmed interrupt printed as a receipt.
+            </p>
+            <footer class="muted">
+                Static composition · illustrative values · no controls are active · no network assets
+            </footer>
+        </main>
+    </body>
+</html>

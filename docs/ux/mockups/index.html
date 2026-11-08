@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Magus Reborn — compare directions</title>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 24px;
+                background: #101923;
+                color: #f4f7fc;
+                font: 16px/1.5 system-ui;
+            }
+            a {
+                color: #ffe39a;
+            }
+            .compare {
+                display: grid;
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 18px;
+            }
+            article {
+                min-width: 0;
+            }
+            iframe {
+                width: 100%;
+                height: 650px;
+                border: 1px solid #aebfd1;
+                background: white;
+            }
+            h2 {
+                font-size: 22px;
+            }
+            a:focus-visible {
+                outline: 3px solid white;
+            }
+            @media (max-width: 1000px) {
+                .compare {
+                    grid-template-columns: 1fr;
+                }
+                iframe {
+                    height: 700px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Three different ways to duel</h1>
+        <p>
+            Static review sheets. Open each full-size link to judge combat readability; embedded sheets reflow to their
+            column width. Wider windows show all three directions side by side.
+        </p>
+        <p><a href="../directions.md">Rationale, axis comparison &amp; recommendation</a></p>
+        <div class="compare">
+            <article>
+                <h2>Split Console</h2>
+                <p>Left/right fighters · central interrupt channel · bottom linear bar</p>
+                <p><a href="split-console/battle.html">Open battle full size</a></p>
+                <iframe title="Split Console battle" src="split-console/battle.html"></iframe>
+                <p><a href="split-console/loadout.html">Open loadout full size</a></p>
+                <iframe title="Split Console loadout" src="split-console/loadout.html"></iframe>
+            </article>
+            <article>
+                <h2>Duel Folio</h2>
+                <p>Opponent above you · right keyboard cluster · facing book pages</p>
+                <p><a href="duel-folio/battle.html">Open battle full size</a></p>
+                <iframe title="Duel Folio battle" src="duel-folio/battle.html"></iframe>
+                <p><a href="duel-folio/loadout.html">Open loadout full size</a></p>
+                <iframe title="Duel Folio loadout" src="duel-folio/loadout.html"></iframe>
+            </article>
+            <article>
+                <h2>Anchor Ring</h2>
+                <p>Diagonal arena anchors · controls around your wizard · summary-first draft</p>
+                <p><a href="anchor-ring/battle.html">Open battle full size</a></p>
+                <iframe title="Anchor Ring battle" src="anchor-ring/battle.html"></iframe>
+                <p><a href="anchor-ring/loadout.html">Open loadout full size</a></p>
+                <iframe title="Anchor Ring loadout" src="anchor-ring/loadout.html"></iframe>
+            </article>
+        </div>
+    </body>
+</html>

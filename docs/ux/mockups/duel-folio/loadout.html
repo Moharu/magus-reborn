@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>Duel Folio — loadout | Magus Reborn</title>
+        <style>
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                background: var(--bg);
+                color: var(--text);
+                font:
+                    16px/1.45 system-ui,
+                    sans-serif;
+            }
+            main {
+                max-width: 1440px;
+                margin: auto;
+                padding: 24px;
+            }
+            a {
+                color: inherit;
+            }
+            a:focus-visible {
+                outline: 3px solid var(--accent);
+                outline-offset: 5px;
+            }
+            header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 24px;
+                border-bottom: 1px solid var(--line);
+                margin-bottom: 24px;
+            }
+            h1 {
+                font-size: 28px;
+            }
+            h2 {
+                font-size: 22px;
+                margin: 0 0 12px;
+            }
+            h3 {
+                margin: 0 0 8px;
+            }
+            small {
+                display: block;
+                font-size: 13px;
+            }
+            p {
+                margin: 10px 0;
+            }
+            .panel,
+            .spell {
+                background: var(--panel);
+                border: 1px solid var(--line);
+                padding: 16px;
+            }
+            .spell {
+                min-height: 92px;
+            }
+            .spell b {
+                display: block;
+            }
+            kbd {
+                display: inline-block;
+                font: bold 20px monospace;
+                border: 1px solid currentColor;
+                padding: 2px 9px;
+                margin-bottom: 6px;
+            }
+            .fixed {
+                border: 4px double var(--accent);
+            }
+            .cool {
+                background: repeating-linear-gradient(135deg, var(--panel) 0 8px, var(--bg) 8px 12px);
+            }
+            .attention {
+                border: 3px solid var(--accent);
+                padding: 14px;
+                background: var(--panel);
+            }
+            .bar {
+                height: 16px;
+                background: var(--bg);
+                border: 1px solid var(--line);
+                margin: 8px 0;
+            }
+            .bar i {
+                display: block;
+                height: 100%;
+                background: var(--hp);
+                width: var(--fill);
+            }
+            .cast i {
+                background: var(--accent);
+            }
+            .window {
+                border: 2px dashed var(--accent);
+                padding: 8px;
+                margin-top: 8px;
+                font-weight: 700;
+            }
+            .wizard {
+                display: grid;
+                place-items: center;
+                min-height: 180px;
+            }
+            .wizard svg {
+                width: 110px;
+                height: 160px;
+                fill: var(--text);
+                stroke: var(--accent);
+                stroke-width: 3;
+            }
+            .muted {
+                color: var(--muted);
+            }
+            .log {
+                border-left: 4px solid var(--line);
+                padding: 10px 16px;
+            }
+            .pill {
+                display: inline-block;
+                border: 1px solid var(--line);
+                padding: 4px 10px;
+                margin: 3px;
+            }
+            .note {
+                margin-top: 24px;
+                border-top: 1px solid var(--line);
+                padding-top: 14px;
+            }
+            .catalog {
+                display: grid;
+                gap: 12px;
+            }
+            .catalog article {
+                border-bottom: 1px solid var(--line);
+                padding: 12px;
+            }
+            .step {
+                font-size: 13px;
+                text-transform: uppercase;
+                letter-spacing: 0.12em;
+            }
+            .ready {
+                background: var(--accent);
+                color: var(--bg);
+                padding: 12px;
+                font-weight: 700;
+                display: inline-block;
+            }
+            footer {
+                margin-top: 24px;
+            }
+            @media (max-width: 850px) {
+                main {
+                    padding: 14px;
+                }
+                header {
+                    display: block;
+                }
+                .battle,
+                .loadout {
+                    display: flex !important;
+                    flex-direction: column;
+                }
+                .keys {
+                    display: flex !important;
+                    flex-wrap: wrap;
+                }
+                .spell {
+                    flex: 1;
+                    min-width: 130px;
+                }
+                .stage {
+                    min-height: 400px;
+                }
+                .orbit-controls {
+                    position: static !important;
+                    display: grid !important;
+                    grid-template-columns: repeat(2, 1fr);
+                    width: auto !important;
+                }
+                .stage .station {
+                    position: static !important;
+                    width: auto !important;
+                    margin: 12px;
+                }
+                .arena-label {
+                    position: static !important;
+                }
+                .spread {
+                    display: block !important;
+                }
+                .page {
+                    margin: 12px 0;
+                }
+            }
+            :root {
+                --bg: #f4eddd;
+                --panel: #fffaf0;
+                --text: #252b30;
+                --muted: #48535b;
+                --line: #65727b;
+                --accent: #70430b;
+                --hp: #245d62;
+            }
+            h1,
+            h2 {
+                font-family: Georgia, serif;
+            }
+            .battle {
+                display: grid;
+                grid-template-columns: 1.3fr 1fr;
+                gap: 28px;
+            }
+            .lane {
+                display: grid;
+                grid-template-columns: 1fr 150px;
+                border-bottom: 2px solid var(--line);
+                padding: 16px;
+            }
+            .lane .wizard {
+                min-height: 140px;
+            }
+            .lane .wizard svg {
+                height: 130px;
+            }
+            .keys {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+                gap: 10px;
+                align-content: start;
+            }
+            .keys .fixed {
+                grid-column: 2/3;
+                margin-top: 12px;
+            }
+            .keys .spell:nth-child(6),
+            .keys .spell:nth-child(7) {
+                margin-top: 12px;
+            }
+            .spread {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                border: 2px solid var(--line);
+                box-shadow: 8px 8px 0 #d4cbb8;
+            }
+            .page {
+                padding: 28px;
+            }
+            .page:first-child {
+                border-right: 3px double var(--line);
+            }
+            .folio {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+            .binding {
+                margin-top: 24px;
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <header>
+                <div>
+                    <small>MAGUS REBORN / DIRECTION STUDY</small>
+                    <h1>Duel Folio · Loadout</h1>
+                </div>
+                <nav><a href="../index.html">Compare all</a> · <a href="battle.html">Battle</a></nav>
+            </header>
+            <p class="step">Preparation / spellbook selection</p>
+            <section class="spread">
+                <article class="page">
+                    <small>LEFT PAGE · ELEMENT CHAPTER</small>
+                    <h2>◆ Fire · four bookmarks</h2>
+                    <p>Later chapter tabs: ❄ Frost / ϟ Lightning</p>
+                    <div class="folio">
+                        <div class="spell"><kbd>Q</kbd><b>Fireball</b><small>Equipped</small><small>◆ Fire</small></div>
+                        <div class="spell"><kbd>W</kbd><b>Ignite</b><small>Equipped</small><small>◆ Fire</small></div>
+                        <div class="spell">
+                            <kbd>E</kbd><b>Combustion</b><small>Equipped</small><small>◆ Fire</small>
+                        </div>
+                        <div class="spell"><kbd>R</kbd><b>Meteor</b><small>Equipped</small><small>◆ Fire</small></div>
+                    </div>
+                    <div class="catalog">
+                        <article>
+                            <h3>Current entry: Meteor</h3>
+                            <p>R bookmark attached. Choose an entry, then choose Q / W / E / R to bind it.</p>
+                        </article>
+                        <article>Other entries: Living Bomb · Afterburn</article>
+                    </div>
+                    <p>← Previous entry · Entry 4 of 6 · Next entry →</p>
+                    <p class="muted">
+                        In implementation, these are keyboard-operable page controls. No swipe or drag required.
+                    </p>
+                </article>
+                <article class="page">
+                    <small>RIGHT PAGE · PERMANENT BINDING</small>
+                    <h2>Counterspell is always bound</h2>
+                    <div class="spell fixed">
+                        <kbd>S</kbd><b>Counterspell</b><small>Fixed · cannot replace</small><small>OFF GCD</small>
+                    </div>
+                    <h3 style="margin-top: 24px">Two general bookmarks</h3>
+                    <div class="folio">
+                        <div class="spell"><kbd>D</kbd><b>Haste</b><small>Equipped</small><small>OFF GCD</small></div>
+                        <div class="spell">
+                            <kbd>F</kbd><b>Temporal Shield</b><small>Equipped</small><small>OFF GCD</small>
+                        </div>
+                    </div>
+                    <p>
+                        General entries: Haste, Temporal Shield, Magic Eater, Blur. Page to an entry, then bind D or F.
+                    </p>
+                    <div class="log">
+                        Build: 4 Fire + fixed Counterspell + 2 general<br />You editing · opponent ready
+                    </div>
+                    <p><span class="ready">Close book &amp; ready</span></p>
+                    <p>Future queue receipt appears inside the cover with status and Cancel.</p>
+                </article>
+            </section>
+            <footer class="muted">
+                Static composition · illustrative values · no controls are active · no network assets
+            </footer>
+        </main>
+    </body>
+</html>

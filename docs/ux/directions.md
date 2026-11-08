@@ -1,131 +1,112 @@
-# Magus Reborn: three whole-client directions
+# Three spatial directions for Magus Reborn
 
-Decision proposal for [issue #90](https://github.com/Moharu/magus-reborn/issues/90). The owner chooses **one** direction; implementation belongs in separate issues. No game behaviour changes here.
+Revision for [#90](https://github.com/Moharu/magus-reborn/issues/90) and [PR #95](https://github.com/Moharu/magus-reborn/pull/95). The previous submission changed surface styling while preserving the same composition. These proposals change combat geometry, attention priority, input arrangement and preparation workflow. The owner selects one; implementation follows separately.
 
-Open any `battle.html` or `loadout.html` below directly from disk. Each file embeds its CSS, uses local font fallbacks, and makes no network requests. Links switch between the two mockups. These are static compositions: cards, readiness, timers and combat states do not respond to input. Wizard chess glyphs are placeholders for the existing PixiJS characters, not proposed final character art.
+**Start with [the side-by-side comparison](mockups/index.html)**, then open each full-size battle and loadout. Every sheet is standalone HTML with embedded CSS, system fonts, no scripts and no remote assets. Labels and controls are static examples, not working interactions. The index embeds all six files; narrow previews reflow, so use full-size views to assess the intended desktop layout. Wizard silhouettes are placeholders, not character-art proposals.
 
-The issue originally suggests `docs/design/`; this delivery uses the requested `docs/ux/` location for both the proposal and all six mockups.
+## Differences by design axis
 
-## Shared product contract
+| Axis                  | Split Console                                                                                                              | Duel Folio                                                                                                                                      | Anchor Ring                                                                                                                                                                                        |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Screen composition    | You on left, opponent on right, HP above each wizard; enemy cast beside a central decision channel; seven-slot bottom bar. | Opponent and cast in upper lane, you and HP below; wizards sit at the right of their lanes; keyboard cluster fills the separate right column.   | Diagonal wizard anchors in a central arena: you lower left, opponent upper right. HP/casts attached to opaque character stations; two-row action arc extends from your station. No global top HUD. |
+| Information hierarchy | Enemy cast → central S decision → own cooldowns → HP. Central channel repeats only actionable enemy-cast information.      | Own key readiness → upper incoming cast → lower self status. S sits under W in the keyboard map, with a written decision prompt directly below. | Opponent's local cast → oversized S keystone near your wizard → HP and surrounding abilities. Interrupt opportunity is attached to the source of the threat.                                       |
+| Spell bar / input     | Linear MMO bar: Q W E R, then a wider S, D F.                                                                              | Physical keyboard geometry: Q W E R on top; indented S D F beneath.                                                                             | Character-anchored arc: D / large S / F over Q W E R. Keys stay labelled; this is direct key activation, not a radial gesture menu.                                                                |
+| Loadout interaction   | Slot-first workbench: choose slot, choose replacement from adjacent catalog; optional drag shortcut.                       | Entry-first spellbook: page through entries, attach a Q/W/E/R bookmark; separate permanent binding and general bookmarks.                       | Summary-first draft: select four element tiles and two general tiles, review assignment order, then confirm. No pick/ban gameplay.                                                                 |
+| Feedback / motion     | Hard cuts and short local bar fills; interruption breaks a cast rule, damage arrives as a receipt.                         | Directional incoming marker and stamped words; page turn only outside combat. Interrupted casts receive an ink strike.                          | Local cast tether and expanding single ring on confirmed interrupt; damage rises beside the hit wizard. No full-screen shake.                                                                      |
+| Style / palette       | Instrument console: midnight, mint HP, amber attention.                                                                    | Field manual: ivory, ink, teal HP, brown attention.                                                                                             | Ceremonial arena: violet, pale blue HP, gold attention.                                                                                                                                            |
 
-- **0.2 loadout:** four Fire spells on **Q W E R**, fixed **Counterspell on S**, two selected general spells on **D F**. Always show seven slots in that order, in loadout and battle. S has a double border, the word “Fixed”, and no replacement affordance. Fixed means its assignment cannot change, not that it is unavailable in combat.
-- Every general spell, including Counterspell, carries a literal **OFF GCD** badge in the catalog, selected slots and battle HUD. Explain once: “Does not trigger or wait for global cooldown; cooldowns and locks still apply.” An instant cancels a current cast unless specifically usable while casting. Do not promise uninterrupted casting from this badge.
-- Loadout selection is slot-first, then catalog, with visible equipped key labels; no drag-only interactions. Show spell descriptions from the catalog rather than inventing balance values. Keep the round setup timer and both players’ readiness visible. A standalone loadout save flow is a future product decision; these mockups show round preparation.
-- Future element choice replaces the four element slots as a group; S/D/F stay put. Fire uses ◆, Frost ❄ and Lightning ϟ plus names, not colour alone. These symbols are visual placeholders for a consistent icon family. In 0.2 only Fire is available; future elements appear only in these proposal mockups, not as misleading live controls.
-- Future random matchmaking gets a separate home action and waiting panel with queue status and cancel. It reuses the same loadout, duel, reconnect and results surfaces. No invented rating, queue ETA, or spectator permissions.
-- Private lobbies prioritise a shareable code, two player seats, settings and readiness. Spectators have a separate roster/count and a clear “Watching” heading; never show their loadout as a playable third seat. Preserve existing role and capacity rules.
-- Distinguish connecting, reconnecting, paused, empty lobby lists, full spectator capacity, setup, countdown, round results and match results. Errors use text plus an icon, with a recovery action where available. Never replace a connection failure with an empty-state message.
+All three change the first five axes, rather than relying on the palette difference. Key bindings and combat rules remain consistent even when their spatial presentation changes.
 
-### Battle information hierarchy and accessibility baseline
+## Shared constraints and state vocabulary
 
-HP and casts sit in stable, opaque HUD panels above the arena. Keep full player names and explicit You/Opponent labels. HP uses an exact numeric readout and bar length; colour does not change at arbitrary thresholds. Text sits beside bars rather than on a moving fill. Casts show spell name, elapsed/required time, and a fixed completion end cap. At completion add **READY · release**, a check symbol and a solid outline; do not auto-release or alter timing. Idle casts explicitly say “Not casting” in implementation.
+- Exactly **4 element spells + fixed Counterspell + 2 general**. Keys remain Q/W/E/R, S, D/F. S is always named, enlarged or double-framed, and explicitly fixed during preparation. No replacement affordance on S.
+- S/D/F show literal **OFF GCD** in battle and loadout. This means no global-cooldown wait or trigger; personal cooldowns and locks still apply. Instant use cancels an ongoing cast unless usable while casting. Never imply that off-GCD permits uninterrupted casting.
+- All battle sheets depict the same mid-fight snapshot: you at 62/100 HP, opponent at 48/100, opponent charging Fireball, Counterspell ready, E Combustion hatched with 6.2 s cooldown. Values are illustrative, not balance specifications.
+- The dashed **CAST ACTIVE / interrupt opportunity** region indicates a currently active enemy cast, not a newly invented timed bonus window. The opponent controls release. Do not invent a release deadline from the illustrative progress fill.
+- Confirmed interruption: replace the affected cast with **× INTERRUPTED**, a broken track and a separate all-spell lock timer. Miss, cancellation and ordinary cooldown must have different words. Mockups show a historical confirmed interrupt receipt with its lock expired alongside the current opportunity; they do not show an active lock while claiming S is ready.
+- Damage: signed number beside the affected player plus HP reduction; healing uses a plus sign. Ready uses text; cooldown uses hatch plus seconds; locked uses a lock label plus remaining duration. Names and numbers sit outside animated fills.
+- Fire ◆, Frost ❄ and Lightning ϟ use labels and distinct symbols, never colour alone. Future element choice replaces the four element entries as a group; S/D/F remain stable. Only Fire is assumed available in 0.2. Frost/Lightning labels in the sheets are explicitly future annotations.
+- Future matchmaking needs an explicit Find match action, waiting status and Cancel, preserving the chosen build. No invented rating or ETA. Private lobbies retain Join by code, two player seats, readiness and host settings; spectators have a separate labelled roster and Watching state.
+- Connection/reconnection, setup, countdown, round result, match result, empty lists and failure need explicit text and relevant recovery actions. Results must distinguish a draw. Static sheets cover battle and preparation, not every state.
 
-Only a confirmed interrupt event creates the broken-bar/× tell and “SPELL INTERRUPTED”; a miss or ordinary cast cancellation must not. Show the resulting all-spell lock separately with its remaining duration, never as a normal cooldown. The mockup combines an active local cast, a confirmed opponent interrupt, and an unrelated local cooldown so those states can be compared. Illustrative timers are not balance specifications.
+### Readability and access
 
-Cooldowns keep key and spell name legible, with a hatched fill/sweep and numeric seconds; ready slots say Ready. Locks use a lock symbol and countdown. Distinguish selected, pressed, casting, cooldown and locked states with outlines and words, not just opacity. Buff/debuff chips use name, remaining seconds and +/− labels; do not convey polarity with red/green only. Reserve one compact row beneath each player’s bars for them; the static mockups omit chips to keep the main hierarchy clear.
+Use opaque panels behind important text. Primary body text is 16px; keys and spell names remain legible through cooldowns. HP uses both numeric value and bar length. Semantic signals use words, shapes and patterns, supporting grayscale and colour-blind reading; no red/green dependency. Production targets are WCAG AA text contrast, meaningful boundaries at 3:1, visible focus, 44px action targets and 200% zoom. These are requirements, not an accessibility certification of static mockups.
 
-Implementation targets: WCAG AA text contrast (4.5:1 ordinary text), 3:1 meaningful graphical boundaries, visible keyboard focus, 44 × 44 CSS-pixel minimum targets and at least 16px primary body text. Mockup metadata is smaller; provide UI scaling and a larger-text option. Support 200% zoom and keyboard navigation in DOM screens. Battle should have a DOM status/action equivalent alongside PixiJS; announce discrete events, not every animation tick. Accessible real-time play needs its own implementation/testing work and is not established by these static files.
+At narrow widths the HTML stacks for inspection. Production must retain the same key assignments with seven explicit touch targets and a landscape combat layout; phone parity needs separate validation. Keep a logical DOM reading order and provide status/action equivalents for PixiJS. Announce discrete combat events rather than every charge tick. Test keyboard navigation, screen readers and protanopia/deuteranopia/tritanopia simulations before release.
 
-Use reduced motion to replace flashes, shake, pulses and sweeps with static outlines and text. No rapid flashing or sound-only cues. Permit independent VFX reduction without removing essential tells. Test protanopia, deuteranopia, tritanopia and grayscale, keyboard-only navigation and actual assistive technology before shipping.
+Motion never carries essential information: reduced-motion uses stationary outlines, words and updated values. No flashing, moving backgrounds under text or audio-only alerts. Decorative art can be disabled without losing a tell. The proposed motion is described below; sheets deliberately freeze its static equivalent.
 
-The HTML sheets reflow below 800px for review. Production battle should preserve key/HP legibility rather than shrink a canvas to fit: prefer landscape, move secondary details below the arena, retain seven explicit touch targets, and test small screens separately. Do not imply phone control parity is solved by these sheets.
+## 1. Split Console
 
-## 1. Precision
+**Rationale:** make the interrupt decision a single central scan between two evenly weighted combatants. A player can inspect the opponent on the right and press S without searching their own ability row. Best for repeated competitive practice.
 
-**Rationale.** Treat the client as a competitive instrument: spacious dark panels, strong alignment and restrained colour give cast timing and interrupt windows the highest priority. Home and setup teach the same visual grammar as the HUD, so players recognise their seven slots immediately on entering a duel. This is the smallest conceptual step from the existing DOM/PixiJS split and the clearest foundation for balancing and repeated practice.
+**Palette/type:** background `#101923`, panels `#1D2C3B`, text `#F4F7FC`, secondary/boundaries `#C0CEDE` / `#9DB0C3`, HP `#9CE1D5`, attention `#FFD27C`. System sans and monospace in sheets. Optional production fonts: Inter and IBM Plex Mono, free under SIL OFL, self-hosted; never needed to open these files.
 
-**Mood / references in words:** tournament broadcast scoreboards, precision instruments, quiet strategy-game control panels; flat geometry and almost no ornament. No borrowed artwork or external reference dependencies.
+**Feedback:** short, linear charge fills; central cue appears when a cast can be interrupted, without pulsing. Confirmed interruption splits the enemy bar with × and writes the lock underneath. Damage uses a brief signed receipt in the hit player's panel. Frozen sheet: live dashed window, hatched E, partially depleted HP, previous interrupt receipt. Reduced motion uses the same static states.
 
-**Palette:** midnight `#101827` background; slate `#192638` panels; ice `#F3F6FC` primary text; blue-gray `#B8C7DB` secondary text and boundaries; mint `#7EE0CA` HP/selected state; amber `#F6C76A` casting/attention. Element accents are confined to icons so Fire never becomes confused with danger or HP.
+| Surface       | Treatment                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Home          | Compact command list: Create lobby, Join by code, Training; later Find match alongside private play.                     |
+| Lobby         | Left/right seat cards around a shared code; readiness by each seat, settings below, spectators in a separate lower rail. |
+| Training      | Same lateral duel and central decision channel; collapsible statistics below the arena, reset next to loadout.           |
+| Loadout       | Three-column element/context, equipped slots, replacement catalog. Click slot then spell; drag optional, never required. |
+| Queue/results | Queue replaces the context rail with status/Cancel; results reuse left/right player comparison and a round ledger.       |
 
-**Contrast:** primary and secondary text against the panel are approximately 14.1:1 and 8.9:1. HP and cast fills against the background are approximately 11.3:1 and 11.2:1. Keep labels outside fills; if an overlay is unavoidable, use midnight text, not white. Interrupts use amber plus × and a dashed broken frame. No red/green distinction is needed.
+**Tradeoff:** central channel repeats enemy cast status and consumes arena width. On smaller landscape screens, shorten its prose but keep S and enemy cast timing visible. Lowest art/layout implementation effort of the three; still requires DOM/PixiJS alignment and accessibility review.
 
-**Typography:** Inter (SIL Open Font License) for UI; IBM Plex Mono (SIL Open Font License) for keys/timers. Self-host in a future implementation; mockups use system sans and monospace with tabular numerical styling as a follow-up requirement. Avoid decorative headings and make numerals consistent between DOM and PixiJS.
+[Battle](mockups/split-console/battle.html) · [Loadout](mockups/split-console/loadout.html)
 
-| Screen   | Treatment                                                                                                                                                                                                                               |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home     | Compact name entry and primary Create private lobby, secondary Join by code and Training; public lobby list below with explicit Join/Watch actions. Later, Find match becomes a peer primary action rather than replacing private play. |
-| Lobby    | Two aligned seat cards with ready states, central code/share area, host settings below, separate spectator rail. Watching mode substitutes a summary for playable controls.                                                             |
-| Training | Same battle HUD against a quieter arena; damage/DPS/time and spell breakdown in a collapsible right rail. Reset and loadout remain near each other outside combat controls.                                                             |
-| Loadout  | Left discipline/round-context rail; right slot grid and catalog. OFF GCD stays literal on S/D/F. Future element selector occupies the left rail without moving the seven slots.                                                         |
-| Battle   | Symmetric top status panels, a compact central score, calm open arena, rectangular bottom action strip. Effects never cover numbers. Results reuse the score and a straightforward round table.                                         |
+## 2. Duel Folio
 
-**Readability specifics:** HP bars are mint regardless of player side; player identity is carried by names and placement. Amber cast progress has an endpoint marker and READY label. Confirmed interrupt uses a dashed amber outline and ×; cooldown uses diagonal hatch and seconds. The double-bordered S slot anchors the general group. Enemy spell availability must only be shown when existing game state permits it.
+**Rationale:** connect preparation with learning. The book interaction teaches spells one at a time; combat puts incoming information above the player and uses a recognisable keyboard map to the right. The vertical duel is fundamentally different from the lateral console.
 
-**Accessibility:** highest priority on contrast, stable spatial grouping and reduced motion. Mint/amber remain supplementary to text and pattern. Strong focus outlines must remain distinct from equipped outlines. Reflow settings/catalog into one column; never let the training rail squeeze the combat HUD.
+**Palette/type:** parchment `#F4EDDD`, ivory `#FFFAF0`, ink `#252B30`, secondary `#48535B`, boundaries `#65727B`, HP `#245D62`, attention `#70430B`. Georgia headings with system sans body and monospace keys. Optional free SIL OFL fonts: Literata headings and Source Sans 3 body, self-hosted. No texture behind text.
 
-**Rough effort:** small–medium, approximately **6–9 developer days** after approval for shared tokens/DOM screens, seven-slot presentation, PixiJS HUD styling and responsive/accessibility verification; excludes underlying 0.2 loadout mechanics, new elements and matchmaking behaviour.
+**Feedback:** incoming attack indicated by a downward marker between lanes. Confirmed interrupt stamps × INTERRUPTED across the enemy track; damage is a signed notation in the affected lane. Page movement belongs only in preparation, never during combat. Frozen sheet shows the arrow, cooldown stamp and historical interruption. Reduced motion swaps any stamp transition/page turn for an immediate state change.
 
-Mockups: [battle](mockups/precision/battle.html) · [loadout](mockups/precision/loadout.html).
+| Surface       | Treatment                                                                                                                                                                              |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home          | Table of contents: Duel, Join, Practice; later Matchmaking is a named chapter.                                                                                                         |
+| Lobby         | Facing preparation pages for two players, code at the binding, spectator list beneath the book.                                                                                        |
+| Training      | Upper dummy lane/lower player lane, keyboard map right, practice ledger below.                                                                                                         |
+| Loadout       | Browse entry → bind bookmark to key. Left page holds four element bookmarks; right page holds fixed S and two general bookmarks. Pagination works by buttons/keyboard; not swipe-only. |
+| Queue/results | Queue ticket inside cover with status/Cancel; results appear as a new ledger page with round scores.                                                                                   |
 
-## 2. Living Grimoire
+**Tradeoff:** learning emphasis costs more eye travel between upper cast and right-hand S. Needs usability testing under fast interrupts; book ornament must never encroach on the lane labels. Medium effort: pagination, bookmark interaction and separate combat layout.
 
-**Rationale.** Present dueling as a craft learned from a living spellbook. A warm paper interface makes spell reading and preparation welcoming, while sharply inked rules and diagrams keep the actual duel exact. The direction makes training and loadout feel like connected chapters, giving Magus a distinct identity without requiring a large amount of illustration.
+[Battle](mockups/duel-folio/battle.html) · [Loadout](mockups/duel-folio/loadout.html)
 
-**Mood / references in words:** annotated field manuals, woodcut diagrams, library catalog cards and printed tabletop rules. Paper is a flat colour, never a noisy texture underneath text.
+## 3. Anchor Ring
 
-**Palette:** parchment `#F3EAD7` background; ivory `#FFF9ED` panels; ink `#29251E` primary text; umber `#60533F` secondary text/boundaries; forest `#285C49` HP/selection; ochre `#79530C` casts/attention. Future elements get named chapter tabs and unique symbols rather than different paper colours.
+**Rationale:** make the duel feel located in the arena. Wizard identity, health and casting share a local station, with your ability arc attached to your own anchor. A build-summary draft prepares the same clustered kit before combat.
 
-**Contrast:** primary/secondary text on ivory are approximately 14.5:1 and 7.1:1. Forest HP and ochre cast against parchment are approximately 6.5:1 and 5.7:1. Place ink labels outside fills; use ivory text if labels must appear on forest/ochre. Use a solid dark bar endpoint and an ivory gap at interruptions, not a subtle change in paper tint.
+**Palette/type:** void `#17142B`, panels `#2C2542`, text `#FAF5FF`, secondary `#D3C9E3`, boundaries `#BAA9CF`, HP `#B9DEFF`, attention `#FFE39A`. System sans and monospace; optional free SIL OFL Space Grotesk headings and Atkinson Hyperlegible body, self-hosted. Flat, opaque data plates protect legibility against arena art.
 
-**Typography:** Literata (SIL Open Font License) for headings; Source Sans 3 (SIL Open Font License) for body/UI; IBM Plex Mono for keys and values. Mockups use Georgia/system sans/monospace. No script lettering in spell names or numerical displays. Production body stays sans even though the mockup’s surrounding editorial copy uses Georgia.
+**Feedback:** cast energy can travel along a local tether toward the opponent; labels and straight progress track remain still. On confirmed interrupt a single broken ring expands at the caster and leaves × INTERRUPTED plus lock time. Damage rises beside the hit wizard. Frozen sheet shows local cast window, hit receipt and hatched E; reduced motion retains stationary labels and ring outline. No camera motion on HUD anchors.
 
-| Screen   | Treatment                                                                                                                                                                                               |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home     | A book-cover title above a practical directory: private duel, code entry and practice chapter; open lobbies become legible catalog rows. Future queue is another destination tab, never hidden in lore. |
-| Lobby    | Facing player “pages” divided by a shared lobby code; spectators become a labelled reader list below. Host settings read like a short form with explicit labels.                                        |
-| Training | Ruled practice sheet around the same duel HUD; damage meter becomes a results ledger, with clear Reset and Change loadout actions. No new training mechanics implied.                                   |
-| Loadout  | Discipline chapter tabs on the left, seven spell cards on the right, catalog below. S looks like a permanently bound card with Fixed text and double rule. Future Frost/Lightning add tabs.             |
-| Battle   | Inky top bars, a ruled dueling ground and squared card slots. Thin dividers replace glow; score reads like a match notation. Results become a concise duel record.                                      |
+| Surface       | Treatment                                                                                                                                                                                                            |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Home          | Central training arena preview with destination stations around its edge; normal labelled links preserve keyboard navigation.                                                                                        |
+| Lobby         | Two diagonal player anchors with the code in open central space; host settings and separate spectator roster outside the ring.                                                                                       |
+| Training      | Opponent dummy at upper-right anchor, own controls at lower-left anchor; metrics in an outer rail.                                                                                                                   |
+| Loadout       | Build summary first in a left rail; select four tiles from element grid, then two general tiles. Deselect before replacing at capacity. Review/reorder Q–R and D/F explicitly before confirming. S is never drafted. |
+| Queue/results | Queue status/Cancel occupies summary rail; result summary occupies the centre with round ledger below, no third player station.                                                                                      |
 
-**Readability specifics:** forest HP and ochre cast bars use white space and dark outlines to stand apart. Cast READY adds a checked end tab. Interrupt tell breaks the rule with a large × and spell label. Cooldown cards use hatch marks and printed seconds. OFF GCD is a small high-contrast typeset label, never a decorative rune.
+**Tradeoff:** largest attention distance between enemy casting and own cooldown arc. Anchors must stay stable even if scene art moves. Highest effort: responsive spatial anchors and local VFX need careful occlusion/readability testing. This is not a camera-following HUD or an unlabeled gesture wheel.
 
-**Accessibility:** best bright-room option. Avoid grain, tiny marginalia and low-contrast sepia body text. Offer the shared reduced-motion mode and test dark-room glare with users; an alternate dark theme would be additional work, not assumed in this estimate. Grayscale hierarchy relies on typography, solid/dashed rules and exact labels.
+[Battle](mockups/anchor-ring/battle.html) · [Loadout](mockups/anchor-ring/loadout.html)
 
-**Rough effort:** medium, approximately **9–13 developer days**, including consistent card/rule assets across DOM and PixiJS plus accessibility verification. Budget extra art review if custom chapter emblems are requested. Same functional exclusions as Precision.
+## Short comparison
 
-Mockups: [battle](mockups/grimoire/battle.html) · [loadout](mockups/grimoire/loadout.html).
+| Direction     | Best reason to choose                                       | Main risk                             | Relative effort |
+| ------------- | ----------------------------------------------------------- | ------------------------------------- | --------------- |
+| Split Console | Centralised interrupt decision, familiar linear keys        | Repeated cast cue takes space         | Lowest          |
+| Duel Folio    | Strong learning/preparation identity; physical keyboard map | Upper-lane to right-column eye travel | Medium          |
+| Anchor Ring   | Strong arena identity and character-local information       | Diagonal scanning and overlapping VFX | Highest         |
 
-## 3. Astral Observatory
+## Recommendation — Split Console
 
-**Rationale.** Make the client feel like a duel staged inside an arcane observatory. Rounded instrument panels, orbital framing and a deep violet arena create a stronger fantasy spectacle, while opaque status panels protect the competitive information. This is the most expressive brand direction, suited to making elemental identities feel different through their arena art rather than rearranging the controls.
+**Recommend Split Console** because the central Counterspell channel makes the core interrupt decision easiest to locate while preserving familiar linear spell ordering. Validate it against Folio's keyboard cluster and Ring's local threat cue with a short mid-fight recognition exercise before implementing. Measure whether players can identify an active enemy cast, S readiness and their cooling spell immediately; these static studies do not establish playtest results.
 
-**Mood / references in words:** star charts, planetarium instruments, ceremonial arenas and luminous glass. Orbit decoration belongs in empty space; no animated particles behind the HUD.
-
-**Palette:** void `#100F25` background; violet `#211D3C` panels; starlight `#F5F1FF` primary text; lavender `#C3B9DF` secondary text/boundaries; cyan `#91DBFF` HP/selection; gold `#F6C76A` casting/attention. Fire, Frost and Lightning may change arena ornament later; semantic HUD colours stay fixed.
-
-**Contrast:** primary/secondary text on panels are approximately 14.5:1 and 8.7:1. Cyan HP and gold cast against void are approximately 12.3:1 and 11.9:1. Decoration may be translucent, but bar tracks, text panels and focus indicators must remain opaque. Void text is appropriate on a bright fill; starlight text is not.
-
-**Typography:** Space Grotesk (SIL Open Font License) for headings, Atkinson Hyperlegible (SIL Open Font License) for UI, IBM Plex Mono for timing. Mockups use system fonts. Avoid condensed or widely spaced numerals in combat; the observatory theme belongs in headings and framing.
-
-| Screen   | Treatment                                                                                                                                                                                                                        |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Home     | Dramatic title framed by a static orbital arc, followed by familiar rectangular private-lobby and training actions. Future matchmaking gets a queue panel with status and cancel beneath the selected discipline.                |
-| Lobby    | Two rounded player stations around the share code; spectator count/list sits below, explicitly separate from the two combatants. Settings stay in a conventional form.                                                           |
-| Training | Quiet observatory platform with meter panel below, retaining the same HUD positions. Ornament fades when reading spell details; no moving star field.                                                                            |
-| Loadout  | Tall discipline medallion on the left and rounded spell tiles on the right. Future elements change medallion/name and catalog, preserving key positions. S gets a double-ring frame and Fixed label.                             |
-| Battle   | An elliptical arena, rounded opaque status plates and rounded rectangular action tiles. No circular progress bars: straight bars still communicate cast timing. Results use a ceremonial heading above the standard round table. |
-
-**Readability specifics:** cyan HP and gold cast sit above the orbital art. READY uses a square endpoint/check despite rounded framing. A confirmed interrupt produces a stationary broken halo plus × text near the affected cast, never a screen-wide burst. Cooldowns keep high-contrast seconds over a dark hatch/sweep. OFF GCD remains ordinary text on S/D/F rather than a glowing dot.
-
-**Accessibility:** eliminate ambient drift and pulsing in reduced-motion mode; all important states must work with decoration entirely hidden. Avoid bloom on glyphs and thin neon outlines. Cyan/gold plus labels and hatch support colour-blind reading; keyboard focus uses a distinct solid outer ring. Preserve a predictable reading order even when visual decoration is radial.
-
-**Rough effort:** medium–large, approximately **12–18 developer days** including original frame/arena assets, DOM/PixiJS consistency and VFX/accessibility review. Same functional exclusions as Precision; elaborate animation or bespoke wizard art would require a separate estimate.
-
-Mockups: [battle](mockups/observatory/battle.html) · [loadout](mockups/observatory/loadout.html).
-
-## Comparison
-
-Effort assumes one developer familiar with the client, reuse of existing spell icons/characters, and one review iteration. These are planning ranges, not commitments. Contrast ratios above are rounded sRGB calculations for solid colours, not a complete accessibility audit; compare actual rendered text and antialiasing during implementation. Every direction must implement the shared accessibility baseline.
-
-| Direction          | Strongest quality                                   | Main tradeoff                                            | Future elements / queue                | Estimated effort |
-| ------------------ | --------------------------------------------------- | -------------------------------------------------------- | -------------------------------------- | ---------------- |
-| Precision          | Immediate competitive scanning; lowest asset burden | Less distinctive fantasy identity                        | Discipline rail / separate queue panel | 6–9 days         |
-| Living Grimoire    | Spell discovery and approachable craft identity     | Light UI may glare at night; print style needs restraint | Chapter tabs / destination tab         | 9–13 days        |
-| Astral Observatory | Most theatrical and ownable world                   | Ornament and VFX need stricter readability review        | Medallion + arena art / queue station  | 12–18 days       |
-
-## Recommendation — Precision
-
-**I recommend Precision** for the first unified client: the game’s central skill is reading charge and interrupt timing, and its restrained hierarchy puts that skill ahead of decoration. It also lets the team align DOM setup screens and the PixiJS battle HUD with the fewest bespoke assets while 0.2’s loadout evolves. Keep its semantics and geometry consistent rather than combining all three styles.
-
-**The owner chooses the direction.** Please select Precision, Living Grimoire or Astral Observatory. Also indicate whether desktop competitive play or small-screen play is the first implementation priority; that affects layout validation and effort. Approval here selects a visual direction only. Follow-up issues should cover shared tokens/fonts, DOM surfaces, seven-slot HUD and accessible battle feedback, then element/queue presentation when those features are scheduled.
+**Owner decision:** choose Split Console, Duel Folio or Anchor Ring. No additional product decisions are required to review these directions. Approval selects a direction only; implementation should be tracked separately.
