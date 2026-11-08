@@ -1,4 +1,4 @@
-import { ELEMENT_SPELL_COUNT, type SpellId } from '@magus/engine'
+import { ELEMENT_SPELL_COUNT, SPELLS, type SpellId } from '@magus/engine'
 import type { Baseline } from './baseline'
 import { profileEntrant } from './profile-controller'
 import { checkLoadout, type Profile } from './profile'
@@ -21,7 +21,7 @@ import type { Entrant, MatchResult } from './types'
 export const TOURNAMENT_FORMAT = 'arena-tournament'
 export const SHARD_FORMAT = 'arena-tournament-shard'
 
-export const DEFAULT_TOP = 4
+export const DEFAULT_TOP = 8
 export const DEFAULT_GAMES = 4
 export const DEFAULT_SEED = 1
 
@@ -113,16 +113,22 @@ const pad2 = (n: number) => String(n).padStart(2, '0')
 
 /**
  * Makes `profile` playable on `loadout` (which `checkLoadout` requires): drops rotation entries whose spell is not on
- * the loadout (with no entry left, the loadout's own Fire spells in slot order), and turns fake-casting off when its
- * spell is missing. Everything else is kept, and a profile that already fits comes back unchanged.
+ * the loadout (with no entry left, the loadout's own Fire spells in slot order), and, when the fake-cast spell is
+ * missing, retargets the fake to the loadout's longest cast-time spell (the first in slot order on a tie), turning
+ * fake-casting off only if the loadout has no cast-time spell. Everything else is kept, and a profile that already fits
+ * comes back unchanged.
  */
 export const adaptProfile = (profile: Profile, loadout: readonly SpellId[]): Profile => {
     let rotation = profile.rotation.filter(({ spell }) => loadout.includes(spell))
     if (rotation.length === 0) rotation = loadout.slice(0, ELEMENT_SPELL_COUNT).map(spell => ({ spell, when: [] }))
-    const fakeCast =
-        profile.fakeCast.enabled && !loadout.includes(profile.fakeCast.spell)
-            ? { ...profile.fakeCast, enabled: false }
-            : profile.fakeCast
+    let fakeCast = profile.fakeCast
+    if (fakeCast.enabled && !loadout.includes(fakeCast.spell)) {
+        let longest: SpellId | undefined
+        for (const id of loadout)
+            if (SPELLS[id].castSeconds && (!longest || SPELLS[id].castSeconds > (SPELLS[longest].castSeconds ?? 0)))
+                longest = id
+        fakeCast = longest ? { ...fakeCast, spell: longest } : { ...fakeCast, enabled: false }
+    }
     return checkLoadout({ ...profile, rotation, fakeCast }, loadout)
 }
 

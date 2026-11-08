@@ -73,6 +73,13 @@ describe('arena:tournament CLI', () => {
         expect(fails('--games', '3')).toMatch(/even/)
         expect(fails('--jobs', '9')).toMatch(/--jobs must be between 1 and 4/)
         expect(fails(...small, '--shard', '0/2')).toMatch(/--out/)
+        const baselineScript = fileURLToPath(new URL('../scripts/baseline.ts', import.meta.url))
+        try {
+            execFileSync('npx', ['tsx', baselineScript, '--out'], { encoding: 'utf8', stdio: 'pipe' })
+            throw new Error('expected the baseline CLI to fail')
+        } catch (error) {
+            expect(String((error as { stderr: unknown }).stderr)).toMatch(/--out needs a file/)
+        }
         writeFileSync(join(dir, 'bad.json'), '{}')
         expect(fails('merge', join(dir, 'bad.json'))).toMatch(/not a tournament shard/)
     })

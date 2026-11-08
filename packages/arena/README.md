@@ -9,7 +9,7 @@ npm run arena:match -- --seed 1          # summary of one match between the two 
 npm run arena:match -- --seed 1 --log    # the full match log, then the summary
 npm run arena:match -- --seed 1 --max-ticks 600
 npm run arena:match -- --seed 1 --a bait --b patient-counter   # two archetypes from profiles/
-npm run arena:tournament -- --top 4 --games 4 --seed 1          # round-robin, ranked by win rate (#103)
+npm run arena:tournament -- --top 8 --games 4 --seed 1          # round-robin, ranked by win rate (#103)
 ```
 
 ## Rules the arena keeps
@@ -154,15 +154,16 @@ intent in its file.
 npm run arena:tournament -- [--top N] [--profiles a,b] [--games G] [--seed S] [--max-ticks T] [--baseline VERSION]
                             [--jobs J] [--shard i/n] [--out FILE]
 npm run arena:tournament -- merge SHARD.json... [--out FILE]
-npm run arena:baseline -- [--top K] > packages/arena/baselines/<ENGINE_VERSION>.json
+npm run arena:baseline -- [--top K] --out baselines/<ENGINE_VERSION>.json
 ```
 
 An **entrant** is a (loadout, profile) pair: the top `N` loadouts of the version's dummy-DPS baseline
 (`baselines/<ENGINE_VERSION>.json`, generated from `sim:search`, best first; a missing file fails with a clear error)
 crossed with the profiles (`--profiles`, default every archetype in `profiles/`; only their behaviour is used, not the
 loadout they were written for). A profile naming spells the loadout lacks is adapted (`adaptProfile`): rotation entries
-for missing spells are dropped (with none left, the loadout's own Fire spells in slot order) and fake-casting is turned off
-if its spell is missing. `--top` defaults to 4 and is clamped to the table, which `config.top` and stderr report.
+for missing spells are dropped (with none left, the loadout's own Fire spells in slot order), and a fake cast of a spell
+the loadout lacks (bait without Meteor) is retargeted to the loadout's longest cast-time spell (first in slot order on a
+tie), or turned off if it has none. Everything else is kept. `--top` defaults to 8 and is clamped to the table, which `config.top` and stderr report.
 
 - **Pairs.** Every unordered pair of distinct entrants plays, so a loadout meets itself under a different profile (mirror
   matches), and an entrant never meets itself. Pairs are indexed (0,1), (0,2), ..., (1,2), ... .

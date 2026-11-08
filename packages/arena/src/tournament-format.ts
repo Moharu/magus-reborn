@@ -46,7 +46,7 @@ export const formatTable = (result: TournamentResult) => {
             )
         })
     return [
-        `${result.games / 2} matches, ${config.entrants.length} entrants, ${config.games} games per pair, seed ${config.seed}, baseline ${config.baselineVersion}. Only wins score.`,
+        `${result.games} matches, ${config.entrants.length} entrants, ${config.games} games per pair, seed ${config.seed}, baseline ${config.baselineVersion}. Only wins score.`,
         line(header),
         ...rows.map(line),
         '',

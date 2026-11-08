@@ -6,7 +6,7 @@
 // win rate only, games per pair even so sides swap equally. --out writes the JSON (the result, or with --shard that
 // shard's pairs, which `merge` combines). --jobs (default: the cores, at most 4) runs that many worker processes and
 // never changes the output. Progress goes to stderr.
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -114,20 +114,34 @@ const worker = (spec: { index: number; count: number }) => {
     process.stdout.write(JSON.stringify(playPairs(plan(), mine)))
 }
 
+/** Every worker still running: when one fails, the others are killed rather than left burning CPU. */
+const children = new Set<ChildProcess>()
+const killWorkers = () => {
+    for (const child of children) child.kill()
+    children.clear()
+}
+
 const runWorker = (index: number, count: number) =>
     new Promise<PairResult[]>((resolve, reject) => {
         const script = fileURLToPath(import.meta.url)
         const child = spawn(process.execPath, [...process.execArgv, script, ...args, '--worker', `${index}/${count}`], {
             stdio: ['ignore', 'pipe', 'inherit'],
         })
+        children.add(child)
         let out = ''
         child.stdout.setEncoding('utf8').on('data', chunk => (out += chunk))
-        child.on('error', reject)
-        child.on('close', code =>
-            code === 0
-                ? resolve(JSON.parse(out) as PairResult[])
-                : reject(new Error(`worker ${index} exited with ${code}`)),
-        )
+        child.on('error', error => {
+            killWorkers()
+            reject(error)
+        })
+        child.on('close', code => {
+            children.delete(child)
+            if (code === 0) resolve(JSON.parse(out) as PairResult[])
+            else {
+                killWorkers()
+                reject(new Error(`worker ${index} exited with ${code}`))
+            }
+        })
     })
 
 const main = async () => {
@@ -175,6 +189,7 @@ const main = async () => {
 }
 
 main().catch(error => {
+    killWorkers()
     console.error(error instanceof Error ? error.message : error)
     process.exit(1)
 })

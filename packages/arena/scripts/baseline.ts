@@ -1,12 +1,20 @@
-// Usage: npm run arena:baseline -- [--top K]
+// Usage: npm run arena:baseline -- [--top K] [--out FILE]
 // Prints the dummy-DPS baseline table for the current engine version as JSON: the K best distinct loadouts of the
-// 0.2 `sim:search` (dpsUnderPressure, then dps; K defaults to 16), best first. Redirect it to
-// packages/arena/baselines/<ENGINE_VERSION>.json. One process, about a minute and a half of CPU.
+// 0.2 `sim:search` (dpsUnderPressure, then dps; K defaults to 16), best first. --out FILE writes it there (use
+// packages/arena/baselines/<ENGINE_VERSION>.json; don't redirect stdout through npm, whose banner would corrupt the
+// JSON), otherwise it is printed. One process, about a minute and a half of CPU.
+import { writeFileSync } from 'node:fs'
 import { ENGINE_VERSION, search } from '@magus/engine'
 
 const args = process.argv.slice(2)
 const topIndex = args.indexOf('--top')
 const top = topIndex === -1 ? 16 : Number(args[topIndex + 1])
+const outIndex = args.indexOf('--out')
+const out = outIndex === -1 ? undefined : args[outIndex + 1]
+if (outIndex !== -1 && (out === undefined || out.startsWith('--'))) {
+    console.error('--out needs a file')
+    process.exit(1)
+}
 if (!(Number.isInteger(top) && top >= 1)) {
     console.error('--top must be a positive integer')
     process.exit(1)
@@ -24,10 +32,11 @@ for (const { loadout, dps, dpsUnderPressure } of results) {
     loadouts.push({ rank: loadouts.length + 1, loadout, dps, dpsUnderPressure })
     if (loadouts.length === top) break
 }
-console.log(
+const text =
     JSON.stringify(
         { version: ENGINE_VERSION, generatedBy: `npm run arena:baseline -- --top ${top}`, loadouts },
         null,
         4,
-    ),
-)
+    ) + '\n'
+if (out === undefined) process.stdout.write(text)
+else writeFileSync(out, text)
