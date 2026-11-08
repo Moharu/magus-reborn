@@ -6,7 +6,8 @@ import { closeAllSockets, connect, connectRegistry, createLobby, join, lobbyWith
 afterEach(closeAllSockets)
 
 /** Valid, and different from the default, so a restored loadout can't pass by accident. */
-const CUSTOM_LOADOUT: SpellId[] = [...DEFAULT_SPELLS].reverse()
+/** The default spells with the Fire spells in reverse order: a different loadout that is still valid. */
+const CUSTOM_LOADOUT: SpellId[] = [...DEFAULT_SPELLS.slice(0, 4).reverse(), ...DEFAULT_SPELLS.slice(4)]
 
 describe('joining a lobby', () => {
     it('seats two clients and tells both about each other', async () => {
