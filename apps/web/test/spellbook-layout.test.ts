@@ -40,13 +40,13 @@ describe.each(sizes)('rendered spellbook at $name', ({ width }) => {
 
     it('leaves room for a readable icon and a name inside each card', () => {
         for (const c of cards) {
-            const icon = c.w * 0.62 // .spell img is 62% of the card width
+            const icon = c.w * 0.84 // .spell img is 84% of the card width
             expect(icon + 30).toBeLessThanOrEqual(c.h) // icon plus a two-line name
         }
         if (width >= 480) {
             // rendered icon at least 32px on phones, 48px on desktop
             const min = width >= 1000 ? 48 : 32
-            for (const c of cards) expect(px(c.w * 0.62)).toBeGreaterThanOrEqual(min)
+            for (const c of cards) expect(px(c.w * 0.84)).toBeGreaterThanOrEqual(min)
         }
     })
 
