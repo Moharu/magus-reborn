@@ -197,7 +197,6 @@ export const spellPicker = (
                     },
                     h('img', { src: iconUrl(id), alt: '', draggable: 'false' }),
                     h('span', { class: 'key' }, HOTKEYS[i]),
-                    fixed ? h('span', { class: 'fixed-tag' }, 'Fixed') : null,
                 ),
                 h('span', { class: 'name' }, SPELLS[id].label),
             )
@@ -292,11 +291,6 @@ export const spellPicker = (
                 ...spellCards(book.elementSpells, 0, 3, bookY),
                 h('h3', { class: 'book-label', style: labelBox(generalX, 2 * button + gap) }, 'General spells'),
                 ...spellCards(book.generalSpells, 5, 2, bookY),
-                h(
-                    'span',
-                    { class: 'book-label fixed-note', style: labelBox(buttonX(4) - 12, button + 24) },
-                    'Always equipped',
-                ),
                 h('div', {
                     class: 'bar-panel',
                     style: box(

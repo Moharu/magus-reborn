@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { HOTKEYS, LOADOUT_SIZE } from '@magus/engine'
-import { hotkeyFor, KEY_CODES } from '../src/game/hotkeys'
+import { hotkeyFor, keybindsVisible, KEY_CODES } from '../src/game/hotkeys'
 import { BAR, BAR_LEFT, BAR_WIDTH, buttonX, WIDTH } from '../src/game/layout'
 
 describe('hotkeys', () => {
@@ -50,5 +50,13 @@ describe('hotkeyFor', () => {
         expect(hotkeyFor({ code: 'KeyQ', ctrlKey: true })).toBeUndefined()
         expect(hotkeyFor({ code: 'Space', target: { tagName: 'INPUT' } })).toBeUndefined()
         expect(hotkeyFor({ code: 'KeyS' })).toBeUndefined()
+    })
+})
+
+describe('keybindsVisible', () => {
+    it('hides labels on touch only', () => {
+        expect(keybindsVisible(q => ({ matches: q.includes('pointer: coarse') }))).toBe(false)
+        expect(keybindsVisible(() => ({ matches: false }))).toBe(true)
+        expect(keybindsVisible(undefined)).toBe(true)
     })
 })

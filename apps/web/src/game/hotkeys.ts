@@ -24,3 +24,8 @@ export const hotkeyFor = (event: KeyLike): number | undefined => {
         return undefined
     return index
 }
+
+/** Keybind labels only make sense with a keyboard: hide them where the primary input is touch. */
+export const keybindsVisible = (
+    match: ((query: string) => { matches: boolean }) | undefined = globalThis.matchMedia?.bind(globalThis),
+) => !match || !match('(hover: none) and (pointer: coarse)').matches

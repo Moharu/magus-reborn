@@ -2,6 +2,7 @@ import { Container, Graphics, Sprite, Text } from 'pixi.js'
 import { HOTKEYS, SPELLS, ticksToSeconds, type PlayerState, type PlayerView, type SpellId } from '@magus/engine'
 import { buttonState, type ButtonState } from './button-state'
 import { BAR, BAR_LEFT, BAR_WIDTH, buttonX, TEXT_FONT, WIDTH, type Side } from './layout'
+import { keybindsVisible } from './hotkeys'
 import { iconTexture } from './textures'
 
 export const INFINITE_HP = 1e8
@@ -200,6 +201,7 @@ export class ActionBar extends Container {
             key.anchor.set(1, 1)
             key.position.set(BUTTON - 6, BUTTON - 3)
             key.text = HOTKEYS[i]
+            key.visible = keybindsVisible()
             const name = label(11, '600', 0xdddddd)
             name.style.wordWrap = true
             name.style.wordWrapWidth = BUTTON + BAR.gap - 2
