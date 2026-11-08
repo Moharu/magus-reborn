@@ -15,6 +15,7 @@ export const trainingScreen = (root: HTMLElement) => {
     let loadout = getLoadout()
     let battle: Battle
     let logSeen = 0
+    let session = 0
     const meter = new DamageMeter('player2')
     let view: BattleView | null = null
     let disposed = false
@@ -34,9 +35,11 @@ export const trainingScreen = (root: HTMLElement) => {
             { name: 'Training Dummy', spells: DEFAULT_SPELLS, hp: DUMMY_HP },
         )
         logSeen = 0
+        session++
+        stage.querySelector('.spell-log-history')?.replaceChildren()
         meter.reset()
         renderMeter()
-        view?.update(battle.snapshot(), [], [])
+        view?.update(battle.snapshot(), [], [], true, 0, session)
     }
 
     const renderMeter = () => {
@@ -86,10 +89,11 @@ export const trainingScreen = (root: HTMLElement) => {
     const flush = () => {
         const log = battle.state.log
         const newLog = log.slice(logSeen)
+        const logFrom = logSeen
         logSeen = log.length
         const events = battle.drainEvents()
         meter.record(events)
-        view?.update(battle.snapshot(), newLog, events)
+        view?.update(battle.snapshot(), newLog, events, true, logFrom, session)
     }
 
     const openPicker = () => {
@@ -171,7 +175,7 @@ export const trainingScreen = (root: HTMLElement) => {
         onCreated: v => {
             if (disposed) return v.destroy()
             view = v
-            view.update(battle.snapshot(), [], [])
+            view.update(battle.snapshot(), [], [], true, 0, session)
             last = performance.now()
             raf = requestAnimationFrame(loop)
         },

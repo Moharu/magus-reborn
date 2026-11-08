@@ -557,6 +557,8 @@ const startLobby = (root: HTMLElement, code: string) => {
                     if (mode === 'setup' && lobby) renderSetup(lobby, false)
                     break
                 case 'meta':
+                    if (!message.lobby.matchStarted || (lobby && message.lobby.round < lobby.round))
+                        stage.querySelector('.spell-log-history')?.replaceChildren()
                     lobby = message.lobby
                     break
                 case 'battle': {
@@ -589,6 +591,7 @@ const startLobby = (root: HTMLElement, code: string) => {
         clearInterval(pinger)
         socket?.close()
         destroyView()
+        stage.querySelector('.spell-log-history')?.remove()
         netStatus.remove()
     }
 }

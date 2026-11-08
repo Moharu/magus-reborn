@@ -254,6 +254,63 @@ describe('training room', () => {
         return { root: page.root, leave }
     }
 
+    it('delivers every training outcome once and resets offsets on restart', async () => {
+        const { emptySpellLog, mapSpellLog } = await import('../src/game/spell-log')
+        let state = emptySpellLog()
+        let consumed = 0
+        let session: number | undefined
+        const labels: string[] = []
+        let press!: (i: number) => unknown
+        let release!: (i: number) => void
+        const page = await loadPage(async () => ({
+            BattleView: {
+                create: async (_host: HTMLElement, options: { onPress: typeof press; onRelease: typeof release }) => {
+                    press = options.onPress
+                    release = options.onRelease
+                    return {
+                        ...fakeView(),
+                        update: (
+                            _snap: unknown,
+                            entries: Parameters<typeof mapSpellLog>[1],
+                            _events: unknown,
+                            _fresh = true,
+                            from = 0,
+                            round = 0,
+                        ) => {
+                            if (session !== round) {
+                                session = round
+                                consumed = 0
+                                state = emptySpellLog()
+                            }
+                            state = mapSpellLog(state, entries.slice(Math.max(0, consumed - from)), 'player1')
+                            labels.push(...(state as ReturnType<typeof mapSpellLog>).added.map(row => row.label))
+                            consumed = Math.max(consumed, from + entries.length)
+                        },
+                    }
+                },
+            },
+        }))
+        const { Battle } = await import('@magus/engine')
+        const spy = vi.spyOn(Battle.prototype, 'snapshot')
+        const leave = page.openTraining()
+        await settle()
+        const battle = spy.mock.contexts.at(-1) as InstanceType<typeof Battle>
+        const fire = battle.state.player1.spells.findIndex(spell => spell.id === 'SPELL_FIREBALL')
+        const haste = battle.state.player1.spells.findIndex(spell => spell.id === 'SPELL_HASTE')
+        press(fire)
+        release(fire)
+        press(fire)
+        for (let i = 0; i < 100; i++) battle.tick()
+        release(fire)
+        press(haste)
+        expect(labels).toEqual(['YOU: CANCELLED Fireball', 'YOU: Fireball', 'YOU: Haste'])
+        page.root.button('Restart')!.click()
+        press(haste)
+        expect(labels).toEqual(['YOU: CANCELLED Fireball', 'YOU: Fireball', 'YOU: Haste', 'YOU: Haste'])
+        leave()
+        spy.mockRestore()
+    })
+
     it('sends real finalization state when a training battle ends', async () => {
         const update = vi.fn()
         const page = await loadPage(async () => ({
@@ -321,6 +378,33 @@ describe('training room', () => {
 })
 
 describe('online, for a player', () => {
+    it('keeps arena history within a match and clears it for a new match and on leave', async () => {
+        let host!: FakeElement
+        const { leave } = await seatedClient(async () => ({
+            BattleView: {
+                create: async (stage: FakeElement) => {
+                    host = stage
+                    return fakeView()
+                },
+            },
+        }))
+        const history = new FakeElement('div')
+        history.className = 'spell-log-history'
+        history.append('round one')
+        host.append(history)
+        const client = socketOfClient()!
+        deliver(client.connId, { t: 'meta', lobby: { ...lobby.info(), round: 2 } })
+        expect(history.textContent).toBe('round one')
+        deliver(client.connId, { t: 'meta', lobby: { ...lobby.info(), round: 1 } })
+        expect(history.textContent).toBe('')
+        history.append('new match')
+        deliver(client.connId, { t: 'meta', lobby: { ...lobby.info(), matchStarted: false } })
+        expect(history.textContent).toBe('')
+        history.append('last event')
+        leave()
+        expect(host.querySelector('.spell-log-history')).toBeNull()
+    })
+
     it('shows the message and a reload control when the import fails', async () => {
         const { root } = await seatedClient(FAILED_CHUNK)
         expectNewVersionMessage(root)

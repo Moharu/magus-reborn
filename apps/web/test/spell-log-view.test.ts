@@ -53,6 +53,7 @@ const history = {
 }
 const host = { append: vi.fn(), querySelector: () => history }
 beforeEach(() => {
+    history.replaceChildren()
     vi.stubGlobal('document', { createElement: () => ({ textContent: '' }) })
     vi.stubGlobal('matchMedia', () => ({ matches: false }))
 })
@@ -68,7 +69,7 @@ const snapshot = () =>
         'player1',
     )
 
-it('seeds catch-up without old announcements, deduplicates the next broadcast and resets each round', () => {
+it('seeds catch-up without old announcements, deduplicates the next broadcast and retains history across round views', () => {
     const view = makeView()
     const snap = snapshot()
     view.update([release], 0, false, 1, snap)
@@ -79,12 +80,12 @@ it('seeds catch-up without old announcements, deduplicates the next broadcast an
     view.update([release], 1, true, 1, snap)
     expect(history.children).toHaveLength(1)
     view.update([], 0, true, 2, snap)
-    expect(history.children).toHaveLength(0)
-    expect(view.children.every(row => !row.visible)).toBe(true)
-    view.update([release], 0, true, 2, snap)
     expect(history.children).toHaveLength(1)
-    makeView()
-    expect(history.children).toHaveLength(0)
+    expect(view.children.every(row => !row.visible)).toBe(true)
+    const next = makeView()
+    next.update([release], 0, true, 2, snap)
+    expect(history.children).toHaveLength(2)
+    expect(next.children.filter(row => row.visible)).toHaveLength(1)
 })
 
 it('recovers the public cast for an early stop after catch-up', () => {

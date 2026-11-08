@@ -38,9 +38,8 @@ export class SpellLogView extends Container {
         host: HTMLElement,
     ) {
         super()
-        // The arena host can outlive the previous match view.
+        // The arena host retains accessible history across round views.
         this.history = host.querySelector?.<HTMLElement>('.spell-log-history') ?? document.createElement('div')
-        this.history.replaceChildren()
         const area = battleLayout(WIDTH, HEIGHT).centre
         this.position.set(area.x + area.width / 2, area.y + area.height - 16)
         this.addChild(...this.pool.map(slot => slot.root))
@@ -57,7 +56,6 @@ export class SpellLogView extends Container {
             this.round = round
             this.consumed = 0
             this.state = emptySpellLog()
-            this.history.replaceChildren()
             for (const slot of this.pool) slot.root.visible = false
         }
         if (!fresh) {
