@@ -71,9 +71,10 @@ applied, then `b`'s, then `Battle.tick()`. Within a tick `a` acts first, so tour
 - **Death**: the match ends when the engine's result is final (`Battle.finished`). Actions in the tick the winner is
   decided still resolve, whether the kill came from an action or from `tick()`, so same-tick lethal damage to both
   players is a draw (`reason: 'mutual'`). `ticks` is the winner's tick.
-- **Time cap**: `maxTicks` defaults to `DEFAULT_MAX_TICKS`, 3 minutes of game time (3600 ticks at 50 ms). If both
-  players are alive when the game reaches tick `maxTicks`, the match stops before any action on that tick and is a draw
-  (`reason: 'timeout'`, `ticks === maxTicks`). A kill decided inside the `tick()` that reaches `maxTicks` still counts.
+- **Time cap**: `maxTicks` defaults to `DEFAULT_MAX_TICKS`, 3 minutes of game time (3600 ticks at 50 ms). Tick
+  `maxTicks` resolves like any other tick: both players act on it, and a kill on it (from an action or from the `tick()`
+  that reached it) counts. If both players are still alive after it, the match is a draw (`reason: 'timeout'`,
+  `ticks === maxTicks`).
 
 ### Stats
 

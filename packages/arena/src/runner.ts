@@ -229,8 +229,8 @@ const summarize = (battle: Battle, withLog: boolean) => {
  *   2. `a`'s actions are applied, then `b`'s (engine order player1 then player2; tournaments swap sides);
  *   3. `Battle.tick()` advances the game.
  * The match ends when the engine's result is final (`Battle.finished`): actions in the tick the winner is decided still
- * resolve, so same-tick lethal damage to both players is a draw. With both players alive at tick `maxTicks`, the match
- * stops before any action on that tick and is a draw.
+ * resolve, so same-tick lethal damage to both players is a draw. Tick `maxTicks` resolves like any other tick: both
+ * players act on it, and a winner decided on it counts. With both players still alive after it, the match is a draw.
  */
 export const runMatch = (options: MatchOptions): MatchResult => {
     const { seed, a, b, maxTicks = DEFAULT_MAX_TICKS, log = true } = options
@@ -249,16 +249,17 @@ export const runMatch = (options: MatchOptions): MatchResult => {
 
     let timeout = false
     while (!battle.finished) {
-        if (state.winner === null && state.gameTick >= maxTicks) {
-            timeout = true
-            break
-        }
         refresh(viewA, state.player1, state.player2, state.gameTick)
         refresh(viewB, state.player2, state.player1, state.gameTick)
         const decisionA = decideA(viewA.view)
         const decisionB = decideB(viewB.view)
         rejectedA += act(battle, 'player1', decisionA)
         rejectedB += act(battle, 'player2', decisionB)
+        // the cap tick resolves like any other; only with no winner after it is the match a timeout
+        if (state.winner === null && state.gameTick >= maxTicks) {
+            timeout = true
+            break
+        }
         battle.tick()
     }
 

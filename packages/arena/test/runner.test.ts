@@ -76,17 +76,27 @@ describe('runMatch: time cap', () => {
         expect(runMatch({ seed: 1, a: idler(), b: idler() }).ticks).toBe(3600)
     })
 
-    it('takes no action on the cap tick itself: a kill due on tick maxTicks is a timeout, one tick more wins', () => {
-        expect(runMatch({ seed: 1, a: only('SPELL_METEOR'), b: idler(), maxTicks: KILL_TICK })).toMatchObject({
+    it('resolves the cap tick like any other: a kill landing exactly on tick maxTicks counts', () => {
+        const result = runMatch({ seed: 1, a: only('SPELL_METEOR'), b: idler(), maxTicks: KILL_TICK })
+        expect(result).toMatchObject({ winner: 'a', reason: 'death', ticks: KILL_TICK, hp: { a: 100, b: 0 } })
+        expect(result.log.at(-1)).toEqual({
+            tick: KILL_TICK,
+            side: 'a',
+            type: 'SPELL_RELEASE',
+            spellId: 'SPELL_METEOR',
+        })
+        // one tick short of the kill, the match is a timeout on exactly maxTicks
+        expect(runMatch({ seed: 1, a: only('SPELL_METEOR'), b: idler(), maxTicks: KILL_TICK - 1 })).toMatchObject({
             winner: 'draw',
             reason: 'timeout',
-            ticks: KILL_TICK,
+            ticks: KILL_TICK - 1,
+            hp: { a: 100, b: 16 },
         })
-        expect(runMatch({ seed: 1, a: only('SPELL_METEOR'), b: idler(), maxTicks: KILL_TICK + 1 })).toMatchObject({
-            winner: 'a',
-            reason: 'death',
-            ticks: KILL_TICK,
-        })
+    })
+
+    it('a mutual kill exactly on the cap tick is a draw by death, not a timeout', () => {
+        const result = runMatch({ seed: 1, a: only('SPELL_METEOR'), b: only('SPELL_METEOR'), maxTicks: KILL_TICK })
+        expect(result).toMatchObject({ winner: 'draw', reason: 'mutual', ticks: KILL_TICK, hp: { a: 0, b: 0 } })
     })
 
     it('rejects a bad seed, maxTicks or loadout', () => {
@@ -236,7 +246,8 @@ describe('runMatch: what a controller sees', () => {
             maxTicks: 200,
         })
 
-        expect(seen).toHaveLength(200)
+        // ticks 0 to maxTicks, the cap tick included
+        expect(seen).toHaveLength(201)
         for (const view of seen) {
             expect(Object.keys(view.enemy).sort()).toEqual(['casting', 'hp', 'lockedUntil'])
             const json = JSON.stringify(view)
