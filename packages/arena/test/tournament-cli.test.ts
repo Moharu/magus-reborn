@@ -57,6 +57,23 @@ describe('arena:tournament CLI', () => {
         expect(readFileSync(join(dir, 'merged.json'), 'utf8')).toBe(readFileSync(join(dir, 'one.json'), 'utf8'))
     })
 
+    it('keeps stdout pure JSON with --out -, for a run and for merge', () => {
+        const run = execFileSync('npx', ['tsx', script, ...small, '--jobs', '1', '--out', '-'], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+        })
+        expect(JSON.parse(run)).toEqual(json('one.json'))
+        const merged = execFileSync(
+            'npx',
+            ['tsx', script, 'merge', join(dir, 's0.json'), join(dir, 's1.json'), join(dir, 's2.json'), '--out', '-'],
+            {
+                encoding: 'utf8',
+                stdio: ['ignore', 'pipe', 'pipe'],
+            },
+        )
+        expect(JSON.parse(merged)).toEqual(json('one.json'))
+    })
+
     it('fails clearly on a missing baseline, a bad profile and an odd game count', () => {
         const fails = (...args: string[]) => {
             try {

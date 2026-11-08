@@ -174,7 +174,7 @@ tie), or turned off if it has none. Everything else is kept. `--top` defaults to
   (`L<baseline rank>/<profile>`). The table shows the 95% Wilson interval, wide on a few games. `firstWins` in the JSON
   counts games won by `player1`, the first-mover edge.
 - **Output.** `--out FILE` writes `{ format, config, ranking, matrix, firstWins, games }`: `matrix[row][column]` is the
-  games `row` won against `column`. The table goes to stdout.
+  games `row` won against `column`. The table goes to stdout (stderr with `--out -`, which prints the JSON to stdout, for a run and for `merge`).
 - **Shards.** `--shard i/n` plays the pairs with `pair % n === i` and writes `{ format, config, shard, pairs }` (needs
   `--out`); `merge` of all `n` files, in any order, gives byte-identical JSON to the unsharded run. It refuses missing,
   repeated or foreign shards (different config).

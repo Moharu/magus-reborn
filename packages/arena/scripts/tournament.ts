@@ -72,6 +72,9 @@ const writeOut = (value: unknown) => {
     else writeFileSync(out, text)
 }
 
+/** The table goes to stdout, unless `--out -` puts the JSON there: then it goes to stderr, so stdout stays parseable. */
+const printTable = (table: string) => (flag('out') === '-' ? console.error(table) : console.log(table))
+
 const loadBaseline = () => {
     const version = flag('baseline') ?? ENGINE_VERSION
     if (!/^[\w.-]+$/.test(version))
@@ -150,7 +153,7 @@ const main = async () => {
         if (files.length === 0) throw new Error('merge needs shard files')
         const result = mergeShards(files.map(file => readJson(file) as ShardResult))
         writeOut(result)
-        console.log(formatTable(result))
+        printTable(formatTable(result))
         return
     }
 
@@ -185,7 +188,7 @@ const main = async () => {
     }
     const result = summarize(config, pairs)
     writeOut(result)
-    console.log(formatTable(result))
+    printTable(formatTable(result))
 }
 
 main().catch(error => {
