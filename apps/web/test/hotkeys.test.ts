@@ -45,6 +45,13 @@ describe('hotkeyFor', () => {
         expect(hotkeyFor({ code: 'Space', target: { tagName: 'BUTTON' } })).toBe(4)
     })
 
+    it('leaves keys to buttons inside a dialog or the picker', () => {
+        const inside = (selector: string) => ({ tagName: 'BUTTON', closest: (s: string) => s.includes(selector) })
+        expect(hotkeyFor({ code: 'Space', target: inside('dialog') })).toBeUndefined()
+        expect(hotkeyFor({ code: 'Space', target: inside('.picker') })).toBeUndefined()
+        expect(hotkeyFor({ code: 'Space', target: { tagName: 'BODY', closest: () => null } })).toBe(4)
+    })
+
     it('ignores repeats, modified keys and typing in fields', () => {
         expect(hotkeyFor({ code: 'KeyQ', repeat: true })).toBeUndefined()
         expect(hotkeyFor({ code: 'KeyQ', ctrlKey: true })).toBeUndefined()

@@ -6,20 +6,28 @@ const codeOf = (label: string) => (label.length === 1 ? `Key${label}` : label)
 /** Maps a pressed key to its spell slot. Derived from `HOTKEYS`, so labels and input cannot drift apart. */
 export const KEY_CODES: Record<string, number> = Object.fromEntries(HOTKEYS.map((label, i) => [codeOf(label), i]))
 
+interface HotkeyTarget {
+    tagName?: string
+    isContentEditable?: boolean
+    closest?: (selector: string) => unknown
+}
+
 export interface KeyLike {
     code: string
     repeat?: boolean
     ctrlKey?: boolean
     metaKey?: boolean
     altKey?: boolean
-    target?: EventTarget | { tagName?: string; isContentEditable?: boolean } | null
+    target?: EventTarget | HotkeyTarget | null
 }
 
 /** The slot a key press should cast, or undefined for modified keys, repeats and typing in a field. */
 export const hotkeyFor = (event: KeyLike): number | undefined => {
     const index = KEY_CODES[event.code]
     if (index === undefined || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return undefined
-    const target = event.target as { tagName?: string; isContentEditable?: boolean } | null | undefined
+    const target = event.target as HotkeyTarget | null | undefined
+    // keys typed into a dialog or the loadout picker belong to its buttons (Space activates them)
+    if (target?.closest?.('dialog, .picker')) return undefined
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable))
         return undefined
     return index
