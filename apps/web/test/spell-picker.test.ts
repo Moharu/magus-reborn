@@ -67,7 +67,7 @@ it('places all seven editable bar icons at the battle coordinates and size', () 
     layout.slots.forEach((slot, index) => {
         const wrap = target(root, `slot:${index}`).parent!
         expect(wrap.style.cssText).toBe(
-            `left:${(slot.x / WIDTH) * 100}%;top:${(slot.y / HEIGHT) * 100}%;width:${(slot.width / WIDTH) * 100}%;height:${(slot.width / HEIGHT) * 100}%`,
+            `left:${(slot.x / WIDTH) * 100}%;top:${(slot.y / HEIGHT) * 100}%;width:${(slot.width / WIDTH) * 100}%;height:${(slot.width / HEIGHT) * 100}%;--slot:${index}`,
         )
     })
 })

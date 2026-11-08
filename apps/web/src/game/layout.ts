@@ -105,3 +105,24 @@ export const battleLayout = (width: number, height: number) => {
         ),
     }
 }
+
+/** Phone presentation only; all values are CSS pixels in the safe-area content box. */
+export const phoneLandscape = (width: number, height: number) => width <= 900 && width > height
+
+export const mobileBattleLayout = (width: number, height: number) => {
+    const gap = width < 844 ? 4 : 6
+    const panelWidth = width * (width < 844 ? 0.96 : 0.92)
+    const left = (width - panelWidth) / 2
+    const button = (panelWidth - 10 - gap * 6) / 7
+    const bar = { x: left, y: height - 92, width: panelWidth, height: 86 }
+    return {
+        bar,
+        slots: Array.from({ length: 7 }, (_, i) => ({
+            x: left + 5 + i * (button + gap),
+            y: bar.y + 5,
+            width: button,
+            height: 60,
+        })),
+        log: { x: width / 2, y: bar.y - 22 },
+    }
+}

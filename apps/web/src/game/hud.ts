@@ -12,7 +12,16 @@ import {
     type SpellId,
 } from '@magus/engine'
 import { buttonState, type ButtonState } from './button-state'
-import { battleLayout, BATTLE_BAR, battleButtonX, HEIGHT, TEXT_FONT, WIDTH, type Side } from './layout'
+import {
+    battleLayout,
+    BATTLE_BAR,
+    battleButtonX,
+    HEIGHT,
+    TEXT_FONT,
+    WIDTH,
+    type Side,
+    mobileBattleLayout,
+} from './layout'
 import { keybindsVisible } from './hotkeys'
 import { iconTexture } from './textures'
 
@@ -209,6 +218,8 @@ export class PlayerHud extends Container {
 const BUTTON = BATTLE_BAR.button
 
 /** The seven spell buttons. Pointer input is reported through the callbacks. */
+const FEEDBACK_TICKS = 20
+
 export class ActionBar extends Container {
     private readonly buttons: {
         root: Container
@@ -218,8 +229,14 @@ export class ActionBar extends Container {
         center: Text
         key: Text
         name: Text
+        feedback: Text
+        blockedReason: string
+        feedbackUntil: number
+        scaleX: number
+        scaleY: number
         spellId: string
     }[] = []
+    private readonly panel = new Graphics()
     pressed = new Set<number>()
     private accessibleCast: { index: number; startingTick: number } | null = null
     // Ten 50 ms ticks allow a 0.5 s lobby round trip without claiming later casts.
@@ -248,7 +265,7 @@ export class ActionBar extends Container {
     ) {
         super()
         const r = battleLayout(WIDTH, HEIGHT).bar
-        const panel = new Graphics()
+        const panel = this.panel
             .roundRect(r.x, r.y, r.width, r.height, 16)
             .fill(0x130f20)
             .stroke({ width: 1, color: 0x756585 })
@@ -280,12 +297,15 @@ export class ActionBar extends Container {
             name.style.lineHeight = 12
             name.anchor.set(0.5, 0)
             name.position.set(BUTTON / 2, BUTTON + 2)
+            const feedback = label(14)
+            feedback.anchor.set(0.5, 1)
+            feedback.position.set(BUTTON / 2, -6)
             // the cooldown sweep is drawn oversized and clipped with the icon
             const mask = new Graphics().roundRect(0, 0, BUTTON, BUTTON, 14).fill(0xffffff)
             const clip = new Container()
             clip.addChild(icon, overlay)
             clip.mask = mask
-            root.addChild(mask, clip, frame, center, key, name)
+            root.addChild(mask, clip, frame, center, key, name, feedback)
             // Manual input does not own automatic release. Only accepted cast state
             // can invalidate the existing accessible binding.
             root.on('pointerdown', () => {
@@ -293,6 +313,9 @@ export class ActionBar extends Container {
                 this.pressed.add(i)
                 this.manualPress(i)
                 onPress(i)
+                setText(feedback, this.buttons[i].blockedReason)
+                // Show the reason for one second of engine time, then clear it.
+                this.buttons[i].feedbackUntil = this.requestTick + FEEDBACK_TICKS
             })
             const release = () => {
                 if (!this.pressed.delete(i)) return
@@ -308,8 +331,44 @@ export class ActionBar extends Container {
                 if (onPress(i) === false) this.accessibleRequests.delete(i)
             })
             this.addChild(root)
-            this.buttons.push({ root, icon, overlay, frame, center, key, name, spellId: '' })
+            this.buttons.push({
+                root,
+                icon,
+                overlay,
+                frame,
+                center,
+                key,
+                name,
+                feedback,
+                blockedReason: '',
+                feedbackUntil: 0,
+                scaleX: 1,
+                scaleY: 1,
+                spellId: '',
+            })
         }
+    }
+
+    /** Reposition existing input owners; never replace their handlers or held state. */
+    fitPhone(width: number, height: number, compact: boolean) {
+        const layout = compact ? mobileBattleLayout(width, height) : battleLayout(WIDTH, HEIGHT)
+        const r = layout.bar
+        this.panel
+            .clear()
+            .roundRect(r.x, r.y, r.width, r.height, 10)
+            .fill(0x130f20)
+            .stroke({ width: 1, color: 0x756585 })
+        this.buttons.forEach((b, i) => {
+            const slot = layout.slots[i]
+            b.scaleX = slot.width / BUTTON
+            b.scaleY = compact ? 60 / BUTTON : 1
+            b.root.position.set(slot.x + slot.width / 2, slot.y + (compact ? 30 : BUTTON / 2))
+            b.root.scale.set(b.scaleX, b.scaleY)
+            b.key.visible = keybindsVisible()
+            b.name.style.fontSize = compact ? 16 : 10
+            b.name.style.wordWrap = compact
+            b.name.style.wordWrapWidth = BUTTON
+        })
     }
 
     update(player: PlayerState, tick: number, keysDown: Set<number>, confirmedTick = Math.floor(tick), active = true) {
@@ -358,6 +417,14 @@ export class ActionBar extends Container {
                   : state.fader > 0
                     ? 'Global cooldown.'
                     : 'Ready.'
+            b.blockedReason = state.locked
+                ? 'Locked'
+                : cooldown > 0
+                  ? 'Cooldown'
+                  : state.fader > 0
+                    ? 'Global cooldown'
+                    : ''
+            if (!b.blockedReason || confirmedTick > b.feedbackUntil) setText(b.feedback, '')
             b.root.accessibleHint = `${b.root.accessibleTitle}. ${reason}`
             this.drawButton(b, state, player.cast === i, keysDown.has(i) || this.pressed.has(i))
         })
@@ -394,7 +461,7 @@ export class ActionBar extends Container {
                 color: casting ? 0xffd43b : 0xffffff,
                 alpha: casting || b.spellId === 'SPELL_COUNTERSPELL' ? 1 : 0.55,
             })
-        b.root.scale.set(down ? 0.94 : 1)
+        b.root.scale.set(b.scaleX * (down ? 0.94 : 1), b.scaleY * (down ? 0.94 : 1))
     }
 }
 

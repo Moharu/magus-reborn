@@ -722,7 +722,7 @@ footer {
     opacity: 0.8;
 }
 
-@media (hover: none) and (pointer: coarse) {
+@media (pointer: coarse) {
     .slot .key,
     .spell .key,
     .desktop-only {
@@ -1058,11 +1058,6 @@ footer {
     border-radius: 9px;
 }
 @media (max-width: 900px) {
-    .slot .key,
-    .spell .key,
-    .picker .desktop-only {
-        display: none;
-    }
     .setup-head {
         grid-template-columns: 1fr auto;
         top: 14px;
@@ -1123,9 +1118,116 @@ footer {
 /* Keep the arena's available height identical before and after setup on landscape phones. */
 .lobby-screen {
     flex: none;
+    min-height: 100dvh;
+}
+.lobby-screen:has(.battle-screen),
+.lobby-screen:has(.panel.setup) {
     height: 100dvh;
 }
 .lobby-screen .battle-screen,
 .lobby-screen .panel.setup {
     min-height: 0;
+}
+
+/* The safe-area content box is also the canvas coordinate space. */
+.battle-screen,
+.panel.setup {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+@media (pointer: coarse) {
+    .slot .key,
+    .spell .key,
+    .picker .desktop-only {
+        display: none;
+    }
+}
+@media (max-width: 900px) and (orientation: landscape) {
+    .battle-screen {
+        padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    .stage {
+        min-width: 0;
+        min-height: 0;
+    }
+    .battle-canvas {
+        border-radius: 0;
+    }
+    .training {
+        min-height: 100dvh;
+    }
+    .training-body {
+        flex: none;
+    }
+    .training .stage {
+        height: calc(100dvh - 64px);
+        flex: none;
+    }
+    .setup-viewport {
+        width: 100%;
+    }
+    .setup .picker-stage {
+        aspect-ratio: auto;
+        height: calc(100dvh - 24px - env(safe-area-inset-bottom));
+    }
+}
+@media (max-width: 900px) and (orientation: portrait) {
+    .stage::before {
+        content: 'Rotate your phone to landscape to duel. Setup remains available.';
+        display: block;
+        padding: 12px;
+        color: var(--text);
+        background: #191426;
+        text-align: center;
+    }
+    .stage {
+        overflow: auto;
+    }
+}
+
+@media (max-width: 900px) and (orientation: landscape) {
+    .setup .picker {
+        --phone-bar: 92cqw;
+        --phone-edge: 4cqw;
+        --phone-gap: 6px;
+        --phone-slot: calc((var(--phone-bar) - 10px - 6 * var(--phone-gap)) / 7);
+    }
+    .setup .bar-panel {
+        left: var(--phone-edge) !important;
+        top: auto !important;
+        bottom: 6px;
+        width: var(--phone-bar) !important;
+        height: 86px !important;
+    }
+    .setup .slot-wrap {
+        left: calc(var(--phone-edge) + 5px + var(--slot) * (var(--phone-slot) + var(--phone-gap))) !important;
+        top: auto !important;
+        bottom: 27px;
+        width: var(--phone-slot) !important;
+        height: 60px !important;
+    }
+    .setup .slot-wrap > .name {
+        font-size: 10px;
+    }
+    .setup .spell {
+        top: calc(100% - 214px + var(--row) * 58px) !important;
+        height: 54px !important;
+        flex-direction: row;
+        font-size: 10px;
+    }
+    .setup .book-label {
+        top: calc(100% - 236px) !important;
+    }
+    .setup .book-divider {
+        top: calc(100% - 236px) !important;
+        height: 134px !important;
+    }
+}
+@media (max-width: 843px) and (orientation: landscape) {
+    .setup .picker {
+        --phone-bar: 96cqw;
+        --phone-edge: 2cqw;
+        --phone-gap: 4px;
+    }
 }
