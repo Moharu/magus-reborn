@@ -85,7 +85,14 @@ export const viewSnapshot = (snap: BattleSnapshot, viewer: PlayerKey | 'spectato
     const player = (key: PlayerKey): PlayerView => {
         const { spells, ...rest } = snap[key]
         const casting = snap[key].cast === null ? null : (spells[snap[key].cast] ?? null)
-        return viewer === 'spectator' || viewer === key ? { ...rest, spells, casting } : { ...rest, casting }
+        if (viewer === 'spectator' || viewer === key) return { ...rest, spells, casting }
+        // Haste's `backup` is every slot's original cast time: the loadout's order and kinds
+        const effects = rest.effects.map(effect => {
+            if (effect.id !== 'BUFF_HASTE') return effect
+            const { backup: _backup, ...visible } = effect
+            return visible
+        })
+        return { ...rest, effects, casting }
     }
     return { ...snap, player1: player('player1'), player2: player('player2') }
 }

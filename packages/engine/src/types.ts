@@ -126,7 +126,14 @@ export type BattleSnapshot = Omit<BattleState, 'log'>
  * A player as one viewer may see them. `spells` (the loadout) is absent when the viewer isn't allowed to see it, and
  * `casting` then still holds the one spell being cast, which the cast bar shows anyway.
  */
-export type PlayerView = Omit<PlayerState, 'spells'> & { spells?: SpellState[]; casting?: SpellState | null }
+export type PlayerView = Omit<PlayerState, 'spells' | 'effects'> & {
+    spells?: SpellState[]
+    casting?: SpellState | null
+    effects: ViewEffect[]
+}
+
+/** An effect as a viewer sees it. A Haste buff's `backup` holds every slot's cast time, so only the owner gets it. */
+export type ViewEffect = Exclude<EffectState, HasteBuff> | (Omit<HasteBuff, 'backup'> & { backup?: number[] })
 
 /** A `BattleSnapshot` as one viewer may see it; every `BattleSnapshot` is one. */
 export type SnapshotView = Omit<BattleSnapshot, PlayerKey> & Record<PlayerKey, PlayerView>
