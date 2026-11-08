@@ -212,10 +212,10 @@ export class BattleView {
         this.snap = snap
         this.snapAt = performance.now()
         const mine = this.options.me ? snap[this.options.me] : null
-        if (snap.winner) this.actionBar?.clearAccessibleCast()
+        if (snap.finished === true) this.actionBar?.clearAccessibleCast()
         // Catch-up initializes a recreated view after reconnect. Recover the surviving
         // authoritative cast so losing its original input cannot leave it stuck at 100%.
-        if (!fresh && mine?.spells && !snap.winner) this.actionBar?.recoverCast(mine as PlayerState)
+        if (!fresh && mine?.spells && snap.finished !== true) this.actionBar?.recoverCast(mine as PlayerState)
         if (mine?.spells)
             this.actionBar?.update(
                 mine as PlayerState,
@@ -233,7 +233,7 @@ export class BattleView {
     /** Stops cast bars and cooldowns from advancing between snapshots (countdowns, pauses). */
     setFrozen(frozen: boolean) {
         if (frozen) {
-            if (this.snap?.winner) this.actionBar?.clearAccessibleCast()
+            if (this.snap?.finished === true) this.actionBar?.clearAccessibleCast()
             this.releaseAll()
         }
         this.frozen = frozen
@@ -241,7 +241,7 @@ export class BattleView {
 
     setOverlay(title: string | null, sub = '') {
         if (title !== null) {
-            if (this.snap?.winner) this.actionBar?.clearAccessibleCast()
+            if (this.snap?.finished === true) this.actionBar?.clearAccessibleCast()
             this.releaseAll()
         }
         this.overlay.visible = title !== null
@@ -277,7 +277,7 @@ export class BattleView {
     }
 
     private displayTick(snap: SnapshotView) {
-        if (this.frozen || snap.winner) return snap.gameTick
+        if (this.frozen || snap.finished === true) return snap.gameTick
         const ahead = (performance.now() - this.snapAt) / GAME_TICK_INTERVAL
         return snap.gameTick + Math.min(1, Math.max(0, ahead))
     }
@@ -298,11 +298,11 @@ export class BattleView {
                 this.huds[side].update(player, tick, dt)
                 const wizard = this.wizards[side]
                 wizard.pose =
-                    snap.winner && snap.winner !== 'draw'
+                    snap.finished === true && snap.winner && snap.winner !== 'draw'
                         ? snap.winner === key
                             ? 'win'
                             : 'lose'
-                        : snap.winner === 'draw'
+                        : snap.finished === true && snap.winner === 'draw'
                           ? 'lose'
                           : player.cast !== null
                             ? 'casting'

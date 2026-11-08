@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { Graphics } from 'pixi.js'
-import { Battle, SPELLS, type LogEntry, type PlayerKey, type SpellId } from '@magus/engine'
+import {
+    Battle,
+    SPELLS,
+    simpleDebuff,
+    type IgniteDebuff,
+    type LogEntry,
+    type PlayerKey,
+    type SpellId,
+} from '@magus/engine'
 import { BattleView } from '../src/game/battle-view'
 import { ActionBar, type PlayerHud } from '../src/game/hud'
 import { GROUND_Y, SIDE_X, type Side } from '../src/game/layout'
@@ -397,6 +405,51 @@ describe('cast ownership across lobby pauses', () => {
         view.actionBar = new ActionBar(i => battle.startCast('player1', i), release)
         return { view, release }
     }
+
+    it.each(['live', 'pause', 'reconnect'] as const)(
+        'releases a deciding-tick accessible Fireball for a draw (%s)',
+        mode => {
+            const battle = new Battle(
+                { name: 'Alice', spells: LOADOUTS.player1, hp: 5 },
+                { name: 'Bob', spells: LOADOUTS.player2, hp: 5 },
+            )
+            const { view, release } = setup(battle)
+            view.setOverlay(null)
+            view.update(battle.snapshot(), [], [])
+            view.actionBar.children[1].emit('click', {} as never)
+            view.update(battle.snapshot(), [], [])
+            while (battle.state.gameTick < battle.state.player1.spells[0].castTime - 1) {
+                battle.tick()
+                view.update(battle.snapshot(), [], [])
+            }
+            simpleDebuff<IgniteDebuff>(battle.state, 'player1', {
+                id: 'DEBUFF_IGNITE',
+                label: 'Ignite',
+                source: 'SPELL_IGNITE',
+                damage: 1000,
+                duration: 10,
+            })
+            battle.tick()
+            expect(battle.snapshot()).toMatchObject({ winner: 'player2', finished: false })
+            if (mode !== 'live') {
+                view.setFrozen(true)
+                // A recreated view has no original input ownership.
+                if (mode === 'reconnect') view.actionBar.clearAccessibleCast()
+                view.update(battle.snapshot(), [], [], mode !== 'reconnect')
+                view.setOverlay('Paused')
+                // Both freeze and overlay must retain ownership even with a winner.
+                view.setFrozen(true)
+                view.setFrozen(false)
+                view.setOverlay(null)
+                expect(release).not.toHaveBeenCalled()
+            }
+            view.update(battle.snapshot(), [], [])
+            expect(release).toHaveBeenCalledExactlyOnceWith(0)
+            expect(battle.state.winner).toBe('draw')
+            battle.tick()
+            expect(battle.snapshot()).toMatchObject({ winner: 'draw', finished: true })
+        },
+    )
 
     it('preserves an accessible Fireball through opponent pause and releases only after resume', () => {
         const battle = newBattle()
