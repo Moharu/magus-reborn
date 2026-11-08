@@ -541,7 +541,7 @@
                 width: 86%;
                 padding: 12px;
                 display: grid;
-                grid-template-columns: repeat(7, minmax(0, 1fr));
+                grid-template-columns: minmax(0, 4fr) 1px minmax(0, 2.5fr);
                 gap: 8px;
                 background: #130f20f5;
                 border: 1px solid #756585;
@@ -555,17 +555,14 @@
                 margin: 0 0 8px;
             }
             .firebook {
-                grid-column: 1 / 5;
+                grid-column: 1;
             }
-            .fixedbook {
-                grid-column: 5;
-                text-align: center;
-                font-size: 12px;
-                color: #ded8eb;
-                align-self: center;
+            .book-divider {
+                background: #756585;
+                margin: 4px 0;
             }
             .generalbook {
-                grid-column: 6 / 8;
+                grid-column: 3;
             }
             .cards {
                 display: grid;
@@ -577,8 +574,8 @@
             }
             .cards button {
                 min-width: 0;
-                min-height: 52px;
-                padding: 6px 3px;
+                min-height: 94px;
+                padding: 10px 6px;
                 text-align: center;
                 font-size: 12px;
                 border-color: #b98760;
@@ -589,11 +586,11 @@
                 border-color: #a399c2;
             }
             .cards .icon {
-                height: 22px;
-                font-size: 20px;
+                height: 48px;
+                font-size: 34px;
                 border-radius: 5px;
-                margin: 0 auto 2px;
-                width: 36px;
+                margin: 0 auto 6px;
+                width: 48px;
             }
             .cards .selected {
                 outline: 3px solid #ffe397;
@@ -761,12 +758,25 @@
                     gap: 4px;
                 }
                 .cards button {
-                    min-height: 44px;
-                    font-size: 10px;
-                    padding: 3px 1px;
+                    min-height: 54px;
+                    font-size: 11px;
+                    padding: 5px;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    text-align: left;
+                    line-height: 1.2;
                 }
-                .fixedbook {
-                    font-size: 10px;
+                .cards .icon {
+                    flex: 0 0 32px;
+                    width: 32px;
+                    height: 32px;
+                    font-size: 26px;
+                    margin: 0;
+                }
+                .card-name {
+                    min-width: 0;
+                    overflow-wrap: normal;
                 }
                 .book-hint {
                     font-size: 10px;
@@ -793,8 +803,11 @@
                     min-height: 44px;
                     padding: 4px 8px;
                 }
+                .setup {
+                    padding: 4px;
+                }
                 .elements {
-                    margin-top: 6px;
+                    margin-top: 4px;
                     gap: 6px;
                 }
                 .elements button {
@@ -856,42 +869,45 @@
                         <h2>Fire spellbook<span class="desktop-only"> · Q W E R</span></h2>
                         <div class="cards">
                             <button>
-                                <span class="icon" aria-hidden="true">●</span>Living Bomb<span class="desktop-only">
-                                    · Q</span
+                                <span class="icon" aria-hidden="true">●</span
+                                ><span class="card-name"
+                                    >Living Bomb<span class="desktop-only"> · Q</span></span
                                 ></button
                             ><button>
-                                <span class="icon" aria-hidden="true">♨</span>Ignite<span class="desktop-only">
-                                    · W</span
-                                ></button
+                                <span class="icon" aria-hidden="true">♨</span
+                                ><span class="card-name">Ignite<span class="desktop-only"> · W</span></span></button
                             ><button>
-                                <span class="icon" aria-hidden="true">☀</span>Combustion<span class="desktop-only">
-                                    · E</span
-                                ></button
+                                <span class="icon" aria-hidden="true">☀</span
+                                ><span class="card-name">Combustion<span class="desktop-only"> · E</span></span></button
                             ><button>
-                                <span class="icon" aria-hidden="true">☄</span>Meteor<span class="desktop-only">
-                                    · R</span
-                                ></button
+                                <span class="icon" aria-hidden="true">☄</span
+                                ><span class="card-name">Meteor<span class="desktop-only"> · R</span></span></button
                             ><button class="selected" aria-pressed="true">
-                                <span class="icon" aria-hidden="true">◆</span>Fireball</button
-                            ><button><span class="icon" aria-hidden="true">♨</span>Afterburn</button>
+                                <span class="icon" aria-hidden="true">◆</span
+                                ><span class="card-name">Fireball</span></button
+                            ><button>
+                                <span class="icon" aria-hidden="true">♨</span><span class="card-name">Afterburn</span>
+                            </button>
                         </div>
                     </section>
-                    <div class="fixedbook">
-                        <span class="desktop-only">Space<br /></span>Counterspell<span aria-hidden="true"> 🔒</span>
-                    </div>
+                    <div class="book-divider" aria-hidden="true"></div>
                     <section class="generalbook">
                         <h2>General<span class="desktop-only"> · D F</span></h2>
                         <div class="cards">
                             <button>
-                                <span class="icon" aria-hidden="true">ϟ</span>Haste<span class="desktop-only">
-                                    · D</span
+                                <span class="icon" aria-hidden="true">ϟ</span
+                                ><span class="card-name">Haste<span class="desktop-only"> · D</span></span></button
+                            ><button>
+                                <span class="icon" aria-hidden="true">◈</span
+                                ><span class="card-name"
+                                    >Temporal Shield<span class="desktop-only"> · F</span></span
                                 ></button
                             ><button>
-                                <span class="icon" aria-hidden="true">◈</span>Temporal Shield<span class="desktop-only">
-                                    · F</span
-                                ></button
-                            ><button><span class="icon" aria-hidden="true">◉</span>Magic Eater</button
-                            ><button><span class="icon" aria-hidden="true">≋</span>Blur</button>
+                                <span class="icon" aria-hidden="true">◉</span
+                                ><span class="card-name">Magic Eater</span></button
+                            ><button>
+                                <span class="icon" aria-hidden="true">≋</span><span class="card-name">Blur</span>
+                            </button>
                         </div>
                     </section>
                     <p class="book-hint">
