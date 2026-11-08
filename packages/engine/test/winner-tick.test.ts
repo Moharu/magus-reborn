@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { Battle, enemyOf, simpleDebuff, type IgniteDebuff, type PlayerKey, type SpellId } from '../src'
-import { advance, effectIds, FIRE, GENERAL, slot } from './helpers'
+import { advance, effectIds, FIRE, GENERAL, putOnGcd, restoreOffGcd, slot } from './helpers'
+
+afterEach(restoreOffGcd)
 
 const FIREBALL = 0 // slot in FIRE; its 5.6 damage is lethal at HP
 const HP = 5
@@ -158,7 +160,14 @@ describe.each(KEYS)('actions in the tick a winner is decided, %s landing first',
     })
 
     const rejections: [string, (b: Battle, spell: number) => void][] = [
-        ['the GCD', b => void (b.state[second].gcdUntil = b.state.gameTick + 20)],
+        // Haste is off the GCD since #84: put it back on so the GCD can reject it
+        [
+            'the GCD',
+            b => {
+                putOnGcd('SPELL_HASTE')
+                b.state[second].gcdUntil = b.state.gameTick + 20
+            },
+        ],
         ['a lock', b => void (b.state[second].lockedUntil = b.state.gameTick + 20)],
         ['its cooldown', (b, spell) => void (b.state[second].spells[spell].lastCast = b.state.gameTick)],
     ]
