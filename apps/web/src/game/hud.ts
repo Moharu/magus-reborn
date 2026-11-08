@@ -305,8 +305,9 @@ export class ActionBar extends Container {
         }
     }
 
-    update(player: PlayerState, tick: number, keysDown: Set<number>, confirmedTick = tick, active = true) {
-        this.requestTick = tick
+    update(player: PlayerState, tick: number, keysDown: Set<number>, confirmedTick = Math.floor(tick), active = true) {
+        // Requests, expiry and release use engine time; interpolation is visual only.
+        this.requestTick = confirmedTick
         if (!active) this.clearAccessibleCast()
         // Bind requests to the cast the engine actually accepted, never the last clicked slot.
         if (

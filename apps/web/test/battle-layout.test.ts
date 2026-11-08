@@ -314,8 +314,27 @@ describe('accessible cast ownership', () => {
                 }
             }
             sync()
-            return { game, view, release, input, charge, sync }
+            return { game, view, bar, release, input, charge, sync }
         }
+
+        it.each([0, 0.4, 0.6, 0.99])('auto-releases activation at display tick 10 + %s', fraction => {
+            const { game, bar, release, input, sync } = harness()
+            for (let i = 0; i < 10; i++) game.tick()
+            sync()
+            bar.update(game.state.player1, game.state.gameTick + fraction, new Set(), game.state.gameTick)
+            input('click', 0)
+            const completion = game.state.gameTick + game.state.player1.spells[0].castTime
+            while (game.state.gameTick < completion) {
+                expect(release).not.toHaveBeenCalled()
+                game.tick()
+                sync()
+            }
+            expect(release).toHaveBeenCalledExactlyOnceWith(0)
+            expect(game.state.player1.cast).toBeNull()
+            expect(game.state.player2.hp).toBeLessThan(100)
+            sync()
+            expect(release).toHaveBeenCalledTimes(1)
+        })
 
         it('does not claim a manual Fireball after an accessible request rejected under Counterspell', () => {
             const { game, release, input, charge, sync } = harness()
