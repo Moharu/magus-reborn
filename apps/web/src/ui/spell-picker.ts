@@ -157,6 +157,8 @@ export const spellPicker = (
 
     const draggable = (target: Target) => ({
         'data-target': targetData(target),
+        // a mouse press must not leave the button focused, or Space would activate it later
+        onmousedown: (e: Event) => e.preventDefault(),
         onpointerdown: (e: Event) => press(e as PointerEvent, target),
         onclick: () => activate(target),
     })

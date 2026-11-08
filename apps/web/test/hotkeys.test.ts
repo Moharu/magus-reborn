@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { HOTKEYS, LOADOUT_SIZE } from '@magus/engine'
-import { KEY_CODES } from '../src/game/hotkeys'
+import { hotkeyFor, KEY_CODES } from '../src/game/hotkeys'
 import { BAR, BAR_LEFT, BAR_WIDTH, buttonX, WIDTH } from '../src/game/layout'
 
 describe('hotkeys', () => {
@@ -37,5 +37,18 @@ describe('7 button bar layout', () => {
 
     it('rejects a slot that does not exist', () => {
         expect(() => buttonX(7)).toThrow()
+    })
+})
+
+describe('hotkeyFor', () => {
+    it('maps Space to the Counterspell slot', () => {
+        expect(hotkeyFor({ code: 'Space', target: { tagName: 'BUTTON' } })).toBe(4)
+    })
+
+    it('ignores repeats, modified keys and typing in fields', () => {
+        expect(hotkeyFor({ code: 'KeyQ', repeat: true })).toBeUndefined()
+        expect(hotkeyFor({ code: 'KeyQ', ctrlKey: true })).toBeUndefined()
+        expect(hotkeyFor({ code: 'Space', target: { tagName: 'INPUT' } })).toBeUndefined()
+        expect(hotkeyFor({ code: 'KeyS' })).toBeUndefined()
     })
 })
