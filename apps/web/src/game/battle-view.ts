@@ -59,7 +59,7 @@ export class BattleView {
     private readonly world = new Container()
     private readonly vfx = new Vfx()
     private readonly wizards: Record<Side, Wizard> = { left: new Wizard('left'), right: new Wizard('right') }
-    private readonly huds: Record<Side, PlayerHud> = { left: new PlayerHud('left'), right: new PlayerHud('right') }
+    private readonly huds: Record<Side, PlayerHud>
     private readonly auras: Record<Side, Graphics> = { left: new Graphics(), right: new Graphics() }
     private readonly bombs: Record<Side, Sprite> = {
         left: new Sprite(particleTexture()),
@@ -81,6 +81,7 @@ export class BattleView {
     private time = 0
     private delayed: { at: number; run: () => void }[] = []
     private readonly keysDown = new Set<number>()
+    private readonly handledKeyUps = new Set<string>()
     private resizeObserver: ResizeObserver | null = null
     private destroyed = false
 
@@ -89,6 +90,10 @@ export class BattleView {
         private readonly options: BattleViewOptions,
     ) {
         this.sides = sidesFor(options.me)
+        this.huds = {
+            left: new PlayerHud('left', this.sides.left, options.me),
+            right: new PlayerHud('right', this.sides.right, options.me),
+        }
     }
 
     static async create(container: HTMLElement, options: BattleViewOptions) {
@@ -287,7 +292,8 @@ export class BattleView {
             setText(this.timer, formatTime(snap.gameTick))
             const mine = this.options.me && snap[this.options.me]
             // a player always has their own loadout
-            if (this.actionBar && mine?.spells) this.actionBar.update(mine as PlayerState, tick, this.keysDown)
+            if (this.actionBar && mine?.spells)
+                this.actionBar.update(mine as PlayerState, tick, this.keysDown, snap.gameTick)
         }
 
         for (const side of SIDES) {
@@ -540,12 +546,14 @@ export class BattleView {
         if (index === undefined) return
         event.preventDefault()
         if (event.repeat || this.keysDown.has(index)) return
+        this.handledKeyUps.add(event.code)
         this.keysDown.add(index)
         this.options.onPress?.(index)
     }
 
     private onKeyUp = (event: KeyboardEvent) => {
         const index = KEY_CODES[event.code]
+        if (this.handledKeyUps.delete(event.code)) event.preventDefault()
         if (index === undefined || !this.keysDown.delete(index)) return
         // Firefox clicks the focused button when Space is released; a cast hotkey must not do that
         event.preventDefault()

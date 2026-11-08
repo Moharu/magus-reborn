@@ -1,3 +1,4 @@
+import { EventBoundary, FederatedPointerEvent } from 'pixi.js'
 import { describe, expect, it, vi } from 'vitest'
 import { Battle, DEFAULT_SPELLS, secondsToTicks, ticksToSeconds } from '@magus/engine'
 import { battleLayout, HEIGHT, sidesFor, WIDTH, type Rect } from '../src/game/layout'
@@ -142,5 +143,105 @@ describe('Split Console elements', () => {
         view.onKeyDown({ ...event, repeat: true })
         expect(event.preventDefault).toHaveBeenCalledTimes(2)
         expect(press).toHaveBeenCalledTimes(1)
+    })
+})
+
+// Regression coverage for pointer and accessibility activation on the real Pixi containers.
+describe('battle input review regressions', () => {
+    it('handles one pointer down/up/click as exactly one press and release', () => {
+        const press = vi.fn()
+        const release = vi.fn()
+        const bar = new ActionBar(press, release)
+        const root = bar.children[1]
+        const event = new FederatedPointerEvent(new EventBoundary(bar))
+        event.pointerType = 'mouse'
+        root.emit('pointerdown', event)
+        root.emit('pointerup', event)
+        root.emit('click', event)
+        expect(press.mock.calls).toEqual([[0]])
+        expect(release.mock.calls).toEqual([[0]])
+        expect(root.tabIndex).toBe(0)
+    })
+
+    it('lets accessible activation charge and release a real Fireball at completion', () => {
+        const game = battle()
+        const release = vi.fn((i: number) => game.stopCast('player1', i))
+        const bar = new ActionBar(i => game.startCast('player1', i), release)
+        bar.children[1].emit('click', new FederatedPointerEvent(new EventBoundary(bar)))
+        expect(game.state.player1.cast).toBe(0)
+        expect(release).not.toHaveBeenCalled()
+        const duration = game.state.player1.spells[0].castTime
+        for (let i = 0; i < duration; i++) {
+            bar.update(game.state.player1, game.state.gameTick, new Set())
+            expect(release).not.toHaveBeenCalled()
+            game.tick()
+        }
+        // Render interpolation must not release before an authoritative tick confirms completion.
+        bar.update(game.state.player1, game.state.gameTick, new Set(), game.state.gameTick - 1)
+        expect(release).not.toHaveBeenCalled()
+        bar.update(game.state.player1, game.state.gameTick, new Set())
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(game.state.player2.hp).toBeLessThan(100)
+        bar.update(game.state.player1, game.state.gameTick, new Set())
+        expect(release).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([null, 'player1', 'player2'] as const)('labels seats correctly for viewer %s', me => {
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: unknown,
+        ) => {
+            huds: Record<'left' | 'right', { update: PlayerHud['update']; nameText: { text: string } }>
+        }
+        const view = new Ctor({}, { me })
+        const snapshot = battle().snapshot()
+        const sides = sidesFor(me)
+        for (const side of ['left', 'right'] as const) {
+            const hud = view.huds[side]
+            hud.update(snapshot[sides[side]], 0, 1 / 60)
+            const name = snapshot[sides[side]].name
+            expect(hud.nameText.text).toBe(me ? `${sides[side] === me ? 'YOU' : 'OPPONENT'} · ${name}` : name)
+        }
+    })
+
+    it('leaves Space in input/dialog/picker targets alone and prevents handled keyup even after freezing', () => {
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: unknown,
+        ) => {
+            update: BattleView['update']
+            setFrozen: BattleView['setFrozen']
+            onKeyDown(event: unknown): void
+            onKeyUp(event: unknown): void
+            overlay: { visible: boolean }
+        }
+        const press = vi.fn()
+        const release = vi.fn()
+        const view = new Ctor({}, { me: 'player1', onPress: press, onRelease: release })
+        view.update(battle().snapshot(), [], [])
+        view.overlay.visible = false
+        for (const target of [
+            { tagName: 'INPUT' },
+            { tagName: 'BUTTON', closest: (s: string) => s.includes('dialog') },
+            { tagName: 'BUTTON', closest: (s: string) => s.includes('.picker') },
+        ]) {
+            const event = { code: 'Space', target, preventDefault: vi.fn() }
+            view.onKeyDown(event)
+            view.onKeyUp(event)
+            expect(event.preventDefault).not.toHaveBeenCalled()
+        }
+        expect(press).not.toHaveBeenCalled()
+        view.onKeyDown({ code: 'Space', preventDefault: vi.fn() })
+        const up = { code: 'Space', preventDefault: vi.fn() }
+        view.onKeyUp(up)
+        expect(up.preventDefault).toHaveBeenCalled()
+        expect(release).toHaveBeenCalledExactlyOnceWith(4)
+        view.onKeyDown({ code: 'Space', preventDefault: vi.fn() })
+        view.setFrozen(true)
+        expect(release).toHaveBeenCalledTimes(2)
+        const frozenUp = { code: 'Space', preventDefault: vi.fn() }
+        view.onKeyUp(frozenUp)
+        expect(frozenUp.preventDefault).toHaveBeenCalledOnce()
+        expect(release).toHaveBeenCalledTimes(2)
     })
 })

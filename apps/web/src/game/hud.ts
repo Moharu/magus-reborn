@@ -5,6 +5,7 @@ import {
     HOTKEYS,
     SPELLS,
     ticksToSeconds,
+    type PlayerKey,
     type PlayerState,
     type PlayerView,
     type SpellId,
@@ -52,8 +53,20 @@ export class PlayerHud extends Container {
     private readonly x0: number
     private readonly w = battleLayout(WIDTH, HEIGHT).left.hp.width
 
-    constructor(private readonly side: Side) {
+    private readonly motionQuery = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')
+    private reducedMotion = this.motionQuery?.matches ?? false
+    private readonly onMotionChange = (event: MediaQueryListEvent) => {
+        this.reducedMotion = event.matches
+    }
+
+    constructor(
+        private readonly side: Side,
+        private readonly seat: PlayerKey = side === 'left' ? 'player1' : 'player2',
+        private readonly me: PlayerKey | null = null,
+    ) {
         super()
+        this.motionQuery?.addEventListener('change', this.onMotionChange)
+        this.on('destroyed', () => this.motionQuery?.removeEventListener('change', this.onMotionChange))
         this.x0 = battleLayout(WIDTH, HEIGHT)[side].hp.x
         this.nameText.position.set(this.x0, 12)
         this.nameText.style.fontSize = 12
@@ -86,11 +99,11 @@ export class PlayerHud extends Container {
     }
 
     update(player: PlayerView, tick: number, dt: number) {
-        setText(this.nameText, `${this.side === 'left' ? 'YOU' : 'OPPONENT'} · ${player.name.slice(0, 12)}`)
+        const name = player.name.slice(0, 12) || (this.seat === 'player1' ? 'Player 1' : 'Player 2')
+        setText(this.nameText, this.me ? `${this.seat === this.me ? 'YOU' : 'OPPONENT'} · ${name}` : name)
         const infinite = player.hp >= INFINITE_HP
         const hp = infinite ? 100 : player.hp
-        const reduced = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-        this.shownHp += (hp - this.shownHp) * (reduced ? 1 : Math.min(1, dt / 0.12))
+        this.shownHp += (hp - this.shownHp) * (this.reducedMotion ? 1 : Math.min(1, dt / 0.12))
         const { x0, w } = this
         const fill = Math.max(0, Math.min(1, this.shownHp / 100)) * (w - 4)
         const g = this.bars.clear()
@@ -207,8 +220,12 @@ export class ActionBar extends Container {
         spellId: string
     }[] = []
     pressed = new Set<number>()
+    private accessibleCast: number | null = null
 
-    constructor(onPress: (i: number) => void, onRelease: (i: number) => void) {
+    constructor(
+        onPress: (i: number) => void,
+        private readonly onRelease: (i: number) => void,
+    ) {
         super()
         const r = battleLayout(WIDTH, HEIGHT).bar
         const panel = new Graphics()
@@ -224,7 +241,7 @@ export class ActionBar extends Container {
             root.cursor = 'pointer'
             root.accessible = true
             root.accessibleType = 'button'
-            root.tabIndex = i + 1
+            root.tabIndex = 0
             const icon = new Sprite()
             const overlay = new Graphics()
             const frame = new Graphics()
@@ -250,6 +267,7 @@ export class ActionBar extends Container {
             clip.mask = mask
             root.addChild(mask, clip, frame, center, key, name)
             root.on('pointerdown', () => {
+                this.accessibleCast = null
                 if (this.pressed.has(i)) return
                 this.pressed.add(i)
                 onPress(i)
@@ -260,16 +278,29 @@ export class ActionBar extends Container {
             }
             root.on('pointerup', release)
             root.on('pointerupoutside', release)
-            root.on('click', () => {
+            root.on('click', event => {
+                // Pixi's pointer click already went through down/up. Accessibility clicks
+                // have no pointer type and need their own activation.
+                if (event?.pointerType) return
+                this.accessibleCast = i
                 onPress(i)
-                onRelease(i)
             })
             this.addChild(root)
             this.buttons.push({ root, icon, overlay, frame, center, key, name, spellId: '' })
         }
     }
 
-    update(player: PlayerState, tick: number, keysDown: Set<number>) {
+    update(player: PlayerState, tick: number, keysDown: Set<number>, confirmedTick = tick) {
+        const index = this.accessibleCast
+        if (
+            index !== null &&
+            player.cast === index &&
+            player.castStartingTick !== null &&
+            confirmedTick >= player.castStartingTick + player.spells[index].castTime
+        ) {
+            this.accessibleCast = null
+            this.onRelease(index)
+        }
         player.spells.forEach((spell, i) => {
             const b = this.buttons[i]
             if (b.spellId !== spell.id) {
