@@ -42,6 +42,7 @@ const AFTER_LANDING = 0.25
 interface ViewInternals {
     update: BattleView['update']
     frame(dt: number): void
+    displayTick(snap: ReturnType<Battle['snapshot']>): number
     vfx: Vfx
     wizards: Record<Side, Wizard>
     huds: Record<
@@ -391,6 +392,42 @@ describe('BattleView interrupt tell (#39)', () => {
         view.update(fresh.snapshot(), [], [])
         view.frame(FRAME)
         expect(bar.visible).toBe(false)
+    })
+})
+
+describe('training finalization rendering', () => {
+    it('keeps deciding and missing-finished snapshots live, then freezes with win/lose poses', () => {
+        const battle = newBattle()
+        const view = createView('player1')
+        simpleDebuff<IgniteDebuff>(battle.state, 'player1', {
+            id: 'DEBUFF_IGNITE',
+            label: 'Ignite',
+            source: 'SPELL_IGNITE',
+            damage: 1000,
+            duration: 10,
+        })
+        battle.tick()
+        const deciding = battle.snapshot()
+        for (const missing of [false, true]) {
+            const snap = { ...deciding }
+            if (missing) delete snap.finished
+            view.update(snap, [], [])
+            view.frame(FRAME)
+            expect(view.wizards.left.pose).toBe('idle')
+            expect(view.wizards.right.pose).toBe('idle')
+            vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 25)
+            expect(view.displayTick(snap)).toBeGreaterThan(snap.gameTick)
+            vi.mocked(performance.now).mockRestore()
+        }
+        battle.tick()
+        const final = battle.snapshot()
+        view.update(final, [], [])
+        view.frame(FRAME)
+        expect(view.wizards.left.pose).toBe('lose')
+        expect(view.wizards.right.pose).toBe('win')
+        vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 25)
+        expect(view.displayTick(final)).toBe(final.gameTick)
+        vi.mocked(performance.now).mockRestore()
     })
 })
 

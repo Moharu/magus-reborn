@@ -561,7 +561,11 @@ describe('accessible cast ownership', () => {
         expect(release).not.toHaveBeenCalled()
     })
 
-    it.each(['player1', null] as const)('keeps deciding-tick input open only for a participant (%s)', me => {
+    it.each([
+        ['player1', false],
+        ['player1', true],
+        [null, false],
+    ] as const)('keeps deciding-tick input open only for a participant (%s, missing finished: %s)', (me, missing) => {
         const game = battle()
         const Ctor = BattleView as unknown as new (
             container: unknown,
@@ -582,13 +586,15 @@ describe('accessible cast ownership', () => {
         const press = vi.fn((i: number) => game.startCast('player1', i))
         const view = new Ctor({}, { me, onPress: press })
         view.overlay.visible = false
-        view.update(game.snapshot(), [], [], false)
+        const snap = game.snapshot()
+        if (missing) delete snap.finished
+        view.update(snap, [], [], false)
         view.onKeyDown({ code: 'Space', preventDefault: vi.fn() })
         expect(press).toHaveBeenCalledTimes(me ? 1 : 0)
         if (me) expect(game.state.player2.cast).toBeNull()
         game.tick()
         expect(game.finished).toBe(true)
-        view.setFrozen(true)
+        view.update(game.snapshot(), [], [])
         view.onKeyDown({ code: 'KeyQ', preventDefault: vi.fn() })
         expect(press).toHaveBeenCalledTimes(me ? 1 : 0)
     })

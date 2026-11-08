@@ -209,7 +209,7 @@ export class BattleView {
 
     /** Feed a new authoritative state. `fresh` is false for catch-up state, which skips effects. */
     update(snap: SnapshotView, newLog: LogEntry[], events: HpEvent[], fresh = true) {
-        this.snap = snap
+        this.snap = { ...snap, finished: snap.finished ?? false }
         this.snapAt = performance.now()
         const mine = this.options.me ? snap[this.options.me] : null
         if (snap.finished === true) this.actionBar?.clearAccessibleCast()
@@ -552,7 +552,9 @@ export class BattleView {
     // input
 
     private combatActive() {
-        return !!this.options.me && !!this.snap && !this.frozen && !this.overlay.visible
+        return (
+            !!this.options.me && !!this.snap && !(this.snap.finished ?? false) && !this.frozen && !this.overlay.visible
+        )
     }
 
     private onKeyDown = (event: KeyboardEvent) => {
