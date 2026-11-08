@@ -8,7 +8,9 @@
     },
     "scripts": {
         "typecheck": "tsc -p . && tsc -p tsconfig.scripts.json",
-        "match": "tsx scripts/match.ts"
+        "match": "tsx scripts/match.ts",
+        "tournament": "tsx scripts/tournament.ts",
+        "baseline": "tsx scripts/baseline.ts"
     },
     "dependencies": {
         "@magus/engine": "*"

@@ -3,5 +3,5 @@
     "compilerOptions": {
         "types": ["node"]
     },
-    "include": ["scripts", "src", "test/match-cli.test.ts"]
+    "include": ["scripts", "src", "test/match-cli.test.ts", "test/tournament-cli.test.ts"]
 }

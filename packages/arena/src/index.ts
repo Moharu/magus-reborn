@@ -27,3 +27,32 @@ export {
     type Archetype,
     type ArchetypeName,
 } from './archetypes'
+export { parseBaseline, type Baseline, type BaselineLoadout } from './baseline'
+export { wilsonInterval } from './stats'
+export {
+    adaptProfile,
+    DEFAULT_GAMES,
+    DEFAULT_SEED,
+    DEFAULT_TOP,
+    mergeShards,
+    pairList,
+    planTournament,
+    playPair,
+    playPairs,
+    runShard,
+    runTournament,
+    shardPairs,
+    SHARD_FORMAT,
+    summarize,
+    TOURNAMENT_FORMAT,
+    type EntrantInfo,
+    type MatchFn,
+    type PairResult,
+    type RankedEntrant,
+    type ShardResult,
+    type TournamentConfig,
+    type TournamentOptions,
+    type TournamentPlan,
+    type TournamentResult,
+} from './tournament'
+export { formatTable } from './tournament-format'

@@ -1,0 +1,230 @@
+{
+    "version": "reborn-0.2.0",
+    "generatedBy": "npm run arena:baseline -- --top 16",
+    "loadouts": [
+        {
+            "rank": 1,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_METEOR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 11.064167,
+            "dpsUnderPressure": 8.344833
+        },
+        {
+            "rank": 2,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_METEOR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 11.064167,
+            "dpsUnderPressure": 8.344833
+        },
+        {
+            "rank": 3,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_METEOR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 11.064167,
+            "dpsUnderPressure": 8.344833
+        },
+        {
+            "rank": 4,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_COMBUSTION",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 11.064167,
+            "dpsUnderPressure": 8.344833
+        },
+        {
+            "rank": 5,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_COMBUSTION",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 11.064167,
+            "dpsUnderPressure": 8.344833
+        },
+        {
+            "rank": 6,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_COMBUSTION",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 11.064167,
+            "dpsUnderPressure": 8.344833
+        },
+        {
+            "rank": 7,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_IGNITE",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 11.064167,
+            "dpsUnderPressure": 8.344833
+        },
+        {
+            "rank": 8,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_IGNITE",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 11.064167,
+            "dpsUnderPressure": 8.344833
+        },
+        {
+            "rank": 9,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_IGNITE",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 11.064167,
+            "dpsUnderPressure": 8.344833
+        },
+        {
+            "rank": 10,
+            "loadout": [
+                "SPELL_IGNITE",
+                "SPELL_COMBUSTION",
+                "SPELL_LIVING_BOMB",
+                "SPELL_METEOR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.820167,
+            "dpsUnderPressure": 8.309333
+        },
+        {
+            "rank": 11,
+            "loadout": [
+                "SPELL_IGNITE",
+                "SPELL_COMBUSTION",
+                "SPELL_LIVING_BOMB",
+                "SPELL_METEOR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.820167,
+            "dpsUnderPressure": 8.309333
+        },
+        {
+            "rank": 12,
+            "loadout": [
+                "SPELL_IGNITE",
+                "SPELL_COMBUSTION",
+                "SPELL_LIVING_BOMB",
+                "SPELL_METEOR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 9.820167,
+            "dpsUnderPressure": 8.309333
+        },
+        {
+            "rank": 13,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_IGNITE",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.294333,
+            "dpsUnderPressure": 7.534167
+        },
+        {
+            "rank": 14,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_IGNITE",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.294333,
+            "dpsUnderPressure": 7.534167
+        },
+        {
+            "rank": 15,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_IGNITE",
+                "SPELL_AFTERBURN",
+                "SPELL_LIVING_BOMB",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.294333,
+            "dpsUnderPressure": 7.534167
+        },
+        {
+            "rank": 16,
+            "loadout": [
+                "SPELL_FIREBALL",
+                "SPELL_IGNITE",
+                "SPELL_LIVING_BOMB",
+                "SPELL_METEOR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.368333,
+            "dpsUnderPressure": 7.496333
+        }
+    ]
+}
