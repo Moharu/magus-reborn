@@ -4,7 +4,7 @@ export const MAX_HP = 100
  * What a client and server must agree on to play together. Bump it for any change to the engine state shape, the
  * protocol or simulation behaviour; see `.claude/agents/release-manager.md`.
  */
-export const ENGINE_VERSION = 'reborn-0.1.0'
+export const ENGINE_VERSION = 'reborn-0.2.0'
 
 /**
  * The whole tick count nearest to `seconds`; exact ties round up. Every timing goes through here, so a tick rate that
