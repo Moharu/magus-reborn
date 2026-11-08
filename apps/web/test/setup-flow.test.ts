@@ -44,3 +44,10 @@ describe('between rounds', () => {
         expect(canSendLoadout(shut, true)).toBe(false)
     })
 })
+
+it('locks at zero even if the last server readiness flag is false', () => {
+    const access = setupAccess({ ...lobby(2), countdown: 0 }, { ready: false })
+    expect(access.editable).toBe(false)
+    expect(canSendLoadout(access, true)).toBe(false)
+    expect(setupAccess({ ...lobby(2), countdown: 1 }, { ready: false }).editable).toBe(true)
+})

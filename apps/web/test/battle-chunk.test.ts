@@ -670,3 +670,68 @@ describe('errors after BattleView.create succeeds', () => {
         },
     )
 })
+
+describe('setup saves and final readiness', () => {
+    const enterSetup = async () => {
+        const client = await openLobby(WORKING_CHUNK)
+        lobby.connect('bob', 'bob-id', 'Bob')
+        lobby.message(socketOfClient()!.connId, { t: 'ready' })
+        lobby.message('bob', { t: 'ready' })
+        await seconds(START_COUNTDOWN)
+        expect(lobby.phase).toBe('set_up')
+        return client
+    }
+    const choose = (root: FakeElement, value: string) => root.find(el => el.attrs.get('data-target') === value)!.click()
+
+    it('saves immediately and preserves the latest complete loadout when time expires without Ready', async () => {
+        const { root, leave } = await enterSetup()
+        choose(root, 'spell:SPELL_AFTERBURN')
+        choose(root, 'slot:0')
+        // Start another selection but never commit it.
+        choose(root, 'spell:SPELL_FIREBALL')
+        await seconds(lobby.settings.setupTime)
+        expect(lobby.phase).toBe('battle_countdown')
+        expect(lobby.battle!.state.player1.spells[0].id).toBe('SPELL_AFTERBURN')
+        leave()
+    })
+
+    it('locks immediately on Ready and offers no reopen control', async () => {
+        const { root, leave } = await enterSetup()
+        // Withhold the acknowledgement: local Ready must lock before the server replies.
+        socketOfClient()!.onmessage = () => {}
+        root.button('Ready for round 1')!.click()
+        choose(root, 'spell:SPELL_AFTERBURN')
+        choose(root, 'slot:0')
+        expect(root.textContent).toContain('Ready!')
+        expect(root.textContent).not.toContain('Edit loadout')
+        expect(root.find(el => el.attrs.get('data-target') === 'slot:0')!.attrs.get('aria-label')).toContain('Fireball')
+        leave()
+    })
+    it('at zero retains the loadout and shows ready even before the phase transition arrives', async () => {
+        const { root, leave } = await enterSetup()
+        choose(root, 'spell:SPELL_AFTERBURN')
+        choose(root, 'slot:0')
+        deliver(socketOfClient()!.connId, { t: 'meta', lobby: { ...lobby.info(), countdown: 0 } })
+        choose(root, 'spell:SPELL_FIREBALL')
+        choose(root, 'slot:0')
+        expect(root.textContent).toContain('0:00 remaining')
+        expect(root.textContent).toContain('Ready!')
+        expect(root.find(el => el.attrs.get('data-target') === 'slot:0')!.attrs.get('aria-label')).toContain(
+            'Afterburn',
+        )
+        leave()
+    })
+
+    it('prevents between-round swaps when allowSpellChange is off', async () => {
+        const { root, leave } = await enterSetup()
+        deliver(socketOfClient()!.connId, {
+            t: 'meta',
+            lobby: { ...lobby.info(), round: 2, settings: { ...lobby.settings, allowSpellChange: false } },
+        })
+        choose(root, 'spell:SPELL_AFTERBURN')
+        choose(root, 'slot:0')
+        expect(root.textContent).toContain('Spell changes are off')
+        expect(root.find(el => el.attrs.get('data-target') === 'slot:0')!.attrs.get('aria-label')).toContain('Fireball')
+        leave()
+    })
+})
