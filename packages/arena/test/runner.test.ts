@@ -268,7 +268,7 @@ describe('runMatch: what a controller sees', () => {
         // ticks 0 to maxTicks, the cap tick included
         expect(seen).toHaveLength(201)
         for (const view of seen) {
-            expect(Object.keys(view.enemy).sort()).toEqual(['casting', 'hp', 'lockedUntil'])
+            expect(Object.keys(view.enemy).sort()).toEqual(['casting', 'effects', 'hp', 'lockedUntil'])
             const json = JSON.stringify(view)
             for (const id of hidden) {
                 if (id === view.enemy.casting?.spellId) continue
@@ -278,6 +278,88 @@ describe('runMatch: what a controller sees', () => {
         const visible = seen.find(view => view.enemy.casting)
         expect(visible?.enemy.casting).toMatchObject({ spellId: 'SPELL_LIVING_BOMB', startTick: 0, completesAt: 30 })
         expect(seen[0].self.spells.map(s => s.id)).toEqual(METEOR_LOADOUT)
+    })
+
+    it("shows both players' buffs and debuffs, as id, kind and timer only", () => {
+        const IGNITE = slotOf(METEOR_LOADOUT, 'SPELL_IGNITE')
+        const BLUR = slotOf(METEOR_LOADOUT, 'SPELL_BLUR')
+        const SHIELD = slotOf(OTHER_LOADOUT, 'SPELL_TEMPORAL_SHIELD')
+        const EATER = slotOf(OTHER_LOADOUT, 'SPELL_MAGIC_EATER')
+        const COUNTER_B = slotOf(OTHER_LOADOUT, 'SPELL_COUNTERSPELL')
+        // a: Haste and Blur, two Ignites, then a Meteor that b counters 5 ticks in
+        const a: ControllerFactory = () => {
+            let ignites = 0
+            return ({ tick, self }) => {
+                if (tick === 0) return [start(HASTE), start(BLUR)]
+                if (self.casting) {
+                    if (tick < self.casting.completesAt) return null
+                    if (self.casting.spellId === 'SPELL_IGNITE') ignites += 1
+                    return stop(self.casting.slot)
+                }
+                if (ignites < 2) return start(IGNITE)
+                return self.spells[METEOR].ready ? start(METEOR) : null
+            }
+        }
+        const b: ControllerFactory =
+            () =>
+            ({ tick, enemy }) => {
+                if (tick === 5) return start(SHIELD)
+                if (tick === 6) return start(EATER)
+                return enemy.casting?.spellId === 'SPELL_METEOR' && tick === enemy.casting.startTick + 5
+                    ? start(COUNTER_B)
+                    : null
+            }
+        const seenA: ArenaView[] = []
+        const seenB: ArenaView[] = []
+        const result = runMatch({
+            seed: 1,
+            a: entrant('a', recording(a, seenA)),
+            b: entrant('b', recording(b, seenB), OTHER_LOADOUT),
+            maxTicks: 120,
+        })
+        const ids = (effects: ArenaView['self']['effects']) => effects.map(e => e.id)
+
+        expect(seenA[1].self.effects).toEqual([
+            { id: 'BUFF_HASTE', type: 'positive', startingTick: 0, expiresAt: 1200 },
+            { id: 'BUFF_BLUR', type: 'positive', startingTick: 0, expiresAt: 78 },
+        ])
+        expect(seenB[1].enemy.effects).toEqual(seenA[1].self.effects)
+        // Temporal Shield (1.2 s) from tick 5 and Magic Eater (7.8 s) from tick 6, on b, as a sees them
+        expect(seenA[7].enemy.effects).toEqual([
+            { id: 'BUFF_TEMPORAL_SHIELD', type: 'positive', startingTick: 5, expiresAt: 29 },
+            { id: 'BUFF_MAGIC_EATER', type: 'positive', startingTick: 6, expiresAt: 162 },
+        ])
+        expect(ids(seenA[28].enemy.effects)).toContain('BUFF_TEMPORAL_SHIELD')
+        expect(ids(seenA[29].enemy.effects)).not.toContain('BUFF_TEMPORAL_SHIELD')
+        // the Ignite stacks on b
+        const stacks = seenA.map(view => view.enemy.effects.filter(e => e.id === 'DEBUFF_IGNITE').length)
+        expect(Math.max(...stacks)).toBe(2)
+        expect(seenB.map(view => view.self.effects.filter(e => e.id === 'DEBUFF_IGNITE').length)).toEqual(stacks)
+        // the Counterspell lock on a, on both sides of the view
+        const interrupt = result.log.find(e => e.type === 'INTERRUPTED')!
+        expect(interrupt).toMatchObject({ side: 'a', spellId: 'SPELL_METEOR' })
+        const after = interrupt.tick + 1
+        expect(seenA[after].self).toMatchObject({ lockedUntil: interrupt.tick + 60 })
+        expect(seenB[after].enemy).toMatchObject({ lockedUntil: interrupt.tick + 60 })
+        expect(seenB[after].enemy.effects).toContainEqual({
+            id: 'DEBUFF_COUNTERSPELL',
+            type: 'negative',
+            startingTick: interrupt.tick,
+            expiresAt: interrupt.tick + 60,
+        })
+
+        // never an effect's internals: Haste's saved cast times, the shield's saved HP, Magic Eater's pending heal
+        for (const view of [...seenA, ...seenB]) {
+            for (const effect of [...view.self.effects, ...view.enemy.effects]) {
+                expect(Object.keys(effect).sort()).toEqual(['expiresAt', 'id', 'startingTick', 'type'])
+            }
+            const json = JSON.stringify(view)
+            for (const hidden of ['backup', 'pendingDamage', 'healCarry', 'logIndex', 'damage', 'source'])
+                expect(json).not.toContain(`"${hidden}"`)
+            // nor the opponent's cooldowns, GCD or loadout
+            const enemy = JSON.stringify(view.enemy)
+            for (const hidden of ['cooldown', 'gcd', 'spells', 'ready']) expect(enemy).not.toContain(hidden)
+        }
     })
 
     it('shows engine readiness: cooldowns and the lock after an interrupt', () => {

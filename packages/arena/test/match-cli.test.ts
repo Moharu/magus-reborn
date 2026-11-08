@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { EXAMPLE_ENTRANTS, formatSummary, runMatch } from '../src'
+import { archetypeEntrant, EXAMPLE_ENTRANTS, formatSummary, runMatch } from '../src'
 
 const srcDir = fileURLToPath(new URL('../src/', import.meta.url))
 const sources = readdirSync(srcDir)
@@ -23,7 +23,10 @@ describe('arena sources', () => {
     it('import the engine only through its public entry, never a spell module', () => {
         for (const { file, text } of sources) {
             for (const [, from] of text.matchAll(/from '([^']+)'/g)) {
-                expect(from === '@magus/engine' || /^\.\/[\w-]+$/.test(from), `${file} imports ${from}`).toBe(true)
+                // a sibling module, or a checked-in archetype profile
+                const allowed =
+                    from === '@magus/engine' || /^\.\/[\w-]+$/.test(from) || /^\.\.\/profiles\/[\w-]+\.json$/.test(from)
+                expect(allowed, `${file} imports ${from}`).toBe(true)
             }
         }
     })
@@ -36,5 +39,16 @@ describe('arena:match CLI', () => {
         const expected = runMatch({ seed: 5, a: EXAMPLE_ENTRANTS.aggressor, b: EXAMPLE_ENTRANTS.counter })
         expect(out.at(-1)).toBe(formatSummary(expected))
         expect(out.at(-1)).toMatch(/^END winner=(a|b|draw) reason=\w+ ticks=\d+ /)
+    }, 30_000)
+
+    it('plays two archetypes with --a and --b', () => {
+        const script = fileURLToPath(new URL('../scripts/match.ts', import.meta.url))
+        const args = [script, '--seed', '3', '--a', 'bait', '--b', 'patient-counter']
+        const out = execFileSync('npx', ['tsx', ...args], { encoding: 'utf8' })
+            .trim()
+            .split('\n')
+        const expected = runMatch({ seed: 3, a: archetypeEntrant('bait'), b: archetypeEntrant('patient-counter') })
+        expect(out[0]).toBe('a bait vs b patient-counter')
+        expect(out.at(-1)).toBe(formatSummary(expected))
     }, 30_000)
 })

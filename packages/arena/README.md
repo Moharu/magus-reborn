@@ -8,6 +8,7 @@ workflow (#105) build on this package.
 npm run arena:match -- --seed 1          # summary of one match between the two built-in example entrants
 npm run arena:match -- --seed 1 --log    # the full match log, then the summary
 npm run arena:match -- --seed 1 --max-ticks 600
+npm run arena:match -- --seed 1 --a bait --b patient-counter   # two archetypes from profiles/
 ```
 
 ## Rules the arena keeps
@@ -47,14 +48,18 @@ from the match seed and the side, so one player's draws never shift the other's.
 tick. `start` calls `startCast(slot)` and `stop` calls `stopCast(slot)`, which releases a completed cast or cancels
 one early (a fake cast). Use the shared `start(slot)`/`stop(slot)` helpers to avoid allocating an action per tick.
 
-`ArenaView` is only what that player can see:
+`ArenaView` is only what that player can see, the same as a real client (the server's opponent redaction, #86):
 
 - `tick`
 - `self`: `hp`, `casting` (`slot`, `spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `gcdUntil`,
-  `lockedUntil`, and `spells`, the player's own loadout with `castTime`, `cooldownRemaining`, `lockRemaining` and
-  `ready` per slot.
-- `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, and `lockedUntil`. Never the
-  opponent's loadout.
+  `lockedUntil`, `effects`, and `spells`, the player's own loadout with `castTime`, `cooldownRemaining`,
+  `lockRemaining` and `ready` per slot.
+- `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil` and `effects`.
+  Never the opponent's loadout, cooldowns or GCD.
+- `effects` (both players) is the buff bar: one `{ id, type, startingTick, expiresAt }` per effect, so Ignite stacks,
+  Living Bomb, Haste, Blur, Temporal Shield, Magic Eater and the Counterspell lock (`DEBUFF_COUNTERSPELL`). Never an
+  effect's internals (Haste's saved cast times, Temporal Shield's saved HP, Magic Eater's pending heal). `expiresAt` is
+  `startingTick + duration`; views from that tick on no longer show the effect.
 
 The runner reuses the view objects every tick. A controller that keeps a value across ticks must copy it.
 
@@ -62,6 +67,85 @@ Built-in controllers, only to exercise the runner: `idle()` never casts; `priori
 enemy cast after a seeded reaction time (`counter`, off by default), else releases its own cast once complete (plus a
 seeded `releaseJitterTicks`), else starts the first ready spell in `order`. `EXAMPLE_ENTRANTS` holds the two entrants
 `arena:match` plays.
+
+### Behaviour profiles (#102)
+
+A profile is a plain JSON object of named parameters, so a tuner (#104) can mutate it. `parseProfile(raw)` checks the
+shape and ranges and returns it in normal form; `loadProfile(raw, loadout)` also checks it against the loadout it will
+play. Both throw a `ProfileError` whose message starts with the offending key's path (`counterspell.reaction.meanSeconds:
+must be in [0, 10], got 11`): unknown keys, missing keys and out-of-range values are rejected. `profileController(profile)`
+is its `ControllerFactory`, `profileEntrant(profile, loadout)` an entrant. Every key except `intent` and a rotation
+entry's `when` is required.
+
+```jsonc
+{
+    "name": "bait",
+    "intent": "one line",
+    // ordered spell ids, or { "spell", "when": [conditions] }; every spell must be on the loadout (rejected at load
+    // time); Counterspell and the general spells are decided by their own blocks, not here
+    "rotation": [
+        {
+            "spell": "SPELL_COMBUSTION",
+            "when": [{ "type": "enemyEffectsAtLeast", "effect": "DEBUFF_IGNITE", "count": 6 }],
+        },
+        "SPELL_FIREBALL",
+    ],
+    "counterspell": {
+        "enabled": true,
+        "targets": ["SPELL_METEOR"], // enemy casts it interrupts
+        "reaction": { "meanSeconds": 0.4, "spreadSeconds": 0.1 }, // uniform in mean ± spread (spread ≤ mean), per cast
+        "timing": "early", // or "late"
+        "lateWindowSeconds": 0, // late: decide once the cast is within this long of its release
+    },
+    "fakeCast": {
+        "enabled": true,
+        "spell": "SPELL_METEOR",
+        "cancelAfterSeconds": 0.25, // #43's R + ε, R being when the enemy commits (see below)
+        "pauseAfterSeconds": 0.4, // start no cast for this long after the cancel
+        "minGapSeconds": 12, // between two fakes
+        "maxPerMatch": 20,
+        "when": [], // conditions to start a fake
+    },
+    // one rule per general spell: "never" or { "when": [conditions] }; rules for spells not on the loadout are unused
+    "generals": {
+        "SPELL_HASTE": { "when": [{ "type": "nextCastIs", "spells": ["SPELL_METEOR"] }] },
+        "SPELL_TEMPORAL_SHIELD": "never",
+        "SPELL_MAGIC_EATER": "never",
+        "SPELL_BLUR": "never",
+    },
+}
+```
+
+**Conditions** are data; a `when` list holds when all its conditions do. They read only the `ArenaView` and the
+profile's own choice this tick (`src/conditions.ts`): `selfHpBelow`/`selfHpAtLeast`/`enemyHpBelow`/`enemyHpAtLeast`
+(`hp`), `selfEffectsAtLeast`/`selfEffectsBelow`/`enemyEffectsAtLeast`/`enemyEffectsBelow` (`effect`, `count`),
+`selfCasting`, `selfNotCasting`, `enemyCasting` (optional `spells`), `enemyNotCasting`, `enemyCastEndsWithin`
+(`seconds`, optional `spells`), `enemyLocked` and `nextCastIs` (`spells`: the real cast the profile starts this tick; never a fake).
+
+**Each tick** the controller: (1) cancels its fake cast once `cancelAfterSeconds` has passed, or releases a completed
+cast; (2) lands a committed Counterspell; (3) picks its next cast if it has none in progress and isn't pausing after a
+fake: a fake cast if `fakeCast` allows one, else the first rotation entry that is ready and whose `when` holds; (4)
+uses each general spell that is ready and whose rule holds (an instant used mid-cast cancels the cast, so rules that
+must not do that say `selfNotCasting`); (5) starts the cast from (3), after the general spells so Haste applies to it.
+It never assumes a side.
+
+**Counterspell model.** For each targeted enemy cast it sees, the player samples a reaction time and waits for its
+decision tick: `early`, the first tick the cast is visible; `late`, the first tick the cast is within
+`lateWindowSeconds` of its release (moved with the release if the visible cast time changes, as when Haste expires
+mid-cast). From then on, while the cast is still on the bar, it commits as soon as
+Counterspell will be ready one reaction later, and the Counterspell lands one reaction after the commit whatever the
+enemy does meanwhile: the enemy can't tell a fake cast from a real one, nor react to the cancel faster than to the
+cast. A `late` window shorter than the reaction lands after the release.
+
+**Fake casts (#43).** Start `fakeCast.spell`, then cancel it with `Battle.stopCast` after `cancelAfterSeconds`; the
+cancel costs only the elapsed time (no lock, no damage). It baits a Counterspell when the enemy has committed before
+the cancel and lands after it: against an `early` counterer with reaction `R`, the cancel must come before `R` from
+the first visible tick, and `pauseAfterSeconds` must outlast it, or the Counterspell lands on the next cast. `late`
+counterers decide near the release and are not fooled by short fakes.
+
+**Archetypes** live in `profiles/<name>.json` as `{ "loadout": [...], "profile": {...} }` and load on import
+(`ARCHETYPES`, `archetypeEntrant(name)`): `aggressive`, `patient-counter`, `bait` and `defensive`, each with its
+intent in its file.
 
 ### Tick order and the end of a match
 

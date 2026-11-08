@@ -6,6 +6,7 @@ import {
     lockRemaining,
     secondsToTicks,
     toCenti,
+    type EffectState,
     type LogEntry,
     type PlayerKey,
     type PlayerState,
@@ -50,13 +51,17 @@ interface ViewState {
             casting: OwnCast | null
             gcdUntil: number
             lockedUntil: number
+            effects: EffectSlot[]
             spells: SpellSlot[]
         }
-        enemy: { hp: number; casting: Cast | null; lockedUntil: number }
+        enemy: { hp: number; casting: Cast | null; lockedUntil: number; effects: EffectSlot[] }
     }
     /** Reused cast objects, linked from the view only while that player is casting. */
     ownCast: OwnCast
     enemyCast: Cast
+    /** Reused effect objects, grown on demand; the view arrays hold the first `effects.length` of them. */
+    ownEffects: EffectSlot[]
+    enemyEffects: EffectSlot[]
 }
 
 interface Cast {
@@ -67,6 +72,12 @@ interface Cast {
 }
 interface OwnCast extends Cast {
     slot: number
+}
+interface EffectSlot {
+    id: EffectState['id']
+    type: EffectState['type']
+    startingTick: number
+    expiresAt: number
 }
 interface SpellSlot {
     id: SpellId
@@ -87,13 +98,33 @@ const createView = (loadout: readonly SpellId[]): ViewState => ({
             casting: null,
             gcdUntil: 0,
             lockedUntil: 0,
+            effects: [],
             spells: loadout.map(id => ({ id, castTime: 0, cooldownRemaining: 0, lockRemaining: 0, ready: false })),
         },
-        enemy: { hp: 0, casting: null, lockedUntil: 0 },
+        enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [] },
     },
     ownCast: emptyCast(),
     enemyCast: emptyEnemyCast(),
+    ownEffects: [],
+    enemyEffects: [],
 })
+
+/**
+ * Copies what the buff bar shows of each effect into `into` (reusing `pool`): id, kind and timer, never the effect's
+ * internal fields, which can hold hidden state (Haste's `backup` is every slot's cast time, so the loadout).
+ */
+const readEffects = (effects: readonly EffectState[], into: EffectSlot[], pool: EffectSlot[]) => {
+    into.length = effects.length
+    for (let i = 0; i < effects.length; i++) {
+        const effect = effects[i]
+        const slot = (pool[i] ??= { id: effect.id, type: effect.type, startingTick: 0, expiresAt: 0 })
+        slot.id = effect.id
+        slot.type = effect.type
+        slot.startingTick = effect.startingTick
+        slot.expiresAt = effect.startingTick + effect.duration
+        into[i] = slot
+    }
+}
 
 /** Copies the cast in progress into `into`; false if `player` isn't casting. */
 const readCast = (player: PlayerState, into: Cast) => {
@@ -106,13 +137,18 @@ const readCast = (player: PlayerState, into: Cast) => {
     return true
 }
 
-/** Fills `view` with what `self` may see. The enemy's loadout is never read, only the spell it is casting. */
-const refresh = ({ view, ownCast, enemyCast }: ViewState, self: PlayerState, enemy: PlayerState, tick: number) => {
+/**
+ * Fills `view` with what `self` may see. Of the enemy it reads only what a client shows (the server's opponent
+ * redaction): HP, the spell being cast, the lock and the buff bar. Never the loadout, cooldowns or GCD.
+ */
+const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: number) => {
+    const { view, ownCast, enemyCast } = state
     view.tick = tick
     const own = view.self
     own.hp = self.hp
     own.gcdUntil = self.gcdUntil
     own.lockedUntil = self.lockedUntil
+    readEffects(self.effects, own.effects, state.ownEffects)
     // Haste swaps the engine's spell objects, so read them fresh every tick
     for (let i = 0; i < own.spells.length; i++) {
         const spell = self.spells[i]
@@ -129,6 +165,7 @@ const refresh = ({ view, ownCast, enemyCast }: ViewState, self: PlayerState, ene
 
     view.enemy.hp = enemy.hp
     view.enemy.lockedUntil = enemy.lockedUntil
+    readEffects(enemy.effects, view.enemy.effects, state.enemyEffects)
     view.enemy.casting = readCast(enemy, enemyCast) ? enemyCast : null
 }
 

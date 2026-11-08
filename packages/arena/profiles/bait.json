@@ -1,0 +1,45 @@
+{
+    "loadout": [
+        "SPELL_METEOR",
+        "SPELL_FIREBALL",
+        "SPELL_IGNITE",
+        "SPELL_COMBUSTION",
+        "SPELL_COUNTERSPELL",
+        "SPELL_HASTE",
+        "SPELL_BLUR"
+    ],
+    "profile": {
+        "name": "bait",
+        "intent": "Fake-cast Meteor to pull out an early Counterspell, then land real Meteors while it is on cooldown.",
+        "rotation": ["SPELL_METEOR", "SPELL_FIREBALL"],
+        "counterspell": {
+            "enabled": true,
+            "targets": ["SPELL_METEOR", "SPELL_COMBUSTION"],
+            "reaction": { "meanSeconds": 0.4, "spreadSeconds": 0.1 },
+            "timing": "early",
+            "lateWindowSeconds": 0
+        },
+        "fakeCast": {
+            "enabled": true,
+            "spell": "SPELL_METEOR",
+            "cancelAfterSeconds": 0.25,
+            "pauseAfterSeconds": 0.4,
+            "minGapSeconds": 12,
+            "maxPerMatch": 20,
+            "when": []
+        },
+        "generals": {
+            "SPELL_HASTE": {
+                "when": [{ "type": "selfNotCasting" }, { "type": "nextCastIs", "spells": ["SPELL_METEOR"] }]
+            },
+            "SPELL_TEMPORAL_SHIELD": "never",
+            "SPELL_MAGIC_EATER": "never",
+            "SPELL_BLUR": {
+                "when": [
+                    { "type": "selfNotCasting" },
+                    { "type": "enemyCastEndsWithin", "seconds": 0.3, "spells": ["SPELL_IGNITE", "SPELL_LIVING_BOMB"] }
+                ]
+            }
+        }
+    }
+}
