@@ -20,7 +20,7 @@ import { getLoadout, getName, playerId, setLoadout } from '../identity'
 import { connect, type Socket } from '../net'
 import { navigate } from '../router'
 import { spellPicker, type SpellPicker } from '../ui/spell-picker'
-import { loadBattleChunk, newVersionPanel } from './battle-chunk'
+import { BATTLE_SETUP_ERROR, battleErrorPanel, loadBattleChunk } from './battle-chunk'
 import { nameField } from './home'
 
 type Mode = 'connecting' | 'lobby' | 'setup' | 'watch-setup' | 'battle' | 'over' | 'error'
@@ -136,22 +136,8 @@ const startLobby = (root: HTMLElement, code: string) => {
                     h('div', { class: 'center' }, h('p', { class: 'muted' }, 'Connecting to lobby…')),
                 )
             case 'error':
-                if (fatal === NEW_VERSION_MESSAGE) {
-                    return content.replaceChildren(
-                        newVersionPanel(h('a', { class: 'btn', href: '/', 'data-link': true }, 'Back home')),
-                    )
-                }
                 return content.replaceChildren(
-                    h(
-                        'div',
-                        { class: 'center' },
-                        h(
-                            'section',
-                            { class: 'panel narrow' },
-                            h('h2', null, fatal),
-                            h('a', { class: 'btn primary', href: '/', 'data-link': true }, 'Back home'),
-                        ),
-                    ),
+                    battleErrorPanel(fatal!, h('a', { class: 'btn', href: '/', 'data-link': true }, 'Back home')),
                 )
             case 'lobby':
                 return content.replaceChildren(renderLobby(lobby!))
@@ -395,28 +381,32 @@ const startLobby = (root: HTMLElement, code: string) => {
             if (!view && !viewPending) {
                 viewPending = true
                 const mine = me()
+                const failView = (message: string) => {
+                    viewPending = false
+                    // Disconnect so the opponent pauses while this player cannot see the battle.
+                    socket?.close()
+                    netStatus.remove()
+                    fatal = message
+                    render()
+                }
                 loadBattleChunk(() => import('../game/battle-view'), {
                     onLoaded: ({ BattleView }) =>
                         BattleView.create(stage, {
                             me: mine,
                             onPress: i => send({ t: 'start_cast', i }),
                             onRelease: i => send({ t: 'stop_cast', i }),
-                        }).then(created => {
-                            if (!viewPending || mode !== 'battle') return created.destroy()
-                            viewPending = false
-                            view = created
-                            if (battleSnap) view.update(battleSnap, [], [], false)
-                            decorate(info)
                         }),
-                    isCurrent: () => viewPending,
-                    onFailed: () => {
-                        // A connected player who can't see the battle would leave the opponent fighting someone idle.
-                        // Leaving pauses the match, and the server holds the seat for its reconnect grace period.
-                        socket?.close()
-                        netStatus.remove()
-                        fatal = NEW_VERSION_MESSAGE
-                        render()
+                    onCreated: created => {
+                        if (!viewPending || mode !== 'battle') return created.destroy()
+                        viewPending = false
+                        view = created
+                        if (battleSnap) view.update(battleSnap, [], [], false)
+                        decorate(info)
                     },
+                    isCurrent: () => viewPending,
+                    onFailed: () => failView(NEW_VERSION_MESSAGE),
+                    onCreateFailed: failView,
+                    onSetupFailed: () => failView(BATTLE_SETUP_ERROR),
                 })
             }
         }
