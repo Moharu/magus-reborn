@@ -1,5 +1,5 @@
 import { ELEMENT_SPELL_COUNT, SPELLS, type SpellId } from '@magus/engine'
-import type { Baseline } from './baseline'
+import type { Baseline, BaselineLoadout } from './baseline'
 import { profileEntrant } from './profile-controller'
 import { checkLoadout, type Profile } from './profile'
 import { deriveSeed, isSeed } from './prng'
@@ -8,8 +8,9 @@ import { wilsonInterval } from './stats'
 import type { Entrant, MatchResult } from './types'
 
 /**
- * Round-robin tournaments (#103). An entrant is a (loadout, profile) pair: the top-N loadouts of the dummy-DPS baseline
- * crossed with the behaviour profiles. Every unordered pair of distinct entrants plays `games` best-of-1 matches, half
+ * Round-robin tournaments (#103). An entrant is a (loadout, profile) pair: the loadouts are the top N distinct Fire
+ * sets of the dummy-DPS baseline, each with its best K general pairs (`selectLoadouts`), crossed with the behaviour
+ * profiles. Every unordered pair of distinct entrants plays `games` best-of-1 matches, half
  * of them with each entrant as `player1` (which acts first within a tick). The score is each entrant's win rate over all
  * its games: only wins count, a draw (time cap or mutual lethal) and a loss are both non-wins.
  *
@@ -22,13 +23,16 @@ export const TOURNAMENT_FORMAT = 'arena-tournament'
 export const SHARD_FORMAT = 'arena-tournament-shard'
 
 export const DEFAULT_TOP = 8
-export const DEFAULT_GAMES = 4
+export const DEFAULT_GENERAL_PAIRS = 2
+export const DEFAULT_GAMES = 2
 export const DEFAULT_SEED = 1
 
 export interface TournamentOptions {
     readonly baseline: Baseline
-    /** How many baseline loadouts to take, best first. Clamped to the table's size (reported in `config.top`). */
+    /** How many distinct Fire sets to take, best first. Clamped to the table's size (reported in `config.top`). */
     readonly top?: number
+    /** How many general pairs each Fire set plays with, best first (default 2). Fewer if the table has fewer. */
+    readonly generalPairs?: number
     /** The profiles each loadout plays, by distinct `name`. */
     readonly profiles: readonly Profile[]
     /** Matches per pair: even, so each entrant is `player1` in exactly half. */
@@ -49,7 +53,10 @@ export interface EntrantInfo {
 /** Everything that decides the result. Shards must agree on it to be merged. */
 export interface TournamentConfig {
     readonly baselineVersion: string
+    /** Fire sets: how many were asked for and how many the baseline had. */
     readonly top: { readonly requested: number; readonly used: number }
+    /** General pairs asked for per Fire set. */
+    readonly generalPairs: number
     readonly games: number
     readonly seed: number
     readonly maxTicks: number
@@ -132,11 +139,51 @@ export const adaptProfile = (profile: Profile, loadout: readonly SpellId[]): Pro
     return checkLoadout({ ...profile, rotation, fakeCast }, loadout)
 }
 
-/** Validates the options and builds the entrants: loadouts in baseline order, each with the profiles in the given order. */
+/** Spell ids of a loadout's Fire set, in a canonical (sorted) order: slot order does not make a different set. */
+const fireKey = (loadout: readonly SpellId[]) => [...loadout.slice(0, ELEMENT_SPELL_COUNT)].sort().join()
+/** The loadout with its Fire set and its general pair each in canonical order, the identity of a full loadout. */
+const loadoutKey = (loadout: readonly SpellId[]) =>
+    [fireKey(loadout), loadout[ELEMENT_SPELL_COUNT], [...loadout.slice(ELEMENT_SPELL_COUNT + 1)].sort().join()].join(
+        '|',
+    )
+
+/**
+ * The tournament's loadouts: the first `sets` distinct 4-spell Fire sets in baseline order (a set ranks where its best
+ * loadout does), and for each its first `generalPairs` loadouts, i.e. its best general pairs. A loadout that only
+ * reorders the slots of one already taken is skipped, so no full loadout is repeated. Returns them grouped by set,
+ * sets best first and pairs best first within a set, and how many sets the table had room for.
+ */
+export const selectLoadouts = (
+    baseline: Baseline,
+    sets: number,
+    generalPairs: number,
+): { loadouts: BaselineLoadout[]; sets: number } => {
+    const bySet = new Map<string, BaselineLoadout[]>()
+    const taken = new Set<string>()
+    for (const entry of baseline.loadouts) {
+        const key = fireKey(entry.loadout)
+        let group = bySet.get(key)
+        if (!group && bySet.size === sets) continue
+        const full = loadoutKey(entry.loadout)
+        if (taken.has(full)) continue
+        taken.add(full)
+        if (!group) bySet.set(key, (group = []))
+        if (group.length < generalPairs) group.push(entry)
+    }
+    return { loadouts: [...bySet.values()].flat(), sets: bySet.size }
+}
+
+/**
+ * Validates the options and builds the entrants: the selected loadouts (`selectLoadouts`), each with the profiles in the
+ * given order.
+ */
 export const planTournament = (options: TournamentOptions): TournamentPlan => {
     const { baseline, profiles, top = DEFAULT_TOP, games = DEFAULT_GAMES, seed = DEFAULT_SEED } = options
+    const generalPairs = options.generalPairs ?? DEFAULT_GENERAL_PAIRS
     const maxTicks = options.maxTicks ?? DEFAULT_MAX_TICKS
     if (!(Number.isInteger(top) && top >= 1)) throw new Error(`top must be a positive integer, got ${top}`)
+    if (!(Number.isInteger(generalPairs) && generalPairs >= 1))
+        throw new Error(`generalPairs must be a positive integer, got ${generalPairs}`)
     if (!(Number.isInteger(games) && games >= 2 && games % 2 === 0))
         throw new Error(`games must be an even integer of at least 2 (so sides swap equally), got ${games}`)
     if (!isSeed(seed)) throw new Error(`seed must be an integer in [0, 2^32), got ${seed}`)
@@ -147,9 +194,8 @@ export const planTournament = (options: TournamentOptions): TournamentPlan => {
         if (names.has(name)) throw new Error(`profile ${JSON.stringify(name)} is listed twice`)
         names.add(name)
     }
-    const used = Math.min(top, baseline.loadouts.length)
-    if (used * profiles.length < 2) throw new Error('a tournament needs at least two entrants')
-    const chosen = baseline.loadouts.slice(0, used)
+    const { loadouts: chosen, sets: used } = selectLoadouts(baseline, top, generalPairs)
+    if (chosen.length * profiles.length < 2) throw new Error('a tournament needs at least two entrants')
     const entrants: EntrantInfo[] = []
     const make: (() => Entrant)[] = []
     for (const { rank, loadout } of chosen) {
@@ -163,6 +209,7 @@ export const planTournament = (options: TournamentOptions): TournamentPlan => {
         config: {
             baselineVersion: baseline.version,
             top: { requested: top, used },
+            generalPairs,
             games,
             seed,
             maxTicks,
