@@ -995,6 +995,14 @@ const errors = (transport: FakeTransport, connId: string) => transport.to(connId
 const loadoutIds = (lobby: Lobby, key: 'player1' | 'player2') => lobby.battle!.state[key].spells.map(s => s.id)
 
 describe('changing the loadout (#85)', () => {
+    it('allows changes between rounds by default, and lets the host turn that off', () => {
+        const { lobby } = setup()
+        lobby.connect('c1', 'alice-id', 'Alice')
+        expect(lobby.settings.allowSpellChange).toBe(true)
+        lobby.message('c1', { t: 'settings', settings: { allowSpellChange: false } })
+        expect(lobby.settings.allowSpellChange).toBe(false)
+    })
+
     it('accepts a valid loadout and echoes it to its owner only', () => {
         const { lobby, transport } = startMatch()
         transport.clear()
