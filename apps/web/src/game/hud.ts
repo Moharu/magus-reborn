@@ -272,8 +272,9 @@ export class ActionBar extends Container {
             clip.addChild(icon, overlay)
             clip.mask = mask
             root.addChild(mask, clip, frame, center, key, name)
+            // Manual input does not own automatic release. Only accepted cast state
+            // can invalidate the existing accessible binding.
             root.on('pointerdown', () => {
-                this.clearAccessibleCast()
                 if (this.pressed.has(i)) return
                 this.pressed.add(i)
                 onPress(i)
@@ -297,9 +298,15 @@ export class ActionBar extends Container {
         }
     }
 
-    update(player: PlayerState, tick: number, keysDown: Set<number>, confirmedTick = tick) {
+    update(player: PlayerState, tick: number, keysDown: Set<number>, confirmedTick = tick, active = true) {
+        if (!active) this.clearAccessibleCast()
         // Bind requests to the cast the engine actually accepted, never the last clicked slot.
-        if (player.cast !== null && player.castStartingTick !== null && this.accessibleRequests.has(player.cast)) {
+        if (
+            active &&
+            player.cast !== null &&
+            player.castStartingTick !== null &&
+            this.accessibleRequests.has(player.cast)
+        ) {
             this.accessibleCast = { index: player.cast, startingTick: player.castStartingTick }
             // Other requests may still be in flight to the authoritative server.
             this.accessibleRequests.delete(player.cast)

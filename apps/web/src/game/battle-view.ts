@@ -213,8 +213,14 @@ export class BattleView {
         this.snap = snap
         this.snapAt = performance.now()
         const mine = this.options.me ? snap[this.options.me] : null
-        if (this.combatActive() && mine?.spells)
-            this.actionBar?.update(mine as PlayerState, snap.gameTick, this.keysDown, snap.gameTick)
+        if (mine?.spells)
+            this.actionBar?.update(
+                mine as PlayerState,
+                snap.gameTick,
+                this.keysDown,
+                snap.gameTick,
+                this.combatActive() && fresh,
+            )
         if (!fresh) return
         for (const entry of newLog) if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(entry.caster, entry.spellId)
         for (const tell of interruptTells(newLog, this.sides)) this.onInterrupt(tell)
@@ -223,12 +229,18 @@ export class BattleView {
 
     /** Stops cast bars and cooldowns from advancing between snapshots (countdowns, pauses). */
     setFrozen(frozen: boolean) {
-        if (frozen) this.releaseAll()
+        if (frozen) {
+            this.actionBar?.clearAccessibleCast()
+            this.releaseAll()
+        }
         this.frozen = frozen
     }
 
     setOverlay(title: string | null, sub = '') {
-        if (title !== null) this.releaseAll()
+        if (title !== null) {
+            this.actionBar?.clearAccessibleCast()
+            this.releaseAll()
+        }
         this.overlay.visible = title !== null
         setText(this.overlayTitle, title ?? '')
         setText(this.overlaySub, sub)
@@ -241,6 +253,7 @@ export class BattleView {
     destroy() {
         if (this.destroyed) return
         this.destroyed = true
+        this.actionBar?.clearAccessibleCast()
         this.releaseAll()
         window.removeEventListener('keydown', this.onKeyDown)
         window.removeEventListener('keyup', this.onKeyUp)
@@ -299,7 +312,7 @@ export class BattleView {
             const mine = this.options.me && snap[this.options.me]
             // a player always has their own loadout
             if (this.actionBar && mine?.spells)
-                this.actionBar.update(mine as PlayerState, tick, this.keysDown, snap.gameTick)
+                this.actionBar.update(mine as PlayerState, tick, this.keysDown, snap.gameTick, this.combatActive())
         }
 
         for (const side of SIDES) {
@@ -554,7 +567,6 @@ export class BattleView {
         if (event.repeat || this.keysDown.has(index)) return
         this.handledKeyUps.add(event.code)
         this.keysDown.add(index)
-        this.actionBar?.clearAccessibleCast()
         this.options.onPress?.(index)
     }
 
@@ -571,7 +583,6 @@ export class BattleView {
         for (const index of this.keysDown) this.options.onRelease?.(index)
         this.keysDown.clear()
         if (this.actionBar) {
-            this.actionBar.clearAccessibleCast()
             for (const index of this.actionBar.pressed) this.options.onRelease?.(index)
             this.actionBar.pressed.clear()
         }

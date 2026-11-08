@@ -261,6 +261,116 @@ describe('accessible cast ownership', () => {
         return { game, release, bar, click, update, charge }
     }
 
+    describe.each(['training', 'lobby'] as const)('%s state-driven ownership', mode => {
+        const harness = () => {
+            const game = battle()
+            const commands: (() => void)[] = []
+            const Ctor = BattleView as unknown as new (
+                container: unknown,
+                options: unknown,
+            ) => {
+                actionBar: ActionBar
+                overlay: { visible: boolean }
+                update: BattleView['update']
+                setOverlay: BattleView['setOverlay']
+                onKeyDown(event: unknown): void
+            }
+            const feed = () => view.update(game.snapshot(), [], [])
+            const press = (i: number) => {
+                if (mode === 'lobby') {
+                    commands.push(() => game.startCast('player1', i))
+                    return
+                }
+                const accepted = game.startCast('player1', i)
+                feed()
+                return accepted
+            }
+            const release = vi.fn((i: number) => game.stopCast('player1', i))
+            const view = new Ctor({}, { me: 'player1', onPress: press, onRelease: release })
+            const bar = new ActionBar(press, release)
+            view.actionBar = bar
+            view.overlay.visible = false
+            const sync = () => {
+                for (const command of commands.splice(0)) command()
+                feed()
+            }
+            const input = (kind: 'click' | 'pointer' | 'keyboard', i: number) => {
+                if (kind === 'keyboard')
+                    view.onKeyDown({
+                        code: ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'Space', 'KeyD', 'KeyF'][i],
+                        preventDefault: vi.fn(),
+                    })
+                else
+                    bar.children[i + 1].emit(
+                        kind === 'click' ? 'click' : 'pointerdown',
+                        new FederatedPointerEvent(new EventBoundary(bar)),
+                    )
+                sync()
+            }
+            const charge = () => {
+                for (let i = 0; i < 200; i++) {
+                    game.tick()
+                    sync()
+                }
+            }
+            sync()
+            return { game, view, release, input, charge, sync }
+        }
+
+        it.each(['keyboard', 'pointer'] as const)('releases accessible Fireball after rejected %s Haste', kind => {
+            const { game, release, input, charge } = harness()
+            game.startCast('player1', 5)
+            input('click', 0)
+            input(kind, 5)
+            expect(game.state.player1.cast).toBe(0)
+            charge()
+            expect(release).toHaveBeenCalledExactlyOnceWith(0)
+            expect(game.state.player2.hp).toBeLessThan(100)
+        })
+
+        it.each(['keyboard', 'pointer', 'click'] as const)(
+            'gives an accepted replacement its own %s release behavior',
+            kind => {
+                const { game, release, input, charge } = harness()
+                input('click', 0)
+                game.tick()
+                input(kind, 1)
+                charge()
+                if (kind === 'click') {
+                    expect(release).toHaveBeenCalledExactlyOnceWith(1)
+                    expect(game.state.player1.cast).toBeNull()
+                } else {
+                    expect(release).not.toHaveBeenCalled()
+                    expect(game.state.player1.cast).toBe(1)
+                    game.stopCast('player1', 1)
+                    charge()
+                    expect(game.state.player2.hp).toBeLessThan(100)
+                }
+            },
+        )
+
+        it('drops an interrupted binding before a later manual cast', () => {
+            const { game, release, input, charge, sync } = harness()
+            input('click', 0)
+            expect(game.startCast('player2', 4)).toBe(true)
+            sync()
+            expect(game.state.player1.cast).toBeNull()
+            while (game.state.gameTick < game.state.player1.lockedUntil) game.tick()
+            input('keyboard', 0)
+            charge()
+            expect(release).not.toHaveBeenCalled()
+        })
+
+        it('drops ownership at round end even if the last snapshot still has a cast', () => {
+            const { game, view, release, input, charge } = harness()
+            input('click', 0)
+            view.setOverlay('Round over')
+            charge()
+            expect(release).not.toHaveBeenCalled()
+            expect(game.state.player2.hp).toBe(100)
+        })
+    })
+
     it('does not retain an activation rejected by the combat gate', () => {
         const game = battle()
         const release = vi.fn()
