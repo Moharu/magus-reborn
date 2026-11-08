@@ -1,8 +1,8 @@
 // Usage:
-//   npm run arena:tournament -- [--top N] [--profiles a,b,...] [--games G] [--seed S] [--max-ticks T]
+//   npm run arena:tournament -- [--top N] [--general-pairs K] [--profiles a,b,...] [--games G] [--seed S] [--max-ticks T]
 //                               [--baseline VERSION] [--jobs J] [--shard i/n] [--out FILE]
 //   npm run arena:tournament -- merge SHARD.json... [--out FILE]
-// Plays a round-robin between entrants (the top N baseline loadouts x the profiles) and prints the ranked table:
+// Plays a round-robin between entrants (the top N distinct Fire sets, each with its best K general pairs, x the profiles) and prints the ranked table:
 // win rate only, games per pair even so sides swap equally. --out writes the JSON (the result, or with --shard that
 // shard's pairs, which `merge` combines). --jobs (default: the cores, at most 4) runs that many worker processes and
 // never changes the output. Progress goes to stderr.
@@ -16,6 +16,7 @@ import {
     ARCHETYPES,
     DEFAULT_GAMES,
     DEFAULT_SEED,
+    DEFAULT_GENERAL_PAIRS,
     DEFAULT_TOP,
     formatTable,
     mergeShards,
@@ -102,6 +103,7 @@ const plan = () => {
     return planTournament({
         baseline: loadBaseline(),
         top: intFlag('top', DEFAULT_TOP),
+        generalPairs: intFlag('general-pairs', DEFAULT_GENERAL_PAIRS),
         profiles: names.map(name => ARCHETYPES[name as ArchetypeName].profile),
         games: intFlag('games', DEFAULT_GAMES),
         seed: intFlag('seed', DEFAULT_SEED),
@@ -167,7 +169,7 @@ const main = async () => {
     const { config } = tournament
     if (config.top.used < config.top.requested)
         console.error(
-            `--top ${config.top.requested}: the ${config.baselineVersion} baseline has ${config.top.used} loadouts, using all`,
+            `--top ${config.top.requested}: the ${config.baselineVersion} baseline has ${config.top.used} Fire sets, using all`,
         )
     const total = pairList(config.entrants.length).length
     const mine = shardPairs(total, shard?.index ?? 0, shard?.count ?? 1)

@@ -1,3 +1,4 @@
+import type { SpellId } from '@magus/engine'
 import { describe, expect, it } from 'vitest'
 import {
     adaptProfile,
@@ -99,6 +100,109 @@ describe('entrants and pairs', () => {
         // nothing of the rotation is left: the loadout's own Fire spells, in slot order
         const meteorOnly = { ...ARCHETYPES.bait.profile, rotation: [{ spell: 'SPELL_METEOR' as const, when: [] }] }
         expect(adaptProfile(meteorOnly, OTHER_LOADOUT).rotation.map(r => r.spell)).toEqual(OTHER_LOADOUT.slice(0, 4))
+    })
+})
+
+const FIRE_A = ['SPELL_FIREBALL', 'SPELL_IGNITE', 'SPELL_LIVING_BOMB', 'SPELL_AFTERBURN'] as const
+const FIRE_B = ['SPELL_FIREBALL', 'SPELL_COMBUSTION', 'SPELL_LIVING_BOMB', 'SPELL_AFTERBURN'] as const
+const FIRE_C = ['SPELL_METEOR', 'SPELL_COMBUSTION', 'SPELL_LIVING_BOMB', 'SPELL_IGNITE'] as const
+const FIRE_D = ['SPELL_METEOR', 'SPELL_FIREBALL', 'SPELL_LIVING_BOMB', 'SPELL_IGNITE'] as const
+const HASTE_BLUR = ['SPELL_HASTE', 'SPELL_BLUR'] as const
+const HASTE_EATER = ['SPELL_HASTE', 'SPELL_MAGIC_EATER'] as const
+const HASTE_SHIELD = ['SPELL_HASTE', 'SPELL_TEMPORAL_SHIELD'] as const
+const build = (fire: readonly SpellId[], generals: readonly SpellId[]): SpellId[] => [
+    ...fire,
+    'SPELL_COUNTERSPELL',
+    ...generals,
+]
+// Crowded on purpose: the leading Fire set A takes up ranks 1-6, two of them the same loadouts as others in other slot
+// orders (2: A's Fire spells reversed; 3: the general pair swapped), and sets B, C and D come later.
+const crowded: Baseline = {
+    version: 'test',
+    loadouts: [
+        build(FIRE_A, HASTE_BLUR), // 1
+        build([...FIRE_A].reverse(), HASTE_BLUR), // 2: same as 1
+        build(FIRE_A, [...HASTE_BLUR].reverse()), // 3: same as 1
+        build(FIRE_A, HASTE_EATER), // 4
+        build(FIRE_A, HASTE_SHIELD), // 5: A's third pair
+        build(FIRE_B, HASTE_BLUR), // 6
+        build(FIRE_C, HASTE_BLUR), // 7
+        build(FIRE_B, HASTE_EATER), // 8
+        build(FIRE_C, HASTE_EATER), // 9
+        build(FIRE_D, HASTE_BLUR), // 10
+    ].map((loadout, i) => ({ rank: i + 1, loadout, dps: 50 - i, dpsUnderPressure: 40 - i })),
+}
+const fireSet = (loadout: readonly SpellId[]) => [...loadout.slice(0, 4)].sort().join()
+const selected = (extra: Partial<Parameters<typeof planTournament>[0]> = {}) =>
+    planTournament({ baseline: crowded, profiles, games: 2, seed: 7, ...extra })
+const loadoutsOf = (plan: TournamentPlan) => [
+    ...new Map(plan.config.entrants.map(e => [e.loadoutRank, e.loadout] as const)).values(),
+]
+
+describe('entrant selection: distinct Fire sets, each with its best general pairs', () => {
+    it('takes the top N distinct Fire sets, not the top N loadouts', () => {
+        const plan = selected({ top: 3 })
+        const sets = loadoutsOf(plan).map(fireSet)
+        expect(new Set(sets).size).toBe(3)
+        expect(plan.config.top).toEqual({ requested: 3, used: 3 })
+        // A, B, C in the order of their best loadout; D (4th set) is left out
+        expect(plan.config.entrants.map(e => e.loadoutRank)).toEqual([1, 1, 4, 4, 6, 6, 8, 8, 7, 7, 9, 9])
+    })
+
+    it('gives each set its top K general pairs, 2 by default', () => {
+        const byDefault = selected({ top: 3 })
+        expect(loadoutsOf(byDefault).map(l => l.slice(5).join())).toEqual([
+            'SPELL_HASTE,SPELL_BLUR',
+            'SPELL_HASTE,SPELL_MAGIC_EATER',
+            'SPELL_HASTE,SPELL_BLUR',
+            'SPELL_HASTE,SPELL_MAGIC_EATER',
+            'SPELL_HASTE,SPELL_BLUR',
+            'SPELL_HASTE,SPELL_MAGIC_EATER',
+        ])
+        expect(byDefault.config.generalPairs).toBe(2)
+        const counts = (plan: TournamentPlan) => {
+            const per = new Map<string, number>()
+            for (const l of loadoutsOf(plan)) per.set(fireSet(l), (per.get(fireSet(l)) ?? 0) + 1)
+            return [...per.values()]
+        }
+        expect(counts(byDefault)).toEqual([2, 2, 2])
+        expect(counts(selected({ top: 3, generalPairs: 1 }))).toEqual([1, 1, 1])
+        // A has three pairs, B and C only two: K above what a set has gives all it has
+        expect(counts(selected({ top: 3, generalPairs: 3 }))).toEqual([3, 2, 2])
+        expect(selected({ top: 3, generalPairs: 3 }).config.generalPairs).toBe(3)
+    })
+
+    it('never repeats a full loadout, even one that only reorders slots of another', () => {
+        const plan = selected({ top: 4, generalPairs: 5 })
+        const keys = loadoutsOf(plan).map(l => `${fireSet(l)}|${l[4]}|${[...l.slice(5)].sort().join()}`)
+        expect(new Set(keys).size).toBe(keys.length)
+        // ranks 2 and 3 are reorderings of rank 1, so set A's pairs come from ranks 1, 4 and 5
+        expect(loadoutsOf(plan).map(l => fireSet(l))).toHaveLength(8)
+        expect(plan.config.entrants.map(e => e.loadoutRank)).not.toContain(2)
+        expect(plan.config.entrants.map(e => e.loadoutRank)).not.toContain(3)
+        expect(new Set(plan.config.entrants.map(e => e.id)).size).toBe(plan.config.entrants.length)
+    })
+
+    it('is deterministic: the same options give the same entrants, and the baseline order decides', () => {
+        const a = selected({ top: 3 })
+        const b = selected({ top: 3 })
+        expect(JSON.stringify(a.config)).toBe(JSON.stringify(b.config))
+        expect(a.config.loadouts.map(l => l.rank)).toEqual([1, 4, 6, 8, 7, 9])
+    })
+
+    it('clamps N to the sets the table has, and rejects a bad K', () => {
+        const all = selected({ top: 99 })
+        expect(all.config.top).toEqual({ requested: 99, used: 4 })
+        expect(() => selected({ generalPairs: 0 })).toThrow(/generalPairs/)
+        expect(() => selected({ generalPairs: 1.5 })).toThrow(/generalPairs/)
+    })
+
+    it('keeps merged shards identical to an unsharded run', () => {
+        const plan = selected({ top: 2 })
+        const run: MatchFn = ({ seed, a }) => fakeResult(seed, a.name < 'b' ? 'a' : 'b')
+        const whole = runTournament(plan, run)
+        const merged = mergeShards([2, 0, 1].map(i => runShard(plan, i, 3, run)))
+        expect(JSON.stringify(merged)).toBe(JSON.stringify(whole))
     })
 })
 

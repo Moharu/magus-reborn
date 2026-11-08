@@ -151,19 +151,32 @@ intent in its file.
 ### Tournaments (#103)
 
 ```sh
-npm run arena:tournament -- [--top N] [--profiles a,b] [--games G] [--seed S] [--max-ticks T] [--baseline VERSION]
+npm run arena:tournament -- [--top N] [--general-pairs K] [--profiles a,b] [--games G] [--seed S] [--max-ticks T] [--baseline VERSION]
                             [--jobs J] [--shard i/n] [--out FILE]
 npm run arena:tournament -- merge SHARD.json... [--out FILE]
 npm run arena:baseline -- [--top K] --out baselines/<ENGINE_VERSION>.json
 ```
 
-An **entrant** is a (loadout, profile) pair: the top `N` loadouts of the version's dummy-DPS baseline
-(`baselines/<ENGINE_VERSION>.json`, generated from `sim:search`, best first; a missing file fails with a clear error)
-crossed with the profiles (`--profiles`, default every archetype in `profiles/`; only their behaviour is used, not the
-loadout they were written for). A profile naming spells the loadout lacks is adapted (`adaptProfile`): rotation entries
+An **entrant** is a (loadout, profile) pair. The loadouts (`selectLoadouts`) come from the version's dummy-DPS baseline
+(`baselines/<ENGINE_VERSION>.json`, generated from `sim:search`, best first; a missing file fails with a clear error):
+
+1. Take the top `N` **distinct Fire sets** (`--top`, default 8): the 4 element spells as a set, whatever their slot order.
+   A set ranks where its best loadout does, so near-duplicates of one set never crowd out the others.
+2. For each set, take its top `K` **general pairs** (`--general-pairs`, default 2) as separate loadouts, best first.
+3. A full loadout is never repeated: a table row that only reorders the Fire slots or swaps the two general slots of one
+   already taken is skipped. A set with fewer than `K` pairs in the table gives all it has.
+
+That is up to `N * K` loadouts (16 by default), each crossed with the profiles (`--profiles`, default every archetype in
+`profiles/`; only their behaviour is used, not the loadout they were written for). Selection is a pure function of the
+table and the two numbers, so runs stay deterministic and merged shards stay byte-identical to an unsharded run.
+The baseline therefore needs to list every general pair of the sets it offers: the shipped table holds all 90 loadouts of
+the search (15 Fire sets, 6 general pairs each; `npm run arena:baseline -- --top 90`), not just the best 16. `--top` is clamped
+to the sets in the table, which `config.top` and stderr report; `config.generalPairs` records `K`.
+
+A profile naming spells the loadout lacks is adapted (`adaptProfile`): rotation entries
 for missing spells are dropped (with none left, the loadout's own Fire spells in slot order), and a fake cast of a spell
 the loadout lacks (bait without Meteor) is retargeted to the loadout's longest cast-time spell (first in slot order on a
-tie), or turned off if it has none. Everything else is kept. `--top` defaults to 8 and is clamped to the table, which `config.top` and stderr report.
+tie), or turned off if it has none. Everything else is kept.
 
 - **Pairs.** Every unordered pair of distinct entrants plays, so a loadout meets itself under a different profile (mirror
   matches), and an entrant never meets itself. Pairs are indexed (0,1), (0,2), ..., (1,2), ... .
@@ -181,7 +194,7 @@ tie), or turned off if it has none. Everything else is kept. `--top` defaults to
 - **Jobs.** `--jobs J` (default the cores, at most 4) runs J worker processes over the pairs. The output does not depend on
   it, nor on the shard split.
 
-From code: `planTournament({ baseline, profiles, top, games, seed })`, then `runTournament(plan)`, or `runShard(plan, i, n)`
+From code: `planTournament({ baseline, profiles, top, generalPairs, games, seed })`, then `runTournament(plan)`, or `runShard(plan, i, n)`
 and `mergeShards(shards)`. `profiles` are plain `Profile` objects, so a tuner (#104) can pass its own.
 
 ### Tick order and the end of a match

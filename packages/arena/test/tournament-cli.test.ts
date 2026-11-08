@@ -14,16 +14,15 @@ const dir = mkdtempSync(join(tmpdir(), 'arena-tournament-test-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
 const cli = (...args: string[]) => execFileSync('npx', ['tsx', script, ...args], { encoding: 'utf8' })
-const small = ['--top', '2', '--profiles', 'aggressive,bait', '--games', '2', '--seed', '3']
+const small = ['--top', '2', '--general-pairs', '1', '--profiles', 'aggressive,bait', '--games', '2', '--seed', '3']
 const json = (name: string) => JSON.parse(readFileSync(join(dir, name), 'utf8')) as TournamentResult
 
 describe('baselines/<version>.json', () => {
     const baseline = parseBaseline(JSON.parse(readFileSync(baselineFile, 'utf8')), ENGINE_VERSION)
 
     it('is a ranked table for this engine version that every archetype profile can play', () => {
-        expect(baseline.loadouts.length).toBeGreaterThanOrEqual(8)
         const profiles = Object.values(ARCHETYPES).map(a => a.profile)
-        const plan = planTournament({ baseline, top: 99, profiles })
+        const plan = planTournament({ baseline, top: 99, generalPairs: 99, profiles })
         expect(plan.config.entrants).toHaveLength(baseline.loadouts.length * profiles.length)
         for (const make of plan.make) expect(make().loadout).toHaveLength(7)
         const rates = baseline.loadouts.map(l => l.dpsUnderPressure)
@@ -31,13 +30,58 @@ describe('baselines/<version>.json', () => {
     })
 })
 
+describe('default entrants', () => {
+    const baseline = parseBaseline(JSON.parse(readFileSync(baselineFile, 'utf8')), ENGINE_VERSION)
+    const profiles = Object.values(ARCHETYPES).map(a => a.profile)
+
+    it('are 8 distinct Fire sets with 2 general pairs each, from the shipped baseline', () => {
+        const { config } = planTournament({ baseline, profiles })
+        expect(config.top).toEqual({ requested: 8, used: 8 })
+        expect(config.loadouts).toHaveLength(16)
+        const loadouts = [...new Map(config.entrants.map(e => [e.loadoutRank, e.loadout] as const)).values()]
+        const sets = new Map<string, number>()
+        for (const l of loadouts) {
+            const key = [...l.slice(0, 4)].sort().join()
+            sets.set(key, (sets.get(key) ?? 0) + 1)
+        }
+        expect(sets.size).toBe(8)
+        expect([...sets.values()]).toEqual(Array(8).fill(2))
+        expect(new Set(loadouts.map(l => l.join())).size).toBe(16)
+    })
+})
+
 describe('arena:tournament CLI', () => {
+    it('--general-pairs K gives each of the --top Fire sets K loadouts', () => {
+        const out = join(dir, 'k.json')
+        cli(
+            '--top',
+            '2',
+            '--general-pairs',
+            '2',
+            '--profiles',
+            'aggressive',
+            '--games',
+            '2',
+            '--max-ticks',
+            '40',
+            '--jobs',
+            '1',
+            '--out',
+            out,
+        )
+        const { config } = json('k.json')
+        expect(config.generalPairs).toBe(2)
+        expect(config.loadouts).toHaveLength(4)
+        expect(new Set(config.entrants.map(e => e.loadout.slice(0, 4).sort().join())).size).toBe(2)
+    })
+
     it('prints the ranked table and writes the same result as the library', () => {
         const table = cli(...small, '--jobs', '1', '--out', join(dir, 'one.json'))
         const expected = runTournament(
             planTournament({
                 baseline: parseBaseline(JSON.parse(readFileSync(baselineFile, 'utf8'))),
                 top: 2,
+                generalPairs: 1,
                 profiles: [ARCHETYPES.aggressive.profile, ARCHETYPES.bait.profile],
                 games: 2,
                 seed: 3,
