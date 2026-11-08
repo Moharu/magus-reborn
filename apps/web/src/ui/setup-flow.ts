@@ -18,12 +18,13 @@ export interface SetupAccess {
  * lobby allows spell changes, and never once the player is ready.
  */
 export const setupAccess = (
-    lobby: Pick<LobbyInfo, 'round' | 'settings'>,
+    lobby: Pick<LobbyInfo, 'round' | 'settings'> & { countdown?: number | null },
     me: Pick<LobbyPlayerInfo, 'ready'> | null,
 ): SetupAccess => {
     const flow: SetupFlow = lobby.round <= 1 ? 'pregame' : 'swap'
     const allowed = flow === 'pregame' || lobby.settings.allowSpellChange
-    const editable = allowed && !me?.ready
+    const expired = lobby.countdown === 0
+    const editable = allowed && !me?.ready && !expired
     return {
         flow,
         elementLocked: flow === 'swap',

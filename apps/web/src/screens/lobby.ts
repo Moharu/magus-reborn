@@ -349,11 +349,13 @@ const startLobby = (root: HTMLElement, code: string) => {
         )
     }
 
+    let readyRound: number | null = null
     const setupHead = h('header', { class: 'setup-head' })
     const renderSetup = (info: LobbyInfo, entering: boolean) => {
         const mine = me()!
-        const access = setupAccess(info, info[mine])
-        const ready = !!info[mine]?.ready
+        if (entering) readyRound = null
+        const ready = !!info[mine]?.ready || readyRound === info.round || info.countdown === 0
+        const access = setupAccess(info, { ready })
         const valid = loadoutValid(loadout, DEFAULT_ELEMENT)
         if (entering || !picker) {
             picker = spellPicker(
@@ -361,12 +363,19 @@ const startLobby = (root: HTMLElement, code: string) => {
                 next => {
                     loadout = next
                     setLoadout(next)
-                    if (canSendLoadout(setupAccess(lobby ?? info, seatInfo(mine)), loadoutValid(next, DEFAULT_ELEMENT)))
+                    if (
+                        canSendLoadout(
+                            setupAccess(lobby ?? info, { ready: !!seatInfo(mine)?.ready || readyRound === info.round }),
+                            loadoutValid(next, DEFAULT_ELEMENT),
+                        )
+                    )
                         send({ t: 'set_spells', spells: next })
                 },
-                { elementLocked: access.elementLocked },
+                { elementLocked: access.elementLocked, overlayDetails: true },
             )
-            content.replaceChildren(h('section', { class: 'panel setup' }, setupHead, picker.el))
+            content.replaceChildren(
+                h('section', { class: 'panel setup' }, h('div', { class: 'setup-viewport' }, setupHead, picker.el)),
+            )
         }
         picker.setLocked(!access.editable, access.lockedReason ?? undefined)
         const opponent = seatInfo(mine === 'player1' ? 'player2' : 'player1')
@@ -374,20 +383,42 @@ const startLobby = (root: HTMLElement, code: string) => {
             h(
                 'div',
                 null,
-                h('h2', null, `Round ${info.round}`),
+                h(
+                    'h2',
+                    null,
+                    `Round ${info.round} · Bo${info.settings.bestOf} · ${info.player1?.wins ?? 0}–${info.player2?.wins ?? 0}`,
+                ),
                 h('span', { class: 'muted' }, access.flow === 'pregame' ? 'Choose your spells' : 'Swap spells'),
             ),
-            h('div', { class: 'timer', 'aria-live': 'polite' }, `${info.countdown ?? 0}s`),
+            h(
+                'div',
+                { class: 'timer' },
+                `${Math.floor((info.countdown ?? 0) / 60)}:${String((info.countdown ?? 0) % 60).padStart(2, '0')} remaining`,
+            ),
             h(
                 'div',
                 { class: 'actions' },
-                h('span', { class: 'muted' }, opponent?.ready ? `${opponent.name} is ready` : ''),
+                h(
+                    'span',
+                    { class: 'muted' },
+                    `Rival: ${opponent?.ready || info.countdown === 0 ? 'ready ✓' : 'editing'}`,
+                ),
                 ready
                     ? h('strong', { class: 'ready-label' }, 'Ready!')
                     : h(
                           'button',
-                          { class: 'btn primary', disabled: !valid, onclick: () => valid && send({ t: 'ready' }) },
-                          'Ready',
+                          {
+                              class: 'btn primary',
+                              disabled: !valid,
+                              onclick: () => {
+                                  if (!valid) return
+                                  readyRound = info.round
+                                  picker?.setLocked(true)
+                                  send({ t: 'ready' })
+                                  renderSetup(lobby ?? info, false)
+                              },
+                          },
+                          `Ready for round ${info.round}`,
                       ),
             ),
         )
@@ -560,6 +591,17 @@ const startLobby = (root: HTMLElement, code: string) => {
                     if (!message.lobby.matchStarted || (lobby && message.lobby.round < lobby.round))
                         stage.querySelector('.spell-log-history')?.replaceChildren()
                     lobby = message.lobby
+                    // Ready is final locally, but a disconnected send may never reach the server.
+                    // Retry only after fresh metadata confirms this round still needs our Ready.
+                    if (
+                        connection === 'open' &&
+                        lobby.phase === 'set_up' &&
+                        lobby.round === readyRound &&
+                        lobby.countdown !== 0 &&
+                        me() !== null &&
+                        lobby[me()!]?.ready === false
+                    )
+                        send({ t: 'ready' })
                     break
                 case 'battle': {
                     const fresh = caughtUp

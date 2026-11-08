@@ -976,3 +976,156 @@ footer {
     clip-path: inset(50%);
     white-space: nowrap;
 }
+
+/* Setup shares the battle viewport and bar coordinates; its header floats over the arena. */
+.panel.setup {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    margin: 0;
+    padding: 12px;
+    border: 0;
+    border-radius: 0;
+    display: grid;
+    place-items: center;
+}
+.setup-viewport {
+    position: relative;
+    width: min(100%, calc((100dvh - 24px) * 1.6));
+}
+.setup .picker {
+    position: relative;
+    display: block;
+    width: 100%;
+    min-width: 0;
+}
+.setup-head {
+    position: absolute;
+    z-index: 2;
+    top: 18px;
+    left: 8%;
+    right: 8%;
+    font-size: clamp(10px, 1.4vw, 16px);
+    border: 0;
+    margin: 0;
+    padding: 0;
+}
+.setup-head h2 {
+    font-size: 1.2em;
+}
+.setup-head .timer {
+    font-size: 1.2em;
+}
+.setup .picker-top {
+    position: absolute;
+    z-index: 1;
+    top: 17%;
+    left: 7%;
+    right: 7%;
+    font-size: clamp(9px, 1.2vw, 14px);
+}
+.setup .details {
+    display: none;
+}
+.setup .hint {
+    position: absolute;
+    top: 32%;
+    left: 7%;
+    right: 7%;
+    font-size: clamp(9px, 1.1vw, 13px);
+}
+.picker .spell img {
+    width: clamp(32px, 5cqw, 48px);
+    height: clamp(32px, 5cqw, 48px);
+}
+.slot-wrap > .name {
+    font-size: 1.042cqw;
+    margin-top: 2px;
+}
+.slot .key {
+    font-size: 1.25cqw;
+}
+.slot.fixed {
+    border-style: solid;
+    border-color: #b6e3ff;
+}
+.slot.target,
+.spell.target {
+    border-style: dashed;
+}
+.picker .teaser {
+    border-style: dashed;
+    border-radius: 9px;
+}
+@media (max-width: 900px) {
+    .slot .key,
+    .spell .key,
+    .picker .desktop-only {
+        display: none;
+    }
+    .setup-head {
+        grid-template-columns: 1fr auto;
+        top: 14px;
+    }
+    .setup-head .actions {
+        grid-column: auto;
+    }
+    .setup-head .btn {
+        padding: 6px;
+        min-height: 44px;
+    }
+    .setup-head .timer {
+        font-size: 1em;
+    }
+    .setup .picker-top {
+        gap: 4px;
+    }
+    .picker .element {
+        gap: 4px;
+    }
+    .picker .chip {
+        padding: 3px;
+        font: inherit;
+    }
+}
+
+.setup-head {
+    grid-template-columns: 1fr auto auto;
+}
+.setup-head .actions {
+    grid-column: auto;
+    flex-wrap: nowrap;
+}
+
+.setup .details:popover-open {
+    display: grid;
+    position: fixed;
+    inset: 0;
+    width: min(600px, calc(100vw - 32px));
+    height: fit-content;
+    max-height: calc(100dvh - 32px);
+    margin: auto;
+    color: var(--text);
+    background: #191426;
+    border: 1px solid #a69ab9;
+    font-size: 14px;
+}
+.details-trigger {
+    color: var(--text);
+    background: #29203f;
+    border: 1px solid #a69ab9;
+    border-radius: 9px;
+    font: inherit;
+    min-height: 44px;
+    padding: 4px;
+}
+
+/* Keep the arena's available height identical before and after setup on landscape phones. */
+.lobby-screen {
+    flex: none;
+    height: 100dvh;
+}
+.lobby-screen .battle-screen,
+.lobby-screen .panel.setup {
+    min-height: 0;
+}

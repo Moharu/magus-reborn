@@ -9,10 +9,13 @@ import {
     type SpellId,
 } from '@magus/engine'
 import { h } from '../dom'
+import { keybindsVisible } from '../game/hotkeys'
 import { iconUrl } from '../game/icons'
-import { BAR, buttonX, HEIGHT, WIDTH } from '../game/layout'
+import { BATTLE_BAR, battleButtonX as buttonX, HEIGHT, WIDTH } from '../game/layout'
 import { getAdvancedDescriptions, setAdvancedDescriptions } from '../identity'
 import { canTarget, click, drop, type Selection, type Target } from './loadout-logic'
+
+const BAR = { ...BATTLE_BAR, buttonTop: BATTLE_BAR.top, panelPad: 16 }
 
 const ELEMENT_LABEL: Record<SpellElement, string> = { FIRE: 'Fire' }
 /** Pointer travel in px before a press counts as a drag rather than a tap. */
@@ -28,8 +31,8 @@ const stats = (id: SpellId) => {
         .join(' · ')
 }
 
-/** The spellbook: tall cards so the icons stay readable, ending 10px above the bar panel. */
-export const BOOK = { top: 108, cardHeight: 170, rowGap: 8, height: 170 * 2 + 8 } as const
+/** Two rows of icon cards, ending 14 stage pixels above the battle bar panel. */
+export const BOOK = { top: 240, cardHeight: 100, rowGap: 8, height: 100 * 2 + 8 } as const
 /** The selected-spell strip above the spellbook, in stage pixels. */
 export const DETAILS = { top: 10, height: 76 } as const
 
@@ -61,6 +64,8 @@ export interface SpellPickerOptions {
     element?: SpellElement
     /** Between rounds the element is fixed; before the match it is chosen here. */
     elementLocked?: boolean
+    /** Setup headers share the arena; descriptions open on demand without shifting its bar. */
+    overlayDetails?: boolean
 }
 
 const targetData = (target: Target) => (target.kind === 'slot' ? `slot:${target.index}` : `spell:${target.id}`)
@@ -164,7 +169,7 @@ export const spellPicker = (
             suppressClick = true
             setTimeout(() => (suppressClick = false), 0)
             const { target } = ev.type === 'pointerup' ? targetAt(ev.clientX, ev.clientY) : { target: null }
-            if (target) commit(drop(loadout, from, target, element))
+            if (target && !locked) commit(drop(loadout, from, target, element))
             render()
         }
 
@@ -214,7 +219,7 @@ export const spellPicker = (
                         ...(fixed ? { onclick: () => activate(target) } : {}),
                     },
                     h('img', { src: iconUrl(id), alt: '', draggable: 'false' }),
-                    h('span', { class: 'key' }, HOTKEYS[i]),
+                    keybindsVisible() ? h('span', { class: 'key' }, HOTKEYS[i]) : null,
                 ),
                 h('span', { class: 'name' }, SPELLS[id].label),
             )
@@ -232,10 +237,11 @@ export const spellPicker = (
                         style: box(boxes[n].x, boxes[n].y, boxes[n].w, boxes[n].h),
                         disabled: locked,
                         'aria-pressed': String(spellSelected(id)),
+                        title: advanced ? SPELLS[id].advancedDescription : SPELLS[id].description,
                         ...draggable(target),
                     },
                     h('img', { src: iconUrl(id), alt: '', draggable: 'false' }),
-                    equipped !== -1 ? h('span', { class: 'key' }, HOTKEYS[equipped]) : null,
+                    equipped !== -1 && keybindsVisible() ? h('span', { class: 'key' }, HOTKEYS[equipped]) : null,
                     h('span', { class: 'name' }, SPELLS[id].label),
                 )
             })
@@ -245,7 +251,7 @@ export const spellPicker = (
         const generalX = buttonX(5)
         const bookY = BOOK.top
         const labelBox = (x: number, w: number) => box(x, bookY - 22, w, 18)
-        const keys = (slots: string) => h('span', { class: 'desktop-only' }, ` · ${slots}`)
+        const keys = (slots: string) => (keybindsVisible() ? h('span', { class: 'desktop-only' }, ` · ${slots}`) : null)
 
         el.classList.toggle('locked', locked)
         el.replaceChildren(
@@ -260,9 +266,17 @@ export const spellPicker = (
                         'span',
                         { class: `chip active${options.elementLocked ? ' locked' : ''}`, 'aria-disabled': 'true' },
                         ELEMENT_LABEL[element],
-                        options.elementLocked ? ' · locked' : '',
+                        options.elementLocked ? ' · locked for the match' : '',
                     ),
+                    ...(!options.elementLocked
+                        ? ['Frost', 'Lightning'].map(name =>
+                              h('button', { class: 'chip teaser', disabled: true }, `${name} · Locked · coming later`),
+                          )
+                        : []),
                 ),
+                options.overlayDetails
+                    ? h('button', { class: 'details-trigger', popovertarget: 'picker-details' }, 'Spell details')
+                    : null,
                 h(
                     'label',
                     { class: 'toggle' },
@@ -283,7 +297,12 @@ export const spellPicker = (
                 { class: 'picker-stage' },
                 h(
                     'div',
-                    { class: 'details', style: box(30, DETAILS.top, WIDTH - 60, DETAILS.height) },
+                    {
+                        class: 'details',
+                        id: 'picker-details',
+                        popover: options.overlayDetails ? 'auto' : undefined,
+                        style: options.overlayDetails ? undefined : box(30, DETAILS.top, WIDTH - 60, DETAILS.height),
+                    },
                     h('img', { src: iconUrl(detail), alt: '' }),
                     h(
                         'div',
@@ -296,7 +315,7 @@ export const spellPicker = (
                 h(
                     'h3',
                     { class: 'book-label', style: labelBox(fireX, 4 * button + 3 * gap) },
-                    `${ELEMENT_LABEL[element]} spellbook`,
+                    `${ELEMENT_LABEL[element]} spellbook${options.elementLocked ? ' · locked for the match' : ''}`,
                     keys(HOTKEYS.slice(0, 4).join(' ')),
                 ),
                 ...spellCards(book.elementSpells, 0, 3),
