@@ -1,6 +1,6 @@
 import { ELEMENT_SPELL_COUNT } from '@magus/engine'
 import { pairList, type TournamentResult } from './tournament'
-import { percent, spellName } from './tournament-format'
+import { NO_GAMES, percent, spellName } from './tournament-format'
 
 /**
  * The arena report (#105): the Markdown a run publishes (workflow step summary, artifact, the release balance report).
@@ -46,7 +46,8 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
         ...(options.commit === undefined ? [] : [`- **Commit:** \`${options.commit}\``]),
         `- **Status:** ${
             partial
-                ? `PARTIAL: ${partial.pairsPlayed} of ${partial.pairsTotal} pairs played`
+                ? `PARTIAL: ${partial.pairsPlayed} of ${partial.pairsTotal} pairs played` +
+                  (partial.missingShards ? `, missing shards ${partial.missingShards.join(', ')}` : '')
                 : `complete: ${(config.entrants.length * (config.entrants.length - 1)) / 2} pairs played`
         }`,
         `- **Entrants:** ${config.entrants.length} (${loadoutRanks.length} loadouts x ${profiles.length} profiles: ${profiles.join(', ')})`,
@@ -88,7 +89,12 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
             const games = own.reduce((sum, r) => sum + r.games, 0)
             return { name, entrants: own.length, wins, draws, games }
         })
-        .sort((x, y) => y.wins * x.games - x.wins * y.games || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0))
+        .sort(
+            (x, y) =>
+                Number(x.games === 0) - Number(y.games === 0) ||
+                y.wins * x.games - x.wins * y.games ||
+                (x.name < y.name ? -1 : x.name > y.name ? 1 : 0),
+        )
     const winRates = [
         '## Arena win rates',
         '',
@@ -104,7 +110,7 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
                 String(p.wins),
                 String(p.draws),
                 String(p.games),
-                percent(rate(p.wins, p.games)),
+                p.games === 0 ? NO_GAMES : percent(rate(p.wins, p.games)),
             ]),
         ),
         '',
@@ -119,8 +125,8 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
                 String(r.wins),
                 String(r.draws),
                 String(r.games),
-                percent(r.winRate),
-                `${percent(r.ci95.low)}-${percent(r.ci95.high)}`,
+                r.games === 0 ? NO_GAMES : percent(r.winRate),
+                r.games === 0 ? NO_GAMES : `${percent(r.ci95.low)}-${percent(r.ci95.high)}`,
             ]),
             [1, 2],
         ),
@@ -167,12 +173,16 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
     const gameCounts = ranking.map(r => r.games)
     const minGames = Math.min(...gameCounts)
     const maxGames = Math.max(...gameCounts)
-    const widest = Math.max(...ranking.map(r => (r.ci95.high - r.ci95.low) / 2))
+    const widest = Math.max(0, ...ranking.filter(r => r.games > 0).map(r => (r.ci95.high - r.ci95.low) / 2))
     const caveats = [
         '## Caveats',
         '',
         partial
-            ? `- **Partial run.** The time budget ended the run after ${partial.pairsPlayed} of ${partial.pairsTotal} pairs. The pairs are played in a fixed order, so entrants late in it played fewer games: compare the Games column before the win rates. A partial run is not reproducible, because where it stops depends on the machine's speed.`
+            ? `- **Partial run.** ${
+                  partial.missingShards
+                      ? `Shards ${partial.missingShards.join(', ')} were missing (their job failed), so`
+                      : 'The time budget ended the run, so'
+              } only ${partial.pairsPlayed} of ${partial.pairsTotal} pairs were played. Entrants with no games show "${NO_GAMES}" and rank last. The pairs are played in a fixed order, so entrants late in it played fewer games: compare the Games column before the win rates. A run stopped by its time budget is not reproducible, because where it stops depends on the machine's speed.`
             : '- **Partial runs.** This run is complete: every pair was played.',
         `- **Draws.** ${totalDraws} of ${result.games} games (${percent(rate(totalDraws, result.games))}) were draws (time cap or both players dead on one tick). They score no win for either entrant.`,
         `- **Sample size.** Each entrant played ${minGames === maxGames ? minGames : `${minGames} to ${maxGames}`} games (${config.games} per opponent pair). The widest 95% interval is +/- ${percent(widest)}; entrants whose intervals overlap are not reliably different, and one seed is one sample of each matchup.`,

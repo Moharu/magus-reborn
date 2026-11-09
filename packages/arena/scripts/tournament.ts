@@ -2,7 +2,7 @@
 //   npm run arena -- [--top N] [--general-pairs K] [--profiles a,b,...] [--games G] [--seed S] [--max-ticks T]
 //                    [--baseline VERSION] [--jobs J] [--time-budget SECONDS] [--shard i/n] [--out FILE]
 //                    [--report FILE] [--date YYYY-MM-DD] [--commit SHA]
-//   npm run arena -- merge SHARD.json... [--out FILE] [--report FILE] [--date YYYY-MM-DD] [--commit SHA]
+//   npm run arena -- merge SHARD.json... [--allow-missing] [--out FILE] [--report FILE] [--date YYYY-MM-DD] [--commit SHA]
 // (`npm run arena:tournament` is the same command.) Plays a round-robin between entrants (the top N distinct Fire sets, each with its best K general pairs, x the profiles) and prints the ranked table:
 // win rate only, games per pair even so sides swap equally. --out writes the JSON (the result, or with --shard that
 // shard's pairs, which `merge` combines). --jobs (default 4, values above 4 are clamped to 4 with a warning) runs that
@@ -12,6 +12,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { fromInvocation } from './paths'
 import { performance } from 'node:perf_hooks'
 import { ENGINE_VERSION } from '@magus/engine'
 import {
@@ -90,12 +91,12 @@ const publish = (result: TournamentResult) => {
     const options = report === undefined ? undefined : reportOptions()
     writeOut(result)
     printTable(formatTable(result))
-    if (report !== undefined && options) writeFileSync(report, formatReport(result, options))
+    if (report !== undefined && options) writeFileSync(fromInvocation(report), formatReport(result, options))
 }
 
 const readJson = (file: string) => {
     try {
-        return JSON.parse(readFileSync(file, 'utf8')) as unknown
+        return JSON.parse(readFileSync(fromInvocation(file), 'utf8')) as unknown
     } catch (error) {
         throw new Error(`cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`, {
             cause: error,
@@ -108,7 +109,7 @@ const writeOut = (value: unknown) => {
     if (out === undefined) return
     const text = JSON.stringify(value, null, 2) + '\n'
     if (out === '-') process.stdout.write(text)
-    else writeFileSync(out, text)
+    else writeFileSync(fromInvocation(out), text)
 }
 
 /** The table goes to stdout, unless `--out -` puts the JSON there: then it goes to stderr, so stdout stays parseable. */
@@ -196,9 +197,19 @@ const runWorker = (index: number, count: number) =>
 const main = async () => {
     if (args[0] === 'merge') {
         // every flag takes a value, so the files are the arguments that are neither a flag nor its value
-        const files = args.slice(1).filter((arg, i, all) => !arg.startsWith('--') && !all[i - 1]?.startsWith('--'))
+        const files = args
+            .slice(1)
+            .filter(
+                (arg, i, all) =>
+                    !arg.startsWith('--') && (all[i - 1] === '--allow-missing' || !all[i - 1]?.startsWith('--')),
+            )
         if (files.length === 0) throw new Error('merge needs shard files')
-        publish(mergeShards(files.map(file => readJson(file) as ShardResult)))
+        publish(
+            mergeShards(
+                files.map(file => readJson(file) as ShardResult),
+                { allowMissing: args.includes('--allow-missing') },
+            ),
+        )
         return
     }
 

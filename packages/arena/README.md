@@ -204,7 +204,7 @@ intent in its file.
 ```sh
 npm run arena -- [--top N] [--general-pairs K] [--profiles a,b] [--games G] [--seed S] [--max-ticks T] [--baseline VERSION]
                  [--jobs J] [--time-budget SECONDS] [--shard i/n] [--out FILE] [--report FILE] [--date D] [--commit SHA]
-npm run arena -- merge SHARD.json... [--out FILE] [--report FILE] [--date D] [--commit SHA]
+npm run arena -- merge SHARD.json... [--allow-missing] [--out FILE] [--report FILE] [--date D] [--commit SHA]
 npm run arena:baseline -- [--top K] --out baselines/<ENGINE_VERSION>.json
 ```
 
@@ -242,7 +242,8 @@ tie), or turned off if it has none. Everything else is kept.
   games `row` won against `column`. The table goes to stdout (stderr with `--out -`, which prints the JSON to stdout, for a run and for `merge`).
 - **Shards.** `--shard i/n` plays the pairs with `pair % n === i` and writes `{ format, config, shard, pairs }` (needs
   `--out`); `merge` of all `n` files, in any order, gives byte-identical JSON to the unsharded run. It refuses missing,
-  repeated or foreign shards (different config).
+  repeated or foreign shards (different config); `--allow-missing` merges the shards given anyway, as a partial result that
+  names the missing ones (`partial.missingShards`).
 - **Jobs.** `--jobs J` runs J worker processes over the pairs. The default is 4, and a larger value is clamped to 4 with
   a warning on stderr (`warning: --jobs 9 is above the maximum of 4: using 4`); `clampJobs` is the rule. The output does
   not depend on it, nor on the shard split.
@@ -251,7 +252,7 @@ tie), or turned off if it has none. Everything else is kept.
   (`partial: { pairsPlayed, pairsTotal, played }` in the JSON, a `PARTIAL:` line under the table, `Status: PARTIAL` and a
   caveat in the report). A shard stopped early writes `partial: true` and `merge` accepts it (a short shard that is not
   marked partial is still refused). A run that finishes within its budget is complete and byte-identical to one without
-  a budget. Where a partial run stops depends on the machine's speed, so unlike a complete run it is not reproducible.
+  a budget. An entrant that played no games in a partial run ranks last and shows `no games`. Where a partial run stops depends on the machine's speed, so unlike a complete run it is not reproducible.
 
 From code: `planTournament({ baseline, profiles, top, generalPairs, games, seed })`, then `runTournament(plan)`, or `runShard(plan, i, n)`
 and `mergeShards(shards)` (`runTournament` and `runShard` take an optional `stop` callback, the time budget's hook). `profiles` are plain `Profile` objects, so a tuner (#104) can pass its own.
@@ -263,12 +264,19 @@ and `mergeShards(shards)` (`runTournament` and `runShard` take an optional `stop
 `permissions: contents: read`, uses no secrets and writes nothing back (no commits, no wiki). Inputs: `seed`, `top`
 (Fire sets), `games` (per pair, even) and `generations` (0, the default, means no tuning).
 
+- A `plan` job checks the inputs (non-negative integers; `generations` is read numerically, so `00` means no tuning) and
+  decides whether `tune` runs.
 - Four `shard` jobs run `--shard i/4 --jobs 4 --time-budget 1200` (a 20 minute budget inside a 30 minute job timeout, so
   a slow run ends partial and is still merged) and upload `arena-shard-<i>` (14 days).
-- A `merge` job downloads them, runs `merge` into `arena-result.json` and `arena-report.md`, writes the report to the run's
-  step summary and uploads both as `arena-report` (30 days). The merged result is byte-identical to a local run of the
-  same seed and inputs (checked by `test/arena-cli.test.ts`, which compares a local run with 4 merged shards, the JSON and
-  the report).
+- A `merge` job downloads the shards, runs `merge --allow-missing` into `arena-result.json` and `arena-report.md`, writes the
+  report to the run's step summary and uploads both as `arena-report` (30 days). It also runs when a shard job failed: it
+  merges the shards that uploaded, and the report is `PARTIAL` and names the missing shards (the workflow still shows red
+  for the failed shard). The merged result is byte-identical to a local run of the same seed and inputs (checked by
+  `test/arena-cli.test.ts`, which compares a local run with 4 merged shards, the JSON and the report).
+- Files: `npm run arena` runs the script from `packages/arena/` (npm workspaces), so the workflow gives the CLI absolute
+  paths under `$GITHUB_WORKSPACE/arena-out`, and uploads from the same `arena-out/` directory. Locally the CLI resolves a
+  relative `--out`, `--report` or `merge` file against `INIT_CWD` (npm's invocation directory), so those land where you
+  typed the command.
 - With `generations` above 0 a `tune` job (60 minute timeout, `--max-matches 1500000`) runs `arena:tune` (#104) on the same
   seed, top and games, writes its output to its step summary and uploads `arena-tuning` (the text and the best profile).
   The tuning is not part of the report.

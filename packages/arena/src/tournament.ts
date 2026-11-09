@@ -101,6 +101,8 @@ export interface PartialInfo {
     readonly pairsTotal: number
     /** The indexes of the pairs that were played, ascending. */
     readonly played: readonly number[]
+    /** Merged with `allowMissing`: the shards that were not given, as `i/n`. Absent when none is missing. */
+    readonly missingShards?: readonly string[]
 }
 
 export interface RankedEntrant extends EntrantInfo {
@@ -397,8 +399,14 @@ export const summarize = (
             winRate: games[i] === 0 ? 0 : wins[i] / games[i],
             ci95: wilsonInterval(wins[i], games[i]),
         }))
-        // wins/games compared by cross-multiplication: no float rounding decides a tie
-        .sort((x, y) => y.wins * x.games - x.wins * y.games || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0))
+        // entrants with no games (a partial run) rank last, by id; the rest by wins/games, compared by
+        // cross-multiplication so no float rounding decides a tie
+        .sort(
+            (x, y) =>
+                Number(x.games === 0) - Number(y.games === 0) ||
+                y.wins * x.games - x.wins * y.games ||
+                (x.id < y.id ? -1 : x.id > y.id ? 1 : 0),
+        )
         .map((entrant, i) => ({ rank: i + 1, ...entrant }))
     const matrix: Record<string, Record<string, number>> = {}
     config.entrants.forEach((row, i) => {
@@ -434,9 +442,13 @@ export const runTournament = (plan: TournamentPlan, run: MatchFn = runMatch, sto
 
 /**
  * Combines the shards of one tournament into its result, the same one `runTournament` gives. They must share a
- * config and a count and cover every index once, in any order.
+ * config and a count and cover every index once, in any order. With `allowMissing`, shards that were not given (a job
+ * that failed) are named in `partial.missingShards` and the result is partial.
  */
-export const mergeShards = (shards: readonly ShardResult[]): TournamentResult => {
+export const mergeShards = (
+    shards: readonly ShardResult[],
+    { allowMissing = false }: { allowMissing?: boolean } = {},
+): TournamentResult => {
     if (shards.length === 0) throw new Error('no shards to merge')
     for (const shard of shards)
         if (shard?.format !== SHARD_FORMAT) throw new Error(`not a tournament shard (format ${shard?.format})`)
@@ -460,13 +472,16 @@ export const mergeShards = (shards: readonly ShardResult[]): TournamentResult =>
         )
             throw new Error(`shard ${shard.shard.index}/${count} does not hold exactly its pairs`)
     }
-    if (seen.size !== count) {
-        const absent = Array.from({ length: count }, (_, i) => i).filter(i => !seen.has(i))
+    const absent = Array.from({ length: count }, (_, i) => i).filter(i => !seen.has(i))
+    if (absent.length > 0 && !allowMissing)
         throw new Error(`missing shard(s) ${absent.map(i => `${i}/${count}`).join(', ')}`)
-    }
-    return summarize(
+    const result = summarize(
         first.config,
         shards.flatMap(shard => shard.pairs),
-        shards.some(shard => shard.partial === true),
+        absent.length > 0 || shards.some(shard => shard.partial === true),
     )
+    // a missing shard always leaves pairs unplayed, so the result is partial; it names the shards
+    return absent.length > 0 && result.partial
+        ? { ...result, partial: { ...result.partial, missingShards: absent.map(i => `${i}/${count}`) } }
+        : result
 }

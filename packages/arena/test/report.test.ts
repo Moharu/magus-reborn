@@ -16,6 +16,7 @@ import {
     type Baseline,
     type MatchFn,
     type MatchResult,
+    type PairResult,
 } from '../src'
 import { METEOR_LOADOUT, OTHER_LOADOUT } from './helpers'
 
@@ -160,5 +161,43 @@ describe('formatReport', () => {
         const text = formatReport(empty, options)
         expect(text).toContain(`PARTIAL: 0 of ${total} pairs played`)
         expect(text).toContain('Each entrant played 0 games')
+    })
+})
+
+describe('partial runs: entrants with no games', () => {
+    // only pair 5, (L02/aggressive, L02/bait), is played: the L01 entrants, whose ids sort first, have no games
+    const only: PairResult = { pair: 5, a: 2, b: 3, games: 2, winsA: 2, winsB: 0, draws: 0, firstWins: 1 }
+    const partial = summarize(plan.config, [only], true)
+
+    it('ranks them after every entrant that played, even a 0% one', () => {
+        expect(partial.ranking.map(r => r.id)).toEqual(['L02/aggressive', 'L02/bait', 'L01/aggressive', 'L01/bait'])
+        expect(partial.ranking.map(r => r.rank)).toEqual([1, 2, 3, 4])
+    })
+
+    it('shows "no games" instead of a win rate or an interval, in the report and in the table', () => {
+        const text = formatReport(partial, options)
+        expect(text).toContain('| 3 | L01 | aggressive | 0 | 0 | 0 | no games | no games |')
+        expect(text).toContain('| 1 | L02 | aggressive | 2 | 0 | 2 | 100.0% |')
+        expect(text).toContain('Entrants with no games show "no games" and rank last')
+        expect(formatTable(partial)).toMatch(/L01\s+aggressive\s+0\s+0\s+0\s+no games\s+no games/)
+        expect(text).not.toContain('0.0%-100.0%')
+    })
+})
+
+describe('merging with a missing shard', () => {
+    const [s0, , s2] = [0, 1, 2].map(i => runShard(plan, i, 3, run))
+
+    it('is refused by default and, with allowMissing, is partial and names the shard', () => {
+        expect(() => mergeShards([s0, s2])).toThrow(/missing shard\(s\) 1\/3/)
+        const merged = mergeShards([s2, s0], { allowMissing: true })
+        expect(merged.partial).toMatchObject({ pairsPlayed: 4, pairsTotal: total, missingShards: ['1/3'] })
+        const text = formatReport(merged, options)
+        expect(text).toContain(`**Status:** PARTIAL: 4 of ${total} pairs played, missing shards 1/3`)
+        expect(text).toContain('Shards 1/3 were missing')
+    })
+
+    it('changes nothing when no shard is missing', () => {
+        const all = [0, 1, 2].map(i => runShard(plan, i, 3, run))
+        expect(JSON.stringify(mergeShards(all, { allowMissing: true }))).toBe(JSON.stringify(runTournament(plan, run)))
     })
 })

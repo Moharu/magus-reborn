@@ -1,6 +1,6 @@
 // Typechecked by tsconfig.scripts.json (node types), not tsconfig.json, which keeps node out of the arena sources.
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -175,6 +175,62 @@ describe('arena CLI: report', () => {
             expect(fails(...noDate, '--shard', '0/2', '--out', join(dir, 'y.json'), ...report)).toMatch(
                 /--report needs a whole run/,
             )
+        },
+        TIMEOUT,
+    )
+})
+
+describe('arena CLI: file paths and missing shards', () => {
+    const inDir = (cwd: string, ...args: string[]) =>
+        // node directly: npx would set INIT_CWD itself
+        execFileSync(process.execPath, ['--import', 'tsx', script, ...args], {
+            encoding: 'utf8',
+            stdio: 'pipe',
+            env: { ...process.env, INIT_CWD: cwd },
+        })
+
+    it(
+        'resolves relative --out, --report and merge files against INIT_CWD, where npm was invoked',
+        () => {
+            const there = mkdtempSync(join(dir, 'init-'))
+            inDir(there, ...tiny, '--jobs', '1', '--out', 'rel.json', '--report', 'rel.md')
+            expect(existsSync(join(there, 'rel.json'))).toBe(true)
+            expect(existsSync(join(there, 'rel.md'))).toBe(true)
+            inDir(there, ...tiny, '--jobs', '1', '--shard', '0/1', '--out', 'shard.json')
+            inDir(there, 'merge', 'shard.json', '--out', 'merged.json', '--report', 'merged.md', '--date', '2026-11-09')
+            expect(readFileSync(join(there, 'merged.json'), 'utf8')).toBe(readFileSync(join(there, 'rel.json'), 'utf8'))
+        },
+        TIMEOUT,
+    )
+
+    it(
+        'through the root `npm run arena` script, a relative --out lands where the command was typed',
+        () => {
+            // npm runs the workspace script from packages/arena; the file must still appear in the invoking directory
+            const name = `arena-path-test-${process.pid}.json`
+            const target = join(process.cwd(), name)
+            try {
+                execFileSync('npm', ['run', '-s', 'arena', '--', ...tiny, '--jobs', '1', '--out', name], {
+                    encoding: 'utf8',
+                    stdio: 'pipe',
+                })
+                expect(existsSync(target)).toBe(true)
+                expect(existsSync(join(process.cwd(), 'packages', 'arena', name))).toBe(false)
+            } finally {
+                rmSync(target, { force: true })
+            }
+        },
+        TIMEOUT,
+    )
+
+    it(
+        'merge --allow-missing reports the missing shard as partial; without it merge fails',
+        () => {
+            for (const i of [0, 2]) run(...tiny, '--jobs', '1', '--shard', `${i}/3`, '--out', join(dir, `m${i}.json`))
+            const files = [join(dir, 'm0.json'), join(dir, 'm2.json')]
+            expect(fails('merge', ...files)).toMatch(/missing shard\(s\) 1\/3/)
+            run('merge', ...files, '--allow-missing', '--report', join(dir, 'missing.md'), '--date', '2026-11-09')
+            expect(text('missing.md')).toContain('**Status:** PARTIAL: 19 of 28 pairs played, missing shards 1/3')
         },
         TIMEOUT,
     )
