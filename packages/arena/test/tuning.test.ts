@@ -9,7 +9,8 @@ import {
     crossoverProfiles,
     formatTuning,
     getAt,
-    loadProfile,
+    adaptProfile,
+    checkLoadout,
     MUTATION_RATE,
     mutateProfile,
     parameterSlots,
@@ -105,9 +106,21 @@ describe('tunable parameter schema', () => {
     it('lists condition fields by path, wherever the profile has them', () => {
         const paths = parameterSlots(defensive.profile).map(s => s.path)
         expect(paths).toContain('rotation[0].when[0].count')
-        expect(paths).toContain('generals.SPELL_TEMPORAL_SHIELD.when[0].seconds')
-        expect(paths).toContain('generals.SPELL_MAGIC_EATER.when[1].count')
-        expect(paths).not.toContain('generals.SPELL_HASTE.when[0].seconds') // "never": no conditions
+        // inside an anyOf's lists too (#136)
+        expect(paths).toContain('generals.SPELL_TEMPORAL_SHIELD.when[0].of[0][0].seconds')
+        expect(paths).toContain('generals.SPELL_MAGIC_EATER.when[1].of[0][0].count')
+        expect(paths).toContain('rotation[3].when[0].withinSeconds')
+        // the give-up timers (#136), only when the profile has them: defensive does not wait for a commit
+        expect(paths).toContain('counterspell.giveUpSeconds')
+        expect(paths).toContain('patience.thresholdGiveUpSeconds')
+        expect(paths).not.toContain('patience.commitGiveUpSeconds')
+        expect(parameterSlots(patient.profile).map(s => s.path)).toContain('patience.commitGiveUpSeconds')
+        // a "never" rule has no conditions to tune
+        const never = {
+            ...defensive.profile,
+            generals: { ...defensive.profile.generals, SPELL_HASTE: 'never' as const },
+        }
+        expect(parameterSlots(never).some(s => s.path.startsWith('generals.SPELL_HASTE'))).toBe(false)
     })
 
     it('leaves the archetypes as they are: they are inside the bounds', () => {
@@ -219,7 +232,8 @@ describe('edge greed (#126)', () => {
         for (let i = 0; i < 60; i++) {
             const mutant = mutateProfile(bait.profile, new Rng(i), 0.9)
             seen.add(mutant.lockoutWindow.edgeGreedSeconds!)
-            expect(loadProfile(copy(mutant), bait.loadout)).toEqual(mutant)
+            expect(parseProfile(copy(mutant))).toEqual(mutant)
+            expect(() => checkLoadout(adaptProfile(mutant, bait.loadout), bait.loadout)).not.toThrow()
         }
         expect(seen.size).toBeGreaterThan(3)
         for (const greed of seen) expect(greed >= 0 && greed <= EDGE_GREED_MAX_SECONDS).toBe(true)
@@ -248,10 +262,10 @@ describe('mutation and crossover', () => {
                     expect(shapeKey(child)).toBe(shapeKey(profile))
                     inBounds(child)
                     expect(parseProfile(copy(child))).toEqual(child)
+                    const sameShape = shapeKey(partner) === shapeKey(profile)
                     for (const { path, condition } of parameterSlots(profile)) {
                         const value = getAt(child, path)
-                        if (condition && shapeKey(partner) !== shapeKey(profile))
-                            expect(value, path).toBe(getAt(profile, path))
+                        if (condition && !sameShape) expect(value, path).toBe(getAt(profile, path))
                         else expect([getAt(profile, path), getAt(partner, path)], path).toContain(value)
                     }
                 }
@@ -419,7 +433,7 @@ describe('tune', () => {
         const { name: _bn, intent: _bi, ...bestBehaviour } = result.best.profile
         expect(behaviour).toEqual(bestBehaviour)
         const origin = Object.values(ARCHETYPES).find(a => a.profile.name === result.best.origin)!
-        expect(() => loadProfile(out, origin.loadout)).not.toThrow()
+        expect(() => checkLoadout(adaptProfile(parseProfile(out), origin.loadout), origin.loadout)).not.toThrow()
     })
 
     it('re-scores the best profile on a fresh seed set not used for selection, and prints both', () => {

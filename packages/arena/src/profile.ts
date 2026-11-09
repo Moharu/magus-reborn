@@ -9,13 +9,15 @@ import { boolean, fail, isRecord, number, record, string } from './validate'
  */
 export interface Profile {
     readonly name: string
-    /** One line on what the profile is trying to do. */
+    /** One line on what the profile is trying to do, and its plan for the general spells (#136). */
     readonly intent?: string
     /** Which cast to start when nothing else applies: the first entry whose spell is ready and whose `when` holds. */
     readonly rotation: readonly RotationEntry[]
     readonly lockoutWindow: LockoutWindow
     readonly counterspell: CounterspellPolicy
     readonly fakeCast: FakeCast
+    /** The give-up timers of the profile's own waits (#136). `parseProfile` always sets it. */
+    readonly patience: Patience
     /** One usage rule per general spell. Rules for general spells that aren't on the loadout are ignored. */
     readonly generals: Readonly<Record<GeneralSpell, GeneralRule>>
 }
@@ -68,7 +70,35 @@ export interface CounterspellPolicy {
     readonly timing: 'early' | 'late'
     /** `late` only: how long before the cast's release the Counterspell should land. */
     readonly lateWindowSeconds: number
+    /**
+     * Give-up timer for holding Counterspell for `targets` (#136): once Counterspell has been off cooldown this long
+     * without being used, the next enemy cast seen is interrupted whatever its spell (then the timer starts again when
+     * Counterspell is next off cooldown). Null: it holds for its targets for good. `parseProfile` always sets it.
+     */
+    readonly giveUpSeconds?: number | null
 }
+
+/**
+ * The give-up timers of a profile's own waits (#136), so that no wait lasts forever. Null turns a timer off: a profile
+ * written for one test may wait for good, every shipped archetype sets both.
+ */
+export interface Patience {
+    /**
+     * Waiting on a rotation `when` (a stack or HP threshold): after this long with no cast of its own in progress or
+     * started, the profile starts the first rotation entry that is ready, whatever its `when`.
+     */
+    readonly thresholdGiveUpSeconds: number | null
+    /**
+     * Waiting for the opponent to commit: when set, the profile starts no cast (nor a bait) while the enemy may still
+     * Counterspell, until the free-cast window opens (the enemy used its Counterspell, or ours landed), for at most this
+     * long from the start of the match or from the end of the last window. Then it plays its rotation until the next
+     * window. Null: it never waits for the opponent.
+     */
+    readonly commitGiveUpSeconds: number | null
+}
+
+/** The largest give-up timer the loader accepts, in seconds. */
+export const GIVE_UP_MAX_SECONDS = 60
 
 /**
  * Fake-casting (#43): start `spell`, then cancel it with `Battle.stopCast` `cancelAfterSeconds` in, before it can be
@@ -108,10 +138,17 @@ export type GeneralSpell = (typeof GENERAL_SPELLS)[number]
 export type GeneralRule = 'never' | { readonly when: readonly Condition[] }
 
 const MAX_SECONDS = 10
-const MAX_TEXT = 200
-const PROFILE_KEYS = ['name', 'intent', 'rotation', 'lockoutWindow', 'counterspell', 'fakeCast', 'generals']
+const MAX_TEXT = 600
+const PROFILE_KEYS = ['name', 'intent', 'rotation', 'lockoutWindow', 'counterspell', 'fakeCast', 'patience', 'generals']
+const PATIENCE_KEYS = ['thresholdGiveUpSeconds', 'commitGiveUpSeconds']
 const LOCKOUT_WINDOW_KEYS = ['rotation', 'edgeGreedSeconds']
-const COUNTERSPELL_KEYS = ['enabled', 'targets', 'reaction', 'timing', 'lateWindowSeconds']
+const COUNTERSPELL_KEYS = ['enabled', 'targets', 'reaction', 'timing', 'lateWindowSeconds', 'giveUpSeconds']
+/** Counterspell keys that may be left out (default null). */
+const OPTIONAL_COUNTERSPELL_KEYS = ['giveUpSeconds']
+
+/** A give-up timer: null (off) or seconds in [0, `GIVE_UP_MAX_SECONDS`]. Absent is null. */
+const giveUp = (raw: unknown, path: string) =>
+    raw === undefined || raw === null ? null : number(raw, path, 0, GIVE_UP_MAX_SECONDS)
 const FAKE_CAST_KEYS = [
     'enabled',
     'spell',
@@ -150,7 +187,8 @@ const parseRotation = (raw: unknown, base = 'rotation'): RotationEntry[] => {
 
 const parseCounterspell = (raw: unknown): CounterspellPolicy => {
     const value = record(raw, 'counterspell', COUNTERSPELL_KEYS)
-    for (const key of COUNTERSPELL_KEYS) if (!(key in value)) fail(`counterspell.${key}`, 'is required')
+    for (const key of COUNTERSPELL_KEYS)
+        if (!(key in value) && !OPTIONAL_COUNTERSPELL_KEYS.includes(key)) fail(`counterspell.${key}`, 'is required')
     const targets =
         Array.isArray(value.targets) && value.targets.length === 0
             ? []
@@ -171,6 +209,16 @@ const parseCounterspell = (raw: unknown): CounterspellPolicy => {
         reaction: { meanSeconds, spreadSeconds },
         timing: value.timing as 'early' | 'late',
         lateWindowSeconds: number(value.lateWindowSeconds, 'counterspell.lateWindowSeconds', 0, MAX_SECONDS),
+        giveUpSeconds: giveUp(value.giveUpSeconds, 'counterspell.giveUpSeconds'),
+    }
+}
+
+/** Absent: no give-up timers (both null). */
+const parsePatience = (raw: unknown): Patience => {
+    const value = raw === undefined ? {} : record(raw, 'patience', PATIENCE_KEYS)
+    return {
+        thresholdGiveUpSeconds: giveUp(value.thresholdGiveUpSeconds, 'patience.thresholdGiveUpSeconds'),
+        commitGiveUpSeconds: giveUp(value.commitGiveUpSeconds, 'patience.commitGiveUpSeconds'),
     }
 }
 
@@ -238,6 +286,7 @@ export const parseProfile = (raw: unknown): Profile => {
         lockoutWindow: parseLockoutWindow(value.lockoutWindow, rotation),
         counterspell: parseCounterspell(value.counterspell),
         fakeCast: parseFakeCast(value.fakeCast),
+        patience: parsePatience(value.patience),
         generals: parseGenerals(value.generals),
     }
     return profile

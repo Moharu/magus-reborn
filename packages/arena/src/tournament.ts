@@ -1,11 +1,13 @@
-import { ELEMENT_SPELL_COUNT, SPELLS, type SpellId } from '@magus/engine'
+import { ELEMENT_SPELL_COUNT, type SpellId } from '@magus/engine'
 import type { Baseline, BaselineLoadout } from './baseline'
 import { profileEntrant } from './profile-controller'
-import { checkLoadout, type Profile } from './profile'
+import { adaptProfile } from './adapt'
+import type { Profile } from './profile'
 import { deriveSeed, isSeed } from './prng'
 import { DEFAULT_MAX_TICKS, runMatch } from './runner'
 import { wilsonInterval } from './stats'
 import type { Entrant, MatchResult } from './types'
+import type { BracketResult } from './bracket'
 
 /**
  * Round-robin tournaments (#103). An entrant is a (loadout, profile) pair: the loadouts are the top N distinct Fire
@@ -19,11 +21,14 @@ import type { Entrant, MatchResult } from './types'
  * unsharded `runTournament`.
  */
 
+export { adaptProfile }
+
 export const TOURNAMENT_FORMAT = 'arena-tournament'
 export const SHARD_FORMAT = 'arena-tournament-shard'
 
 export const DEFAULT_TOP = 8
-export const DEFAULT_GENERAL_PAIRS = 2
+/** Every general pair (#136): the 6 pairs of the four non-Counterspell general spells. */
+export const DEFAULT_GENERAL_PAIRS = 6
 export const DEFAULT_GAMES = 2
 export const DEFAULT_SEED = 1
 
@@ -128,36 +133,11 @@ export interface TournamentResult {
     readonly games: number
     /** Only on a partial result: the pairs that were not all played. Win rates then cover the played pairs only. */
     readonly partial?: PartialInfo
+    /** The top-8 double-elimination bracket played after the round-robin (#136), when it was run. */
+    readonly bracket?: BracketResult
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
-
-/**
- * Makes `profile` playable on `loadout` (which `checkLoadout` requires): drops rotation entries whose spell is not on
- * the loadout (with no entry left, the loadout's own Fire spells in slot order), the same for the free-cast window's
- * rotation (with no entry left, the adapted rotation), and, when the fake-cast spell is
- * missing, retargets the fake to the loadout's longest cast-time spell (the first in slot order on a tie), turning
- * fake-casting off only if the loadout has no cast-time spell. Everything else is kept, and a profile that already fits
- * comes back unchanged.
- */
-export const adaptProfile = (profile: Profile, loadout: readonly SpellId[]): Profile => {
-    let rotation = profile.rotation.filter(({ spell }) => loadout.includes(spell))
-    if (rotation.length === 0) rotation = loadout.slice(0, ELEMENT_SPELL_COUNT).map(spell => ({ spell, when: [] }))
-    const windowRotation = profile.lockoutWindow.rotation.filter(({ spell }) => loadout.includes(spell))
-    const lockoutWindow =
-        windowRotation.length === profile.lockoutWindow.rotation.length
-            ? profile.lockoutWindow
-            : { ...profile.lockoutWindow, rotation: windowRotation.length > 0 ? windowRotation : rotation }
-    let fakeCast = profile.fakeCast
-    if (fakeCast.enabled && !loadout.includes(fakeCast.spell)) {
-        let longest: SpellId | undefined
-        for (const id of loadout)
-            if (SPELLS[id].castSeconds && (!longest || SPELLS[id].castSeconds > (SPELLS[longest].castSeconds ?? 0)))
-                longest = id
-        fakeCast = longest ? { ...fakeCast, spell: longest } : { ...fakeCast, enabled: false }
-    }
-    return checkLoadout({ ...profile, rotation, lockoutWindow, fakeCast }, loadout)
-}
 
 /** Spell ids of a loadout's Fire set, in a canonical (sorted) order: slot order does not make a different set. */
 const fireKey = (loadout: readonly SpellId[]) => [...loadout.slice(0, ELEMENT_SPELL_COUNT)].sort().join()
@@ -240,6 +220,18 @@ export const planTournament = (options: TournamentOptions): TournamentPlan => {
         make,
     }
 }
+
+/**
+ * The controllers of `config.entrants`, rebuilt from the config alone (its profiles and the entrants' loadouts), as
+ * `planTournament` builds them: so a merged result can play more games (the bracket) with the same entrants.
+ */
+export const entrantMakers = (config: TournamentConfig): (() => Entrant)[] =>
+    config.entrants.map(({ loadout, profile: name }) => {
+        const profile = config.profiles.find(p => p.name === name)
+        if (!profile) throw new Error(`no profile ${JSON.stringify(name)} in the tournament config`)
+        const built = adaptProfile(profile, loadout)
+        return () => profileEntrant(built, loadout)
+    })
 
 /** Every unordered pair of distinct entrants as `[a, b]` with `a < b`, in a fixed order. */
 export const pairList = (entrants: number): [number, number][] => {

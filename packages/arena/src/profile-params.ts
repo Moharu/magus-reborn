@@ -54,16 +54,22 @@ export const PROFILE_PARAMETERS: Readonly<Record<string, Parameter>> = {
     'fakeCast.realBaitShare': num(0, 1, 0.01, 0.1),
     // edge greed (#126): the loader's whole range, so the tuner can find whether the risk pays off
     'lockoutWindow.edgeGreedSeconds': num(0, EDGE_GREED_MAX_SECONDS, 0.01, 0.2),
+    // give-up timers (#136): only tuned when the profile has the timer (null turns one off, and stays off)
+    'counterspell.giveUpSeconds': num(1, 30, 0.01, 2),
+    'patience.thresholdGiveUpSeconds': num(REACTION_MIN_SECONDS, 10, 0.01, 0.5),
+    'patience.commitGiveUpSeconds': num(REACTION_MIN_SECONDS, 15, 0.01, 1),
 }
 
 /**
  * The numeric fields of a condition, wherever it appears (`rotation[i].when`, `lockoutWindow.rotation[i].when`,
- * `fakeCast.when`, `generals.<id>.when`).
+ * `fakeCast.when`, `generals.<id>.when`, and the lists of an `anyOf` in any of them).
  */
-export const CONDITION_PARAMETERS: Readonly<Record<'hp' | 'count' | 'seconds', NumberParameter>> = {
+export const CONDITION_PARAMETERS: Readonly<Record<'hp' | 'count' | 'seconds' | 'withinSeconds', NumberParameter>> = {
     hp: num(0, 100, 1, 10),
     count: num(0, 20, 1, 1),
     seconds: num(0, 3, 0.01, 0.1),
+    // `selfCastsAtLeast` (#136): how far back own casts count
+    withinSeconds: num(0, 15, 0.01, 1),
 }
 
 /** One tunable value of a given profile: its path (`rotation[0].when[0].count`) and its parameter. */
@@ -99,12 +105,15 @@ const setAt = (root: unknown, path: string, value: unknown) => {
 
 /** Every tunable value of `profile`, in a fixed order: the profile's own parameters, then condition fields. */
 export const parameterSlots = (profile: Profile): ParameterSlot[] => {
-    const slots: ParameterSlot[] = Object.entries(PROFILE_PARAMETERS).map(([path, parameter]) => ({
-        path,
-        key: path,
-        parameter,
-        condition: false,
-    }))
+    const slots: ParameterSlot[] = Object.entries(PROFILE_PARAMETERS)
+        // a give-up timer that is off (null) or absent is not a value to tune
+        .filter(([path]) => getAt(profile, path) !== null && getAt(profile, path) !== undefined)
+        .map(([path, parameter]) => ({
+            path,
+            key: path,
+            parameter,
+            condition: false,
+        }))
     const lists: [string, readonly object[]][] = [
         ...profile.rotation.map((entry, i): [string, readonly object[]] => [`rotation[${i}].when`, entry.when]),
         ...profile.lockoutWindow.rotation.map((entry, i): [string, readonly object[]] => [
@@ -117,7 +126,7 @@ export const parameterSlots = (profile: Profile): ParameterSlot[] => {
             return rule === 'never' ? [] : [[`generals.${id}.when`, rule.when]]
         }),
     ]
-    for (const [base, when] of lists)
+    const walk = (base: string, when: readonly object[]) =>
         when.forEach((condition, j) => {
             for (const key of Object.keys(CONDITION_PARAMETERS) as (keyof typeof CONDITION_PARAMETERS)[])
                 if (key in condition)
@@ -127,7 +136,11 @@ export const parameterSlots = (profile: Profile): ParameterSlot[] => {
                         parameter: CONDITION_PARAMETERS[key],
                         condition: true,
                     })
+            // an anyOf's lists, in order
+            const of = (condition as { of?: readonly (readonly object[])[] }).of
+            if (Array.isArray(of)) of.forEach((list, k) => walk(`${base}[${j}].of[${k}]`, list))
         })
+    for (const [base, when] of lists) walk(base, when)
     return slots
 }
 

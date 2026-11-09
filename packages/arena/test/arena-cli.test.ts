@@ -162,6 +162,46 @@ describe('arena CLI: report', () => {
             expect([...text('full.md').matchAll(/^## (.+)$/gm)].map(m => m[1])).toEqual([...REPORT_SECTIONS])
             expect(text('full.md')).toContain('**Date:** 2026-11-09 (UTC)')
             expect(text('full.md')).toContain('**Status:** complete')
+            // the top-8 bracket (#136), played after the round-robin by default, the same after a merge
+            const { bracket } = json('full.json')
+            expect(bracket?.bestOf).toBe(5)
+            expect(bracket?.seeds.map(s => s.id)).toEqual(
+                json('full.json')
+                    .ranking.slice(0, 8)
+                    .map(r => r.id),
+            )
+            expect(bracket?.placements.map(p => p.place)).toEqual(['1st', '2nd', '3rd', '4th', '5th-6th', '7th-8th'])
+            const section = text('full.md').split('## Bracket')[1]
+            for (const set of bracket!.sets) expect(section).toContain(`| ${set.id} | ${set.round} |`)
+        },
+        TIMEOUT,
+    )
+
+    it(
+        'takes the bracket best-of from --bracket-best-of, skips it with --no-bracket, and rejects an even best-of',
+        () => {
+            run(...tiny, '--jobs', '1', '--bracket-best-of', '3', '--out', join(dir, 'bo3.json'))
+            expect(json('bo3.json').bracket?.bestOf).toBe(3)
+            const { out } = both(
+                ...tiny,
+                '--jobs',
+                '1',
+                '--no-bracket',
+                '--out',
+                join(dir, 'nob.json'),
+                '--report',
+                join(dir, 'nob.md'),
+            )
+            expect(json('nob.json').bracket).toBeUndefined()
+            expect(out).not.toContain('Bracket:')
+            expect(text('nob.md')).toContain('Not run: --no-bracket was given.')
+            // --no-bracket takes no value: the file after it is still a shard to merge
+            run(...tiny, '--jobs', '1', '--shard', '0/1', '--out', join(dir, 'one.json'))
+            run('merge', '--no-bracket', join(dir, 'one.json'), '--out', join(dir, 'one-merged.json'))
+            expect(json('one-merged.json').bracket).toBeUndefined()
+            expect(fails(...tiny, '--bracket-best-of', '4')).toMatch(
+                /--bracket-best-of must be an odd positive integer/,
+            )
         },
         TIMEOUT,
     )

@@ -10,34 +10,100 @@
     ],
     "profile": {
         "name": "patient-counter",
-        "intent": "Steady short casts; holds Counterspell for big spells and lands it late in the cast bar, so short fakes don't fool it.",
+        "intent": "Waits up to 3 s (after the match starts and after each free-cast window) for the opponent to commit, then steady short casts: 3 Ignites, Combustion, Afterburn after Fireballs. Holds Counterspell for big spells and lands it late in the cast bar, so short fakes don't fool it; after 6 s held it takes any cast. Generals: Haste in the free-cast window its Counterspell opens, or on its longest cast; Magic Eater in that window or over 3+ Ignites; Temporal Shield to rewind an enemy burst, its own Living Bomb's explosion or a 4-Ignite build-up; Blur as an enemy Ignite or Living Bomb lands.",
         "rotation": [
             {
                 "spell": "SPELL_COMBUSTION",
-                "when": [{ "type": "enemyEffectsAtLeast", "effect": "DEBUFF_IGNITE", "count": 3 }]
+                "when": [
+                    {
+                        "type": "enemyEffectsAtLeast",
+                        "effect": "DEBUFF_IGNITE",
+                        "count": 3
+                    }
+                ]
             },
             {
                 "spell": "SPELL_IGNITE",
-                "when": [{ "type": "enemyEffectsBelow", "effect": "DEBUFF_IGNITE", "count": 3 }]
+                "when": [
+                    {
+                        "type": "enemyEffectsBelow",
+                        "effect": "DEBUFF_IGNITE",
+                        "count": 3
+                    }
+                ]
             },
-            "SPELL_FIREBALL"
+            {
+                "spell": "SPELL_AFTERBURN",
+                "when": [
+                    {
+                        "type": "selfCastsAtLeast",
+                        "spell": "SPELL_FIREBALL",
+                        "count": 3,
+                        "withinSeconds": 10
+                    }
+                ]
+            },
+            "SPELL_FIREBALL",
+            {
+                "spell": "SPELL_LIVING_BOMB",
+                "when": [
+                    {
+                        "type": "enemyEffectsBelow",
+                        "effect": "DEBUFF_LIVING_BOMB",
+                        "count": 1
+                    }
+                ]
+            },
+            "SPELL_METEOR"
         ],
         "lockoutWindow": {
             "rotation": [
                 {
                     "spell": "SPELL_COMBUSTION",
-                    "when": [{ "type": "enemyEffectsAtLeast", "effect": "DEBUFF_IGNITE", "count": 1 }]
+                    "when": [
+                        {
+                            "type": "enemyEffectsAtLeast",
+                            "effect": "DEBUFF_IGNITE",
+                            "count": 1
+                        }
+                    ]
+                },
+                {
+                    "spell": "SPELL_LIVING_BOMB",
+                    "when": [
+                        {
+                            "type": "enemyEffectsBelow",
+                            "effect": "DEBUFF_LIVING_BOMB",
+                            "count": 1
+                        }
+                    ]
                 },
                 "SPELL_IGNITE",
-                "SPELL_FIREBALL"
+                {
+                    "spell": "SPELL_AFTERBURN",
+                    "when": [
+                        {
+                            "type": "selfCastsAtLeast",
+                            "spell": "SPELL_FIREBALL",
+                            "count": 2,
+                            "withinSeconds": 10
+                        }
+                    ]
+                },
+                "SPELL_FIREBALL",
+                "SPELL_METEOR"
             ]
         },
         "counterspell": {
             "enabled": true,
             "targets": ["SPELL_METEOR", "SPELL_COMBUSTION", "SPELL_LIVING_BOMB"],
-            "reaction": { "meanSeconds": 0.4, "spreadSeconds": 0.15 },
+            "reaction": {
+                "meanSeconds": 0.4,
+                "spreadSeconds": 0.15
+            },
             "timing": "late",
-            "lateWindowSeconds": 0.8
+            "lateWindowSeconds": 0.8,
+            "giveUpSeconds": 6
         },
         "fakeCast": {
             "enabled": false,
@@ -48,17 +114,97 @@
             "maxPerMatch": 0,
             "when": []
         },
+        "patience": {
+            "thresholdGiveUpSeconds": 2,
+            "commitGiveUpSeconds": 3
+        },
         "generals": {
-            "SPELL_HASTE": "never",
-            "SPELL_TEMPORAL_SHIELD": {
+            "SPELL_HASTE": {
                 "when": [
-                    { "type": "enemyCastEndsWithin", "seconds": 0.3, "spells": ["SPELL_METEOR", "SPELL_COMBUSTION"] }
+                    {
+                        "type": "selfNotCasting"
+                    },
+                    {
+                        "type": "anyOf",
+                        "of": [
+                            [
+                                {
+                                    "type": "inLockoutWindow"
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "nextCastIsLongest"
+                                }
+                            ]
+                        ]
+                    }
                 ]
             },
-            "SPELL_MAGIC_EATER": "never",
+            "SPELL_TEMPORAL_SHIELD": {
+                "when": [
+                    {
+                        "type": "anyOf",
+                        "of": [
+                            [
+                                {
+                                    "type": "enemyCastEndsWithin",
+                                    "seconds": 0.3,
+                                    "spells": ["SPELL_METEOR", "SPELL_COMBUSTION"]
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "selfEffectEndsWithin",
+                                    "effect": "DEBUFF_LIVING_BOMB",
+                                    "seconds": 0.5
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "selfNotCasting"
+                                },
+                                {
+                                    "type": "selfEffectsAtLeast",
+                                    "effect": "DEBUFF_IGNITE",
+                                    "count": 4
+                                }
+                            ]
+                        ]
+                    }
+                ]
+            },
+            "SPELL_MAGIC_EATER": {
+                "when": [
+                    {
+                        "type": "selfNotCasting"
+                    },
+                    {
+                        "type": "anyOf",
+                        "of": [
+                            [
+                                {
+                                    "type": "inLockoutWindow"
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "enemyEffectsAtLeast",
+                                    "effect": "DEBUFF_IGNITE",
+                                    "count": 3
+                                }
+                            ]
+                        ]
+                    }
+                ]
+            },
             "SPELL_BLUR": {
                 "when": [
-                    { "type": "enemyCastEndsWithin", "seconds": 0.3, "spells": ["SPELL_IGNITE", "SPELL_LIVING_BOMB"] }
+                    {
+                        "type": "enemyCastEndsWithin",
+                        "seconds": 0.3,
+                        "spells": ["SPELL_IGNITE", "SPELL_LIVING_BOMB"]
+                    }
                 ]
             }
         }
