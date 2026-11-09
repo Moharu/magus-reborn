@@ -24,6 +24,30 @@ const COUNTER = slotOf(METEOR_LOADOUT, 'SPELL_COUNTERSPELL')
  */
 const KILL_TICK = 4 * 72 + 3
 
+describe('runMatch: spell logs', () => {
+    it('gives each player its own copy of a log entry: editing one in a view leaves the opponent view alone', () => {
+        const seenB: ArenaView[] = []
+        // a vandal that rewrites every entry of its own log and of the enemy's log it is shown
+        const vandal: ControllerFactory = () => {
+            const decide = scripted({ 5: start(FIREBALL) })({ loadout: METEOR_LOADOUT, rng: null as never })
+            return view => {
+                for (const entry of [...view.self.log, ...view.enemy.log]) (entry as { spellId: string }).spellId = 'X'
+                return decide(view)
+            }
+        }
+        runMatch({
+            seed: 1,
+            a: entrant('a', vandal),
+            b: entrant('b', recording(scripted({ 8: start(METEOR) }), seenB)),
+            maxTicks: 40,
+        })
+        const last = seenB[seenB.length - 1]
+        // b sees a's START_CAST on its enemy log untouched, though a overwrote its own copy
+        expect(last.enemy.log.map(e => e.spellId)).toEqual(['SPELL_FIREBALL'])
+        expect(last.self.log.map(e => e.spellId)).toEqual(['SPELL_METEOR'])
+    })
+})
+
 describe('runMatch: determinism', () => {
     it('gives an identical result and log for the same seed and inputs', () => {
         const run = () => runMatch({ seed: 7, a: EXAMPLE_ENTRANTS.aggressor, b: EXAMPLE_ENTRANTS.counter })

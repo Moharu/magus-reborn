@@ -197,8 +197,9 @@ const readEnemyLogs = (
         }
         if (spellId === undefined) continue
         const shown = { tick: entry.tick, type: entry.type, spellId }
-        views[player === 'player1' ? 'player2' : 'player1'].view.enemy.log.push(shown)
-        views[player].view.self.log.push(shown)
+        // one copy per log: a controller that edits an entry of its own view must not change the opponent's
+        views[player === 'player1' ? 'player2' : 'player1'].view.enemy.log.push({ ...shown })
+        views[player].view.self.log.push({ ...shown })
     }
     return entries.length
 }

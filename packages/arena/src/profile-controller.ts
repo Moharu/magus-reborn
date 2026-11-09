@@ -222,7 +222,9 @@ export const profileController =
             // under a Counterspell lock the player can't act: those ticks don't count toward its give-up timers
             if (self.lockedUntil > tick) {
                 lastBusy += 1
-                commitWaitFrom += 1
+                // inside a safe window the wait is already set to start when the window ends: only locked ticks from
+                // then on postpone it (counting the window's own locked ticks too would start it one tick late)
+                if (tick >= safeUntil) commitWaitFrom += 1
                 if (counterHeldSince !== NONE) counterHeldSince += 1
             }
             released = false
