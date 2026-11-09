@@ -1,3 +1,4 @@
+import { SPELLS } from '@magus/engine'
 import { expect, test } from '@playwright/test'
 import { mobileBattleLayout } from '../src/game/layout'
 
@@ -59,9 +60,8 @@ test('an open picker keeps descriptions and selection available across rotation'
     await picker.locator('[data-target="spell:SPELL_AFTERBURN"]').click()
     await expect(picker.locator('.details')).toBeVisible()
     await page.setViewportSize({ width: 844, height: 390 })
-    await picker.getByRole('button', { name: 'Spell details' }).click()
-    await expect(picker.locator('.details:popover-open')).toContainText('Afterburn')
-    await page.keyboard.press('Escape')
+    await expect(picker.locator('.header-details')).toContainText('Afterburn')
+    await expect(picker.getByRole('button', { name: 'Spell details' })).toHaveCount(0)
     await expect(picker.locator('[data-target="spell:SPELL_AFTERBURN"]')).toHaveAttribute('aria-pressed', 'true')
     await page.setViewportSize({ width: 390, height: 844 })
     await expect(picker.locator('.details')).toBeVisible()
@@ -80,6 +80,40 @@ for (const [width, height] of [
         await expect(page.locator('.stage canvas')).toBeVisible()
         await page.getByRole('button', { name: 'Change spells', exact: true }).last().click()
         const picker = page.locator('.training-picker')
+        const details = picker.locator('.header-details')
+        await expect(details).toBeVisible()
+        const initial = (await details.boundingBox())!
+        const element = (await picker.locator('.element').boundingBox())!
+        const toggle = (await picker.locator('.toggle').boundingBox())!
+        expect(initial.x).toBeGreaterThanOrEqual(element.x + element.width)
+        expect(initial.x + initial.width).toBeLessThanOrEqual(toggle.x)
+        for (const spell of ['SPELL_AFTERBURN', 'SPELL_COMBUSTION', 'SPELL_TEMPORAL_SHIELD']) {
+            await picker.locator(`[data-target="spell:${spell}"]`).click()
+            expect(await details.boundingBox()).toEqual(initial)
+        }
+        await expect(details.locator('p')).toHaveText(SPELLS.SPELL_TEMPORAL_SHIELD.description)
+        await picker.getByLabel('Exact numbers', { exact: true }).check()
+        await expect(details.locator('p')).toHaveText(SPELLS.SPELL_TEMPORAL_SHIELD.advancedDescription)
+        expect(await details.boundingBox()).toEqual(initial)
+        const paragraph = details.locator('p')
+        const clamp = await paragraph.evaluate(p => ({
+            clamp: getComputedStyle(p).webkitLineClamp,
+            height: p.getBoundingClientRect().height,
+            title: p.title,
+            text: p.textContent,
+            aria: p.getAttribute('aria-label'),
+        }))
+        expect(clamp.clamp).toBe('2')
+        expect(clamp.height).toBeLessThanOrEqual(22)
+        expect(clamp.title).toBe(clamp.text)
+        expect(clamp.aria).toBe(clamp.text)
+        for (const control of await picker.locator('.spell, .slot-wrap').all()) {
+            expect((await control.boundingBox())!.y).toBeGreaterThanOrEqual(initial.y + initial.height)
+        }
+        await expect(picker.locator('.details-trigger')).toBeHidden()
+        await expect(picker.locator('.picker-stage > .details')).toBeHidden()
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+        expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(height)
         const icons = picker.locator('.slot img')
         await expect(icons).toHaveCount(7)
         for (const icon of await icons.all()) {
@@ -124,4 +158,14 @@ test('picker labels switch live on the first touch even with fine-pointer media 
     await expect(key).toBeHidden()
     await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'mouse' })))
     await expect(key).toBeHidden()
+})
+
+test('desktop picker retains its stage description', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto('/training')
+    await expect(page.locator('.stage canvas')).toBeVisible()
+    await page.getByRole('button', { name: 'Change spells', exact: true }).last().click()
+    const picker = page.locator('.training-picker')
+    await expect(picker.locator('.header-details')).toBeHidden()
+    await expect(picker.locator('.picker-stage > .details')).toBeVisible()
 })

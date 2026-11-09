@@ -201,6 +201,17 @@ export const spellPicker = (
         const spellSelected = (id: SpellId) => selection?.kind === 'spell' && selection.id === id
         const lit = (target: Target) => canTarget(loadout, selection, target, element)
         const def = SPELLS[detail]
+        const description = advanced ? def.advancedDescription : def.description
+        const detailContent = () => [
+            h('img', { src: iconUrl(detail), alt: '' }),
+            h(
+                'div',
+                null,
+                h('strong', null, def.label),
+                h('p', { title: description, 'aria-label': description }, description),
+                h('span', { class: 'meta' }, stats(detail)),
+            ),
+        ]
         const { button, gap, buttonTop } = BAR
 
         const slots = loadout.map((id, i) => {
@@ -287,6 +298,7 @@ export const spellPicker = (
                           )
                         : []),
                 ),
+                h('div', { class: 'header-details', 'aria-label': 'Spell details' }, ...detailContent()),
                 options.overlayDetails
                     ? h('button', { class: 'details-trigger', popovertarget: 'picker-details' }, 'Spell details')
                     : null,
@@ -316,14 +328,7 @@ export const spellPicker = (
                         popover: options.overlayDetails ? 'auto' : undefined,
                         style: options.overlayDetails ? undefined : box(30, DETAILS.top, WIDTH - 60, DETAILS.height),
                     },
-                    h('img', { src: iconUrl(detail), alt: '' }),
-                    h(
-                        'div',
-                        null,
-                        h('strong', null, def.label),
-                        h('p', null, advanced ? def.advancedDescription : def.description),
-                        h('span', { class: 'meta' }, stats(detail)),
-                    ),
+                    ...detailContent(),
                 ),
                 h(
                     'h3',
