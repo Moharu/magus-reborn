@@ -124,7 +124,7 @@ export class PlayerHud extends Container {
     fitResource(width = WIDTH, height = HEIGHT, position?: ResourceMeterPosition) {
         const slot = resourceMeterSlot(this.side, width, height, position)
         this.resourceSlot.position.set(slot.x, slot.y)
-        this.resourceSlot.scale.set(slot.width / RESOURCE_METER.width)
+        this.resourceSlot.scale.set(slot.width / RESOURCE_METER.width, slot.height / RESOURCE_METER.height)
     }
 
     /** Flashes the cast bar with the spell that was interrupted. */
