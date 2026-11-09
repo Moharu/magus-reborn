@@ -144,7 +144,11 @@ rotation is the loadout's Fire spells in slot order. A profile may leave out spe
     },
     // #143, optional: keep a completed cast on the bar while `when` holds, at most giveUpSeconds (0-3) past completion
     "releaseHold": {
-        "when": [{ "type": "enemyEffectsAtLeast", "effect": "BUFF_TEMPORAL_SHIELD", "count": 1 }],
+        // hold through an enemy Temporal Shield, unless the enemy is low enough for the cast to kill it (death is final)
+        "when": [
+            { "type": "enemyEffectsAtLeast", "effect": "BUFF_TEMPORAL_SHIELD", "count": 1 },
+            { "type": "enemyHpAtLeast", "hp": 29 },
+        ],
         "giveUpSeconds": 1.2,
     },
     // one rule per general spell: "never" or { "when": [conditions] }; rules for spells not on the loadout are unused
@@ -222,7 +226,9 @@ can stay on the bar. With `releaseHold` set, the profile keeps its completed cas
 `releaseHold.when` holds, for at most `releaseHold.giveUpSeconds` past the completion, then releases it whatever
 holds. The use: an enemy Temporal Shield rewinds every HP change made while it is up, so a Meteor that lands into it
 is undone; held until the shield no longer shows (the tick its rewind has run), the hit stays. A held cast is still
-on the cast bar, so the opponent may Counterspell it meanwhile.
+on the cast bar, so the opponent may Counterspell it meanwhile, and an instant of the profile's own (its Counterspell,
+or a general spell whose rule fires) cancels it like any cast. A hit that would kill needs no hold: a player at 0 HP
+stays dead whatever a rewind does, so aggressive holds only while the enemy has 29+ HP (Meteor deals 28).
 
 **Fake casts (#43).** Start `fakeCast.spell`, then cancel it with `Battle.stopCast` after `cancelAfterSeconds`; the
 cancel costs only the elapsed time (no lock, no damage). It baits a Counterspell when the enemy has committed before

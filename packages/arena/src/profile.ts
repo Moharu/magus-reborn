@@ -239,6 +239,13 @@ const parseRotation = (raw: unknown, base = 'rotation'): RotationEntry[] => {
 }
 
 const parseCounterspell = (raw: unknown): CounterspellPolicy => {
+    // the fixed target list of #102-#137 is gone (#143, PR #146): say so rather than "unknown key"
+    if (isRecord(raw) && 'targets' in raw)
+        fail(
+            'counterspell.targets',
+            'was removed in #143 (PR #146): Counterspell targets are now value-based, learned from what the opponent ' +
+                'is seen casting; set minValue, bestShare and unseenValuePerSecond instead',
+        )
     const value = record(raw, 'counterspell', COUNTERSPELL_KEYS)
     for (const key of COUNTERSPELL_KEYS)
         if (!(key in value) && !OPTIONAL_COUNTERSPELL_KEYS.includes(key)) fail(`counterspell.${key}`, 'is required')

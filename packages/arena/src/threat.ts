@@ -12,7 +12,8 @@ import type { ArenaView } from './types'
  *   - a burst when one of its effects runs out (a Living Bomb's explosion): the HP lost beyond that running damage on
  *     the tick the effect leaves the buff bar at its `expiresAt` (cleansed early, it gives nothing);
  *   - damage over time: each tick's running loss, shared evenly by the opponent's debuffs on the player.
- * An effect's spell is the opponent release on the effect's `startingTick` (a cast-time one first). Heals and rewinds
+ * An effect's spell is the opponent release on the effect's `startingTick` (an element spell, then a cast-time one
+ * first); a hit is shared only by the tick's releases that may deal damage (`damaging`). Heals and rewinds
  * are not damage: a tick whose HP went up credits nothing.
  *
  * A spell the opponent has not yet released (or whose casts have dealt nothing yet) is valued from its public base
@@ -29,6 +30,18 @@ export interface SpellValues {
 
 /** The spells whose effect a debuff on the player comes from, the opponent's Counterspell lock aside. */
 const TRACKED = (id: EffectId) => id !== 'DEBUFF_COUNTERSPELL'
+
+/**
+ * The releases of one tick that may have dealt its damage (#146 review): the element spells among them, those built to
+ * deal damage, when there are any. A general spell (Haste, Blur, Counterspell, ...) released on the same tick as a
+ * damaging cast, as when a player releases a cast and prepares the next with Haste, takes no share of that hit. Only
+ * when every release of the tick is a general spell is the damage theirs. The school is public spell data, shown in
+ * every client's spellbook.
+ */
+const damaging = (spells: readonly SpellId[]): readonly SpellId[] => {
+    const element = spells.filter(id => SPELLS[id].school !== 'GENERAL')
+    return element.length > 0 ? element : spells
+}
 
 interface Tracked {
     readonly id: EffectId
@@ -55,7 +68,7 @@ export const spellValues = (unseenValuePerSecond: number): SpellValues => {
         if (spell && hp > 0) damage.set(spell, (damage.get(spell) ?? 0) + hp)
     }
     const sourceOf = (startingTick: number): SpellId | null => {
-        const spells = releasedOn.get(startingTick) ?? []
+        const spells = damaging(releasedOn.get(startingTick) ?? [])
         return spells.find(id => (SPELLS[id].castSeconds ?? 0) > 0) ?? spells[0] ?? null
     }
     const prior = (spell: SpellId) => Math.max(0, unseenValuePerSecond) * (SPELLS[spell].castSeconds ?? 0)
@@ -74,7 +87,7 @@ export const spellValues = (unseenValuePerSecond: number): SpellValues => {
             }
             if (enemy.casting) seenCasting.add(enemy.casting.spellId)
             // the releases of the last tick show in this tick's HP
-            const hits = releasedOn.get(tick - 1) ?? []
+            const hits = damaging(releasedOn.get(tick - 1) ?? [])
 
             // the opponent's debuffs on the buff bar now, and the ones that ran out on this tick
             const now: Tracked[] = []

@@ -14,13 +14,16 @@ import {
     start,
     stop,
     formatLog,
+    idle,
+    profileController,
+    Rng,
     type Action,
     type ArenaView,
     type EffectView,
     type MatchEvent,
 } from '../src'
-import { entrant, idler, scripted, slotOf } from './helpers'
-import { quietProfile } from './profile-helpers'
+import { entrant, idler, recording, scripted, slotOf } from './helpers'
+import { actionsOf, quietProfile } from './profile-helpers'
 
 // #143: the weak patient-counter (no Temporal Shield) and aggressive's Temporal Shield setups, on the mirror loadouts
 // of the strategy tournament (#137): the best Fire set of the dummy baseline, Counterspell and a general pair
@@ -327,5 +330,85 @@ describe('Counterspell targets from what the opponent is seen to cast (#143)', (
         const [interrupt] = events(run(6).log, 'b', 'INTERRUPTED')
         expect(interrupt?.spellId).toBe('SPELL_FIREBALL')
         expect(interrupt.tick).toBeGreaterThanOrEqual(secondsToTicks(6))
+    })
+})
+
+describe('#146 review fixes', () => {
+    it('a general spell released on the same tick as a hit takes no share of it (Codex P2)', () => {
+        // three Fireballs, then Afterburn released together with Haste, through the real engine
+        const slot = (id: SpellId) => slotOf(HASTE_BLUR, id)
+        const [FB, AB] = [ticksOf('SPELL_FIREBALL'), ticksOf('SPELL_AFTERBURN')]
+        const script: Record<number, Action[]> = {}
+        const at = (tick: number, ...actions: Action[]) => (script[tick] = [...(script[tick] ?? []), ...actions])
+        for (let i = 0; i < 3; i++) {
+            at(i * FB, start(slot('SPELL_FIREBALL')))
+            at((i + 1) * FB, stop(slot('SPELL_FIREBALL')))
+        }
+        at(3 * FB, start(slot('SPELL_AFTERBURN')))
+        at(3 * FB + AB, stop(slot('SPELL_AFTERBURN')), start(slot('SPELL_HASTE')))
+        const seen: ArenaView[] = []
+        const result = runMatch({
+            seed: 1,
+            a: entrant('watcher', recording(idle(), seen), HASTE_BLUR),
+            b: entrant('caster', scripted(script), HASTE_BLUR),
+            maxTicks: 3 * FB + AB + 5,
+        })
+        const released = events(result.log, 'b', 'SPELL_RELEASE').map(e => [e.tick, e.spellId])
+        expect(released.slice(-2)).toEqual([
+            [3 * FB + AB, 'SPELL_AFTERBURN'],
+            [3 * FB + AB, 'SPELL_HASTE'],
+        ])
+        const values = spellValues(6)
+        for (const view of seen) values.observe(view)
+        // 2.1 + 3.5 x 3 Fireballs, all of it Afterburn's; before the fix Haste took half (6.3 each)
+        expect(values.valueOf('SPELL_AFTERBURN')).toBeCloseTo(12.6)
+        expect(values.valueOf('SPELL_FIREBALL')).toBeCloseTo(5.6)
+        // Haste is an instant with no damage seen: its cast-time prior, 0
+        expect(values.valueOf('SPELL_HASTE')).toBe(0)
+    })
+
+    it('aggressive does not hold a completed cast when the enemy is too low to survive it', () => {
+        const loadout = HASTE_SHIELD
+        const meteor = slotOf(loadout, 'SPELL_METEOR')
+        const decide = (enemyHp: number) => {
+            const controller = profileController(ARCHETYPES.aggressive.profile)({ loadout, rng: new Rng(1) })
+            const tick = 100
+            const view: ArenaView = {
+                tick,
+                self: {
+                    hp: 100,
+                    casting: { slot: meteor, spellId: 'SPELL_METEOR', startTick: 28, castTime: 72, completesAt: 100 },
+                    gcdUntil: 0,
+                    lockedUntil: 0,
+                    effects: [],
+                    spells: loadout.map(id => ({
+                        id,
+                        castTime: ticksOf(id),
+                        cooldownRemaining: 0,
+                        lockRemaining: 0,
+                        ready: true,
+                    })),
+                    log: [],
+                },
+                enemy: {
+                    hp: enemyHp,
+                    casting: null,
+                    lockedUntil: 0,
+                    effects: [{ id: 'BUFF_TEMPORAL_SHIELD', type: 'positive', startingTick: 96, expiresAt: 120 }],
+                    log: [],
+                },
+            }
+            return actionsOf(controller(view)).some(a => a.type === 'stop' && a.slot === meteor)
+        }
+        // 50 HP: held through the shield; 28 HP: the Meteor (28) kills, and death is final, so release at once
+        expect(decide(50)).toBe(false)
+        expect(decide(28)).toBe(true)
+    })
+
+    it('a profile that still lists Counterspell targets gets a clear error', () => {
+        const raw = quietProfile() as ReturnType<typeof quietProfile> & { counterspell: Record<string, unknown> }
+        raw.counterspell.targets = ['SPELL_METEOR']
+        expect(() => parseProfile(raw)).toThrow(ProfileError)
+        expect(() => parseProfile(raw)).toThrow(/counterspell\.targets: was removed in #143 \(PR #146\).*value-based/)
     })
 })
