@@ -1,5 +1,5 @@
 import { FIXED_SPELL, isSpellId, secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
-import { parseWhen, spellList, type Condition } from './conditions'
+import { parseWhen, type Condition } from './conditions'
 import { boolean, fail, isRecord, number, record, string } from './validate'
 
 /**
@@ -56,8 +56,17 @@ export const EDGE_GREED_MAX_SECONDS = 1.5
 
 export interface CounterspellPolicy {
     readonly enabled: boolean
-    /** The enemy casts it interrupts; casts of other spells are let through. */
-    readonly targets: readonly SpellId[]
+    /**
+     * Which enemy casts it interrupts (#143): those worth enough, by what the opponent's spells have been seen to do.
+     * A cast's value is the damage one cast of that spell has dealt to this player per cast so far, or, for a spell
+     * not yet seen to deal any, its public base cast time times `unseenValuePerSecond` (see `spellValues`). A cast is a
+     * target when its value is at least `minValue` and at least `bestShare` times the highest value among the spells
+     * the opponent has been seen casting: 1 holds out for the best target seen, 0 takes anything worth `minValue`.
+     * Other casts are let through.
+     */
+    readonly minValue: number
+    readonly bestShare: number
+    readonly unseenValuePerSecond: number
     /**
      * Time from deciding to interrupt to the Counterspell landing, sampled once per enemy cast from the seeded stream:
      * uniform in [meanSeconds - spreadSeconds, meanSeconds + spreadSeconds], then rounded to ticks. `spreadSeconds` may
@@ -73,7 +82,7 @@ export interface CounterspellPolicy {
     /** `late` only: how long before the cast's release the Counterspell should land. */
     readonly lateWindowSeconds: number
     /**
-     * Give-up timer for holding Counterspell for `targets` (#136): once Counterspell has been off cooldown this long
+     * Give-up timer for holding Counterspell for its targets (#136): once Counterspell has been off cooldown this long
      * without being used, the next enemy cast seen is interrupted whatever its spell (then the timer starts again when
      * Counterspell is next off cooldown). Null: it holds for its targets for good. `parseProfile` always sets it.
      */
@@ -174,7 +183,19 @@ const PROFILE_KEYS = [
 const PATIENCE_KEYS = ['thresholdGiveUpSeconds', 'commitGiveUpSeconds']
 const RELEASE_HOLD_KEYS = ['when', 'giveUpSeconds']
 const LOCKOUT_WINDOW_KEYS = ['rotation', 'edgeGreedSeconds']
-const COUNTERSPELL_KEYS = ['enabled', 'targets', 'reaction', 'timing', 'lateWindowSeconds', 'giveUpSeconds']
+const COUNTERSPELL_KEYS = [
+    'enabled',
+    'minValue',
+    'bestShare',
+    'unseenValuePerSecond',
+    'reaction',
+    'timing',
+    'lateWindowSeconds',
+    'giveUpSeconds',
+]
+/** The largest `counterspell.minValue`, in HP, and `counterspell.unseenValuePerSecond`, in HP per second. */
+export const COUNTER_VALUE_MAX = 100
+export const UNSEEN_VALUE_PER_SECOND_MAX = 50
 /** Counterspell keys that may be left out (default null). */
 const OPTIONAL_COUNTERSPELL_KEYS = ['giveUpSeconds']
 
@@ -221,11 +242,6 @@ const parseCounterspell = (raw: unknown): CounterspellPolicy => {
     const value = record(raw, 'counterspell', COUNTERSPELL_KEYS)
     for (const key of COUNTERSPELL_KEYS)
         if (!(key in value) && !OPTIONAL_COUNTERSPELL_KEYS.includes(key)) fail(`counterspell.${key}`, 'is required')
-    const targets =
-        Array.isArray(value.targets) && value.targets.length === 0
-            ? []
-            : spellList(value.targets, 'counterspell.targets')
-    targets.forEach((id, i) => castTimeSpell(id, `counterspell.targets[${i}]`))
     const reaction = record(value.reaction, 'counterspell.reaction', ['meanSeconds', 'spreadSeconds'])
     if (value.timing !== 'early' && value.timing !== 'late') fail('counterspell.timing', 'must be "early" or "late"')
     const meanSeconds = number(reaction.meanSeconds, 'counterspell.reaction.meanSeconds', 0, MAX_SECONDS)
@@ -237,7 +253,14 @@ const parseCounterspell = (raw: unknown): CounterspellPolicy => {
         )
     return {
         enabled: boolean(value.enabled, 'counterspell.enabled'),
-        targets,
+        minValue: number(value.minValue, 'counterspell.minValue', 0, COUNTER_VALUE_MAX),
+        bestShare: number(value.bestShare, 'counterspell.bestShare', 0, 1),
+        unseenValuePerSecond: number(
+            value.unseenValuePerSecond,
+            'counterspell.unseenValuePerSecond',
+            0,
+            UNSEEN_VALUE_PER_SECOND_MAX,
+        ),
         reaction: { meanSeconds, spreadSeconds },
         timing: value.timing as 'early' | 'late',
         lateWindowSeconds: number(value.lateWindowSeconds, 'counterspell.lateWindowSeconds', 0, MAX_SECONDS),

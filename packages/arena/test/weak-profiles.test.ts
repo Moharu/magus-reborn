@@ -10,8 +10,13 @@ import {
     profileEntrant,
     ProfileError,
     runMatch,
+    spellValues,
     start,
+    stop,
+    formatLog,
+    type Action,
     type ArenaView,
+    type EffectView,
     type MatchEvent,
 } from '../src'
 import { entrant, idler, scripted, slotOf } from './helpers'
@@ -98,9 +103,9 @@ describe('a cast released this tick counts in its effect conditions (#143)', () 
 
 describe('patient-counter waits for a commit only while its Counterspell is ready (#143)', () => {
     const { profile } = ARCHETYPES['patient-counter']
-    const bomb = slotOf(HASTE_BLUR, 'SPELL_LIVING_BOMB')
-    /** Casts one Living Bomb, a patient-counter target, on tick 0, then never acts. */
-    const bomber = () => entrant('bomber', scripted({ 0: start(bomb) }), HASTE_BLUR)
+    const meteor = slotOf(HASTE_BLUR, 'SPELL_METEOR')
+    /** Starts one Meteor, worth a patient-counter Counterspell before it is ever seen land, on tick 0, then idles. */
+    const bomber = () => entrant('bomber', scripted({ 0: start(meteor) }), HASTE_BLUR)
     const play = (maxTicks: number) =>
         runMatch({ seed: 1, a: profileEntrant(profile, HASTE_BLUR), b: bomber(), maxTicks })
 
@@ -108,7 +113,7 @@ describe('patient-counter waits for a commit only while its Counterspell is read
         expect(profile.patience.commitGiveUpSeconds).toBe(3)
         const result = play(secondsToTicks(12))
         const [interrupt] = events(result.log, 'b', 'INTERRUPTED')
-        expect(interrupt?.spellId).toBe('SPELL_LIVING_BOMB')
+        expect(interrupt?.spellId).toBe('SPELL_METEOR')
         const windowEnd = interrupt.tick + LOCK
         // its Counterspell is on cooldown: there is nothing to wait for. Before #143 it waited 3 s more, idle
         const after = events(result.log, 'a', 'START_CAST').filter(e => e.tick >= windowEnd)
@@ -214,5 +219,113 @@ describe('holding a completed cast while the enemy shows a Temporal Shield (#143
         expect(paths('aggressive')).toContain('releaseHold.giveUpSeconds')
         expect(paths('aggressive')).toContain('releaseHold.when[0].count')
         expect(paths('defensive').some(path => path.startsWith('releaseHold'))).toBe(false)
+    })
+})
+
+describe('Counterspell targets from what the opponent is seen to cast (#143)', () => {
+    const slot = (id: SpellId) => slotOf(HASTE_BLUR, id)
+    const [FB, AB] = [ticksOf('SPELL_FIREBALL'), ticksOf('SPELL_AFTERBURN')]
+    /** Three Fireballs, then Afterburns back to back, as patient-counter plays (the script only, whatever happens). */
+    const afterburner = (loadout: SpellId[] = HASTE_BLUR) => {
+        const script: Record<number, Action[]> = {}
+        const at = (tick: number, ...actions: Action[]) => (script[tick] = [...(script[tick] ?? []), ...actions])
+        let tick = 0
+        for (let i = 0; i < 3; i++, tick += FB) {
+            at(tick, start(slot('SPELL_FIREBALL')))
+            at(tick + FB, stop(slot('SPELL_FIREBALL')))
+        }
+        for (let i = 0; i < 4; i++, tick += AB) {
+            at(tick, start(slot('SPELL_AFTERBURN')))
+            at(tick + AB, stop(slot('SPELL_AFTERBURN')))
+        }
+        return entrant('afterburner', scripted(script), loadout)
+    }
+    const firstAfterburn = 3 * FB
+    const play = (b = afterburner()) =>
+        runMatch({
+            seed: 1,
+            a: profileEntrant(ARCHETYPES.aggressive.profile, HASTE_BLUR),
+            b,
+            maxTicks: 3 * FB + 4 * AB,
+        })
+
+    it('aggressive counters Afterburn, missing from its old target list, once it has seen one hit hard', () => {
+        const result = play()
+        // no Fireball (5.6 HP) is worth a Counterspell, nor the first, unseen Afterburn (1.1 s cast, valued 7.7 HP)
+        const released = events(result.log, 'b', 'SPELL_RELEASE').map(e => [e.tick, e.spellId])
+        expect(released.slice(0, 4)).toEqual([
+            [FB, 'SPELL_FIREBALL'],
+            [2 * FB, 'SPELL_FIREBALL'],
+            [3 * FB, 'SPELL_FIREBALL'],
+            [firstAfterburn + AB, 'SPELL_AFTERBURN'],
+        ])
+        // that one dealt 12.6 HP, its best seen: the next Afterburn is interrupted
+        const [interrupt] = events(result.log, 'b', 'INTERRUPTED')
+        expect(interrupt?.spellId).toBe('SPELL_AFTERBURN')
+        expect(interrupt.tick).toBeGreaterThan(firstAfterburn + AB)
+        expect(interrupt.tick).toBeLessThan(firstAfterburn + 2 * AB)
+    })
+
+    it('learns values from the view only: the opponent loadout it never sees changes nothing', () => {
+        // the same visible casts from an opponent whose other slots differ: the views are equal, so are the games
+        const other: SpellId[] = [...FIRE_SET, 'SPELL_COUNTERSPELL', 'SPELL_MAGIC_EATER', 'SPELL_TEMPORAL_SHIELD']
+        expect(formatLog(play(afterburner(other)))).toBe(formatLog(play()))
+        // and the tracker reads nothing but views
+        const values = spellValues(6)
+        expect(values.valueOf('SPELL_METEOR')).toBeCloseTo(3.6 * 6)
+        expect(values.best()).toBe(0)
+    })
+
+    it('values a hit from the HP lost after the release, and a Living Bomb from its ticks and its explosion', () => {
+        const values = spellValues(6)
+        const view = (tick: number, hp: number, log: ArenaView['enemy']['log'], effects: EffectView[] = []) =>
+            ({
+                tick,
+                self: { hp, casting: null, gcdUntil: 0, lockedUntil: 0, effects, spells: [], log: [] },
+                enemy: { hp: 100, casting: null, lockedUntil: 0, effects: [], log },
+            }) as ArenaView
+        const log: ArenaView['enemy']['log'][number][] = []
+        values.observe(view(0, 100, log))
+        log.push({ tick: 0, type: 'START_CAST', spellId: 'SPELL_LIVING_BOMB' })
+        values.observe(view(29, 100, log))
+        // a Living Bomb released on 30, ticking 1 HP per tick until 33, exploding for 20 on 33
+        values.observe(view(30, 100, log))
+        // the log shows a release from the next tick on, like the buff bar
+        log.push({ tick: 30, type: 'SPELL_RELEASE', spellId: 'SPELL_LIVING_BOMB' })
+        const bomb: EffectView = { id: 'DEBUFF_LIVING_BOMB', type: 'negative', startingTick: 30, expiresAt: 33 }
+        values.observe(view(31, 99, log, [bomb]))
+        values.observe(view(32, 98, log, [bomb]))
+        values.observe(view(33, 77, log))
+        expect(values.valueOf('SPELL_LIVING_BOMB')).toBeCloseTo(23)
+        // a Meteor released on 40 hits for 28; it is the best seen once it has been seen cast
+        log.push({ tick: 38, type: 'START_CAST', spellId: 'SPELL_METEOR' })
+        values.observe(view(40, 77, log))
+        log.push({ tick: 40, type: 'SPELL_RELEASE', spellId: 'SPELL_METEOR' })
+        values.observe(view(41, 49, log))
+        expect(values.valueOf('SPELL_METEOR')).toBeCloseTo(28)
+        expect(values.best()).toBeCloseTo(28)
+        // an unseen spell keeps its cast-time prior
+        expect(values.valueOf('SPELL_FIREBALL')).toBeCloseTo(1.3 * 6)
+    })
+
+    it('patient-counter holds out for a target worth its Counterspell, then its give-up timer breaks the wait', () => {
+        const { profile } = ARCHETYPES['patient-counter']
+        const fireballer = profileEntrant(
+            parseProfile({ ...quietProfile(), rotation: ['SPELL_FIREBALL'] }),
+            HASTE_BLUR,
+            'fireballs',
+        )
+        const run = (giveUpSeconds: number | null) =>
+            runMatch({
+                seed: 1,
+                a: profileEntrant({ ...profile, counterspell: { ...profile.counterspell, giveUpSeconds } }, HASTE_BLUR),
+                b: fireballer,
+                maxTicks: secondsToTicks(15),
+            })
+        // Fireballs (5.6 HP) are below its 10 HP floor: never countered without the timer
+        expect(run(null).stats.a.interrupts).toBe(0)
+        const [interrupt] = events(run(6).log, 'b', 'INTERRUPTED')
+        expect(interrupt?.spellId).toBe('SPELL_FIREBALL')
+        expect(interrupt.tick).toBeGreaterThanOrEqual(secondsToTicks(6))
     })
 })

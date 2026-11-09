@@ -153,7 +153,7 @@ describe('give-up timers (#136)', () => {
     it('holding Counterspell for a target that never comes gives up and interrupts the next cast', () => {
         const holder = (giveUpSeconds: number | null) =>
             custom(raw => {
-                Object.assign(raw.counterspell, { enabled: true, targets: ['SPELL_METEOR'], giveUpSeconds })
+                Object.assign(raw.counterspell, { enabled: true, giveUpSeconds })
             })
         const fireballs = profileEntrant(
             custom(raw => (raw.rotation = ['SPELL_FIREBALL'])),
@@ -287,7 +287,7 @@ describe('review fixes (#136)', () => {
         // holds Counterspell for Meteor, giving up after 5 s (100 ticks) held; casts Fireballs meanwhile
         const holder = custom(raw => {
             raw.rotation = ['SPELL_FIREBALL']
-            Object.assign(raw.counterspell, { enabled: true, targets: ['SPELL_METEOR'], giveUpSeconds: 5 })
+            Object.assign(raw.counterspell, { enabled: true, giveUpSeconds: 5 })
         })
         // the enemy counters its first Fireball on tick 10 (locked until 70), then casts Fireballs on 105 and 165
         const FIREBALL = slotOf(METEOR_LOADOUT, 'SPELL_FIREBALL')

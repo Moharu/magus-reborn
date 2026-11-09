@@ -1,6 +1,7 @@
 import { FIXED_SPELL, secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
 import { adaptProfile } from './adapt'
 import { allHold, type Condition, type ConditionInput, type OwnRelease } from './conditions'
+import { spellValues } from './threat'
 import { start, stop } from './controllers'
 import {
     EDGE_GREED_MAX_SECONDS,
@@ -45,6 +46,11 @@ const giveUpTicks = (seconds: number | null | undefined) =>
  *   5. starts the cast chosen in step 3, after the general spells, so Haste applies to it.
  * A general spell used while a cast is in progress cancels that cast, like any instant: rules that must not do that
  * say `selfNotCasting`.
+ *
+ * Counterspell targets (#143): an enemy cast is a target when its spell's value, learned from the view by
+ * `spellValues` (the damage its casts have dealt this player so far, or for a spell not yet seen to deal any, its
+ * public base cast time times `counterspell.unseenValuePerSecond`), is at least `counterspell.minValue` and at least
+ * `counterspell.bestShare` times the best value among the spells the opponent has been seen casting.
  *
  * Counterspell model: for each targeted enemy cast it sees, the player samples a reaction time and picks a decision
  * tick (`early`: the first tick the cast is visible; `late`: the first tick the cast is within `lateWindowSeconds` of
@@ -113,7 +119,14 @@ export const profileController =
         const counterGiveUp = giveUpTicks(profile.counterspell.giveUpSeconds)
 
         const cs = profile.counterspell
-        const csSlot = cs.enabled && (cs.targets.length > 0 || counterGiveUp !== NONE) ? slotOf(FIXED_SPELL) : NONE
+        const csSlot = cs.enabled ? slotOf(FIXED_SPELL) : NONE
+        // what each opponent spell is worth to counter, learned from the view (#143)
+        const values = spellValues(cs.unseenValuePerSecond)
+        /** Whether an enemy cast of `spell` is worth a Counterspell (#143): see `CounterspellPolicy.minValue`. */
+        const isTarget = (spell: SpellId) => {
+            const value = values.valueOf(spell)
+            return value >= cs.minValue && value >= cs.bestShare * values.best(spell)
+        }
         const lateWindow = secondsToTicks(cs.lateWindowSeconds)
         const { meanSeconds, spreadSeconds } = cs.reaction
         const sampleReaction = () => {
@@ -231,6 +244,7 @@ export const profileController =
         return (view): Decision => {
             const { tick, self, enemy } = view
             actions.length = 0
+            values.observe(view)
             input.view = view
             input.nextCast = null
             let casting = self.casting !== null
@@ -316,7 +330,7 @@ export const profileController =
                 if (seen && seen.startTick !== planFor) {
                     planFor = seen.startTick
                     planReaction = NONE
-                    if (anyCast || cs.targets.includes(seen.spellId)) {
+                    if (anyCast || isTarget(seen.spellId)) {
                         planReaction = sampleReaction()
                         planCompletesAt = seen.completesAt
                         decideAt = cs.timing === 'early' ? tick : Math.max(tick, seen.completesAt - lateWindow)

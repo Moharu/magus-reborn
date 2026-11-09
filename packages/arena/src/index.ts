@@ -31,6 +31,7 @@ export {
     type RotationEntry,
 } from './profile'
 export { countAfterRelease, EFFECT_SOURCES } from './effects'
+export { spellValues, type SpellValues } from './threat'
 export { profileController, profileEntrant } from './profile-controller'
 export { ProfileError } from './validate'
 export {

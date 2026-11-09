@@ -118,7 +118,10 @@ rotation is the loadout's Fire spells in slot order. A profile may leave out spe
     "lockoutWindow": { "rotation": ["SPELL_COMBUSTION", "SPELL_FIREBALL"], "edgeGreedSeconds": 0 },
     "counterspell": {
         "enabled": true,
-        "targets": ["SPELL_METEOR"], // enemy casts it interrupts
+        // #143: which enemy casts it interrupts, by their value as seen (below), not a fixed list
+        "minValue": 12, // HP a cast must be worth
+        "bestShare": 0.6, // and at least this share of the best value seen from this opponent (1: only the best)
+        "unseenValuePerSecond": 6, // a spell not yet seen to deal damage: its public base cast time x this
         "reaction": { "meanSeconds": 0.4, "spreadSeconds": 0.1 }, // uniform in mean ± spread (spread ≤ mean), per cast
         "timing": "early", // or "late"
         "lateWindowSeconds": 0, // late: decide once the cast is within this long of its release
@@ -180,6 +183,19 @@ for `patience.thresholdGiveUpSeconds` (outside the window), the first rotation e
 uses each general spell that is ready and whose rule holds (an instant used mid-cast cancels the cast, so rules that
 must not do that say `selfNotCasting`); (5) starts the cast from (3), after the general spells so Haste applies to it.
 It never assumes a side.
+
+**Counterspell targets (#143).** No fixed list: the profile learns what each opponent spell is worth from what a
+client shows (`spellValues`, `src/threat.ts`), so it works for any spell set, future elements included. A spell's value
+is the damage its casts have dealt to the player, per cast: the HP lost on the tick after the opponent released it
+(`enemy.log`), beyond the damage over time already running; the HP lost when one of its debuffs runs out at its
+`expiresAt` (a Living Bomb's explosion; a cleansed debuff gives nothing); and each tick's running damage over time,
+shared by the opponent's debuffs on the buff bar. A debuff's spell is the opponent release on its `startingTick`.
+Until a spell has been seen to deal damage, its value is its public base cast time times
+`counterspell.unseenValuePerSecond`. A visible enemy cast is a target when its spell's value is at least
+`counterspell.minValue` and at least `counterspell.bestShare` times the highest value among the spells the opponent
+has been seen casting. It never reads the opponent's loadout, cooldowns or effect internals. The archetypes: aggressive
+counters big threats early (12 HP, 60% of the best), patient-counter holds out for the best target late (10 HP, 100%),
+bait 12 HP and 75%, defensive anything worth 6 HP early (30%). The give-up timer still makes any cast a target.
 
 **Counterspell model.** For each targeted enemy cast it sees, the player samples a reaction time and waits for its
 decision tick: `early`, the first tick the cast is visible; `late`, the first tick the cast is within
@@ -455,27 +471,28 @@ gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouch
   least one value always changes). Every random choice comes from that stream, so the same `S` gives the same run.
 - **What may change.** Only the tunable parameters declared in `src/profile-params.ts`, each with bounds that lie inside
   what the profile loader accepts; out-of-bounds values are clamped (and `spreadSeconds` kept at most `meanSeconds`). The
-  profile's structure (rotation and window orders, their conditions, Counterspell targets, which general spells it
+  profile's structure (rotation and window orders, their conditions, which general spells it
   uses) never changes, and neither does `counterspell.enabled`: everyone has Counterspell. A fake cast and the pause
   after it last at least one standard reaction time (0.25 s, the reaction mean's minimum too).
   Crossover takes condition values from the second parent only if both have the same structure.
 
-    | Parameter                                                                                  | Bounds                   |
-    | ------------------------------------------------------------------------------------------ | ------------------------ |
-    | `fakeCast.enabled`                                                                         | `true` / `false`         |
-    | `counterspell.timing`                                                                      | `early` / `late`         |
-    | `counterspell.reaction.meanSeconds`                                                        | 0.25 to 1.5 s            |
-    | `counterspell.reaction.spreadSeconds`                                                      | 0 to 0.5 s, <= mean      |
-    | `counterspell.lateWindowSeconds`                                                           | 0 to 3 s                 |
-    | `fakeCast.cancelAfterSeconds` / `pauseAfterSeconds` / `minGapSeconds`                      | 0.25-2 / 0.25-2 / 0-60 s |
-    | `fakeCast.maxPerMatch`                                                                     | 0 to 50                  |
-    | `fakeCast.realBaitShare`                                                                   | 0 to 1                   |
-    | `lockoutWindow.edgeGreedSeconds` (#126)                                                    | 0 to 1.5 s               |
-    | `counterspell.giveUpSeconds` (#136, when set)                                              | 1 to 30 s                |
-    | `patience.thresholdGiveUpSeconds` / `commitGiveUpSeconds` (#136, when set)                 | 0.25-10 / 0.25-15 s      |
-    | `releaseHold.giveUpSeconds` (#143, when the profile has `releaseHold`)                     | 0 to 3 s                 |
-    | every condition's `hp` / `count` / `seconds` (rotation, window, fake cast, hold, generals) | 0-100 / 0-20 / 0-3 s     |
-    | every `selfCastsAtLeast`'s `withinSeconds` (#136), `anyOf` lists included                  | 0 to 15 s                |
+    | Parameter                                                                                  | Bounds                    |
+    | ------------------------------------------------------------------------------------------ | ------------------------- |
+    | `fakeCast.enabled`                                                                         | `true` / `false`          |
+    | `counterspell.timing`                                                                      | `early` / `late`          |
+    | `counterspell.reaction.meanSeconds`                                                        | 0.25 to 1.5 s             |
+    | `counterspell.reaction.spreadSeconds`                                                      | 0 to 0.5 s, <= mean       |
+    | `counterspell.lateWindowSeconds`                                                           | 0 to 3 s                  |
+    | `counterspell.minValue` / `bestShare` / `unseenValuePerSecond` (#143)                      | 0-40 HP / 0-1 / 0-20 HP/s |
+    | `fakeCast.cancelAfterSeconds` / `pauseAfterSeconds` / `minGapSeconds`                      | 0.25-2 / 0.25-2 / 0-60 s  |
+    | `fakeCast.maxPerMatch`                                                                     | 0 to 50                   |
+    | `fakeCast.realBaitShare`                                                                   | 0 to 1                    |
+    | `lockoutWindow.edgeGreedSeconds` (#126)                                                    | 0 to 1.5 s                |
+    | `counterspell.giveUpSeconds` (#136, when set)                                              | 1 to 30 s                 |
+    | `patience.thresholdGiveUpSeconds` / `commitGiveUpSeconds` (#136, when set)                 | 0.25-10 / 0.25-15 s       |
+    | `releaseHold.giveUpSeconds` (#143, when the profile has `releaseHold`)                     | 0 to 3 s                  |
+    | every condition's `hp` / `count` / `seconds` (rotation, window, fake cast, hold, generals) | 0-100 / 0-20 / 0-3 s      |
+    | every `selfCastsAtLeast`'s `withinSeconds` (#136), `anyOf` lists included                  | 0 to 15 s                 |
 
 - **Overfitting guard.** The final best profile is re-scored on a fresh seed set (a tournament seed derived from `S`
   whose match seeds share none with the selection set). Both win rates are printed; a large gap means the search fitted

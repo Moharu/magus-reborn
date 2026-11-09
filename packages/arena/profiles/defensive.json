@@ -10,7 +10,7 @@
     ],
     "profile": {
         "name": "defensive",
-        "intent": "Survive first: damage over time (Living Bomb kept up, 3 Ignites, Combustion on them) from short casts, Meteor only when nothing else is held or a window has room, and an early Counterspell on any long cast. Generals: Temporal Shield to rewind an enemy burst, its own Living Bomb's explosion or a 4-Ignite build-up; Magic Eater while its own Ignites or Living Bomb tick on the enemy; Blur as an enemy Living Bomb lands, or an Ignite between casts or on 2+ Ignites; Haste on its Combustion or Living Bomb, its longest cast, or a window.",
+        "intent": "Survive first: damage over time (Living Bomb kept up, 3 Ignites, Combustion on them) from short casts, Meteor only when nothing else is held or a window has room, and an early Counterspell on any cast seen worth 6+ HP. Generals: Temporal Shield to rewind an enemy burst, its own Living Bomb's explosion or a 4-Ignite build-up; Magic Eater while its own Ignites or Living Bomb tick on the enemy; Blur as an enemy Living Bomb lands, or an Ignite between casts or on 2+ Ignites; Haste on its Combustion or Living Bomb, its longest cast, or a window.",
         "rotation": [
             {
                 "spell": "SPELL_LIVING_BOMB",
@@ -96,7 +96,9 @@
         },
         "counterspell": {
             "enabled": true,
-            "targets": ["SPELL_METEOR", "SPELL_COMBUSTION", "SPELL_LIVING_BOMB", "SPELL_IGNITE"],
+            "minValue": 6,
+            "bestShare": 0.3,
+            "unseenValuePerSecond": 6,
             "reaction": {
                 "meanSeconds": 0.5,
                 "spreadSeconds": 0.2

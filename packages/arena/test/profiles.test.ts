@@ -212,7 +212,7 @@ describe('profile loader', () => {
         rejects(raw => (raw.counterspell.reaction.spreadSeconds = 0.5), 'counterspell.reaction.spreadSeconds')
         rejects(raw => (raw.counterspell.lateWindowSeconds = Number.NaN), 'counterspell.lateWindowSeconds')
         rejects(raw => ((raw.counterspell as { timing: string }).timing = 'whenever'), 'counterspell.timing')
-        rejects(raw => (raw.counterspell.targets = ['SPELL_HASTE']), 'counterspell.targets[0]')
+        rejects(raw => (raw.counterspell.bestShare = 2), 'counterspell.bestShare')
         rejects(raw => (raw.fakeCast.cancelAfterSeconds = 0.01), 'fakeCast.cancelAfterSeconds')
         rejects(raw => (raw.fakeCast.maxPerMatch = 1.5), 'fakeCast.maxPerMatch')
         rejects(raw => ((raw.fakeCast as { enabled: unknown }).enabled = 'yes'), 'fakeCast.enabled')

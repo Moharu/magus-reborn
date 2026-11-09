@@ -4,7 +4,7 @@ import type { Rng } from './prng'
 /**
  * The tunable parameters of a behaviour profile (#102) and their bounds, for the self-tuner (#104). Only these values
  * are ever changed by mutation or crossover: a profile's structure (its rotation and window orders, the conditions it
- * checks, its Counterspell targets and `enabled`, which general spells it uses) stays as written. Every bound lies inside the range the profile
+ * checks, its Counterspell's `enabled`, which general spells it uses) stays as written. Every bound lies inside the range the profile
  * loader accepts, so a profile clamped to these bounds always loads.
  */
 
@@ -46,6 +46,10 @@ export const PROFILE_PARAMETERS: Readonly<Record<string, Parameter>> = {
     'counterspell.reaction.spreadSeconds': num(0, 0.5, 0.01, 0.05),
     'counterspell.timing': { kind: 'choice', options: ['early', 'late'] },
     'counterspell.lateWindowSeconds': num(0, 3, 0.01, 0.2),
+    // which casts are worth a Counterspell (#143), by their value as seen
+    'counterspell.minValue': num(0, 40, 0.1, 3),
+    'counterspell.bestShare': num(0, 1, 0.01, 0.1),
+    'counterspell.unseenValuePerSecond': num(0, 20, 0.1, 1),
     'fakeCast.enabled': { kind: 'choice', options: [true, false] },
     'fakeCast.cancelAfterSeconds': num(REACTION_MIN_SECONDS, 2, 0.01, 0.1),
     'fakeCast.pauseAfterSeconds': num(REACTION_MIN_SECONDS, 2, 0.01, 0.1),
