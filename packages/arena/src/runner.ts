@@ -17,6 +17,7 @@ import type {
     Action,
     Controller,
     Decision,
+    EnemyLogEntry,
     Entrant,
     MatchEndReason,
     MatchEvent,
@@ -54,7 +55,7 @@ interface ViewState {
             effects: EffectSlot[]
             spells: SpellSlot[]
         }
-        enemy: { hp: number; casting: Cast | null; lockedUntil: number; effects: EffectSlot[] }
+        enemy: { hp: number; casting: Cast | null; lockedUntil: number; effects: EffectSlot[]; log: EnemyLogEntry[] }
     }
     /** Reused cast objects, linked from the view only while that player is casting. */
     ownCast: OwnCast
@@ -101,7 +102,7 @@ const createView = (loadout: readonly SpellId[]): ViewState => ({
             effects: [],
             spells: loadout.map(id => ({ id, castTime: 0, cooldownRemaining: 0, lockRemaining: 0, ready: false })),
         },
-        enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [] },
+        enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [], log: [] },
     },
     ownCast: emptyCast(),
     enemyCast: emptyEnemyCast(),
@@ -139,7 +140,8 @@ const readCast = (player: PlayerState, into: Cast) => {
 
 /**
  * Fills `view` with what `self` may see. Of the enemy it reads only what a client shows (the server's opponent
- * redaction): HP, the spell being cast, the lock and the buff bar. Never the loadout, cooldowns or GCD.
+ * redaction): HP, the spell being cast, the lock and the buff bar (its spell log is `readEnemyLogs`'). Never the
+ * loadout, cooldowns or GCD.
  */
 const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: number) => {
     const { view, ownCast, enemyCast } = state
@@ -167,6 +169,38 @@ const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: 
     view.enemy.lockedUntil = enemy.lockedUntil
     readEffects(enemy.effects, view.enemy.effects, state.enemyEffects)
     view.enemy.casting = readCast(enemy, enemyCast) ? enemyCast : null
+}
+
+/**
+ * Reads the engine log the server streams to both clients (#126) into each player's `enemy.log`, from entry `from` on,
+ * and returns where it stopped. An entry goes to the view of the player it is not about: the caster's opponent, or for
+ * INTERRUPTED the interrupter (the interrupted player's opponent). It keeps only what the client's spell log shows,
+ * the type, the tick and the spell id, never the loadout slot. A STOP_CAST names the cast it stopped, the one its
+ * caster last started, as the client does. `lastStarted` holds each player's latest START_CAST spell.
+ */
+const readEnemyLogs = (
+    entries: readonly LogEntry[],
+    from: number,
+    views: Record<PlayerKey, ViewState>,
+    lastStarted: Record<PlayerKey, SpellId | undefined>,
+) => {
+    for (let i = from; i < entries.length; i++) {
+        const entry = entries[i]
+        const player = entry.type === 'INTERRUPTED' ? entry.player : entry.caster
+        let spellId: SpellId | undefined
+        if (entry.type === 'STOP_CAST') spellId = lastStarted[player]
+        else {
+            spellId = entry.spellId
+            if (entry.type === 'START_CAST') lastStarted[player] = spellId
+        }
+        if (spellId === undefined) continue
+        views[player === 'player1' ? 'player2' : 'player1'].view.enemy.log.push({
+            tick: entry.tick,
+            type: entry.type,
+            spellId,
+        })
+    }
+    return entries.length
 }
 
 const emptyStats = (): SideStats => ({
@@ -294,8 +328,14 @@ export const runMatch = (options: MatchOptions): MatchResult => {
     let rejectedB = 0
     const state = battle.state
 
+    const views: Record<PlayerKey, ViewState> = { player1: viewA, player2: viewB }
+    const lastStarted: Record<PlayerKey, SpellId | undefined> = { player1: undefined, player2: undefined }
+    let logRead = 0
+
     let timeout = false
     while (!battle.finished) {
+        // what the clients' spell logs have received by now: every entry logged on earlier ticks
+        logRead = readEnemyLogs(state.log, logRead, views, lastStarted)
         refresh(viewA, state.player1, state.player2, state.gameTick)
         refresh(viewB, state.player2, state.player1, state.gameTick)
         const decisionA = decideA(viewA.view)

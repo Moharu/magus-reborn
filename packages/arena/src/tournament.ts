@@ -133,7 +133,7 @@ export const adaptProfile = (profile: Profile, loadout: readonly SpellId[]): Pro
     const lockoutWindow =
         windowRotation.length === profile.lockoutWindow.rotation.length
             ? profile.lockoutWindow
-            : { rotation: windowRotation.length > 0 ? windowRotation : rotation }
+            : { ...profile.lockoutWindow, rotation: windowRotation.length > 0 ? windowRotation : rotation }
     let fakeCast = profile.fakeCast
     if (fakeCast.enabled && !loadout.includes(fakeCast.spell)) {
         let longest: SpellId | undefined

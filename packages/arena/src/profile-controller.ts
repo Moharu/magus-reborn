@@ -1,14 +1,14 @@
 import { FIXED_SPELL, secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
 import { allHold, type Condition, type ConditionInput } from './conditions'
 import { start, stop } from './controllers'
-import { checkLoadout, GENERAL_SPELLS, type GeneralSpell, type Profile } from './profile'
+import { checkLoadout, EDGE_GREED_MAX_SECONDS, GENERAL_SPELLS, type GeneralSpell, type Profile } from './profile'
 import type { Action, ArenaView, ControllerFactory, Decision, Entrant } from './types'
 
 const NONE = -1
 
 /**
  * Counterspell's cooldown in ticks, from the public spell data a client shows (not from the opponent's state, which the
- * view never has). With the tick an enemy Counterspell was seen landing, it gives when that Counterspell is ready again.
+ * view never has). With the tick an enemy Counterspell was seen used, it gives when that Counterspell is ready again.
  */
 const COUNTER_COOLDOWN = secondsToTicks(SPELLS[FIXED_SPELL].cooldownSeconds ?? 0)
 
@@ -19,9 +19,9 @@ const COUNTER_COOLDOWN = secondsToTicks(SPELLS[FIXED_SPELL].cooldownSeconds ?? 0
  *   2. Counterspell: land a committed interrupt (see below);
  *   3. the next cast, if it has none in progress, isn't pausing after a fake and didn't press Counterspell this tick
  *      (it waits one tick to see on the view whether the lock landed): in the free-cast window (below), the first
- *      `lockoutWindow.rotation` entry that is ready, whose `when` holds and that fits the window, or none; else a bait
- *      when `fakeCast` allows one (a fake, or a real low-priority cast, see `realBaitShare`), else the first rotation
- *      entry whose spell is ready and whose `when` holds;
+ *      `lockoutWindow.rotation` entry that is ready, whose `when` holds and that fits the window (or its edge-greed
+ *      bound), or none; else a bait when `fakeCast` allows one (a fake, or a real low-priority cast, see
+ *      `realBaitShare`), else the first rotation entry whose spell is ready and whose `when` holds;
  *   4. general spells, in loadout order: each one that is ready and whose rule holds (`nextCastIs` sees step 3);
  *   5. starts the cast chosen in step 3, after the general spells, so Haste applies to it.
  * A general spell used while a cast is in progress cancels that cast, like any instant: rules that must not do that
@@ -35,11 +35,13 @@ const COUNTER_COOLDOWN = secondsToTicks(SPELLS[FIXED_SPELL].cooldownSeconds ?? 0
  * wastes the Counterspell; one cancelled before the commit is seen in time and not interrupted.
  *
  * Free-cast window (#123), from the view only: the enemy can't Counterspell before tick `safeUntil`, the later of
- * `enemy.lockedUntil` (our Counterspell landed) and the tick its own Counterspell is ready again, known when it was seen
- * landing on us (the `DEBUFF_COUNTERSPELL` on our buff bar starts on that tick) plus Counterspell's public cooldown. A
- * Counterspell that hit an empty cast bar leaves nothing on the view, so it is not known: the enemy's is then taken as
- * ready. A cast fits when its release tick is before `safeUntil`: on tick `safeUntil` the enemy may act first (as
- * player1) and interrupt it. The release tick allows for Haste running out first (see `releaseTick`).
+ * `enemy.lockedUntil` (our Counterspell landed) and the tick its own Counterspell is ready again: the latest tick it was
+ * seen used plus Counterspell's public cooldown. It is seen used in the enemy's spell log (#126), whether it interrupted
+ * us or hit an empty cast bar (a whiff, as after a fake cast), and when it landed, also by the `DEBUFF_COUNTERSPELL` on
+ * our buff bar, which starts on that tick. Never seen, it is taken as ready. A cast fits when its release tick is
+ * before `safeUntil`: on tick `safeUntil` the enemy may act first (as player1) and interrupt it. The release tick
+ * allows for Haste running out first (see `releaseTick`). With no entry fitting and `lockoutWindow.edgeGreedSeconds`
+ * above 0 (#126), the entries are tried again against `safeUntil` plus that much.
  *
  * Nothing here depends on the side: player1 acting first within a tick is the runner's, and tournaments swap sides.
  */
@@ -50,6 +52,11 @@ export const profileController =
         const slotOf = (id: SpellId) => loadout.indexOf(id)
         const rotation = profile.rotation.map(entry => ({ ...entry, slot: slotOf(entry.spell) }))
         const windowRotation = profile.lockoutWindow.rotation.map(entry => ({ ...entry, slot: slotOf(entry.spell) }))
+        // edge greed (#126): how far past `safeUntil` a window cast may release when none fits before it; clamped
+        const greedSeconds = profile.lockoutWindow.edgeGreedSeconds ?? 0
+        const edgeGreed = Number.isFinite(greedSeconds)
+            ? secondsToTicks(Math.min(EDGE_GREED_MAX_SECONDS, Math.max(0, greedSeconds)))
+            : 0
         // each slot's cast time without Haste, read from the view whenever no Haste is on (always so on tick 0); until
         // then unknown, so a cast whose Haste may run out never fits the window
         const baseCast = loadout.map(() => Infinity)
@@ -87,8 +94,10 @@ export const profileController =
         let fakeStart = NONE
         let lastFake = -Infinity
         let fakes = 0
-        // the latest tick an enemy Counterspell was seen landing on this player
+        // the latest tick an enemy Counterspell was seen used (landed on this player or whiffed), and how much of the
+        // enemy's spell log has been read
         let enemyCounterAt = -Infinity
+        let logRead = 0
         // no cast starts before this tick: the pause after a fake cast's cancel
         let pauseUntil = NONE
 
@@ -113,6 +122,14 @@ export const profileController =
             const unhasted = hasteEnds !== NONE && (released || hasteEnds <= tick + castTime)
             return tick + (unhasted ? baseCast[slot] : castTime)
         }
+        /** The first window entry that is ready, whose `when` holds and that releases before `bound`, or NONE. */
+        const windowCast = (self: ArenaView['self'], tick: number, bound: number) => {
+            for (const entry of windowRotation) {
+                if (self.spells[entry.slot].ready && holds(entry.when) && releaseTick(self, entry.slot, tick) < bound)
+                    return entry.slot
+            }
+            return NONE
+        }
 
         return (view): Decision => {
             const { tick, self, enemy } = view
@@ -129,6 +146,12 @@ export const profileController =
                 else if (effect.id === 'BUFF_HASTE') hasteEnds = effect.expiresAt
             }
             if (hasteEnds === NONE) for (let i = 0; i < baseCast.length; i++) baseCast[i] = self.spells[i].castTime
+            // what the enemy's spell log shows (#126): every Counterspell it used, a whiff included
+            for (; logRead < enemy.log.length; logRead++) {
+                const entry = enemy.log[logRead]
+                if (entry.type === 'SPELL_RELEASE' && entry.spellId === FIXED_SPELL && entry.tick > enemyCounterAt)
+                    enemyCounterAt = entry.tick
+            }
             // the enemy can't Counterspell before this tick: its lock, or its Counterspell's cooldown
             const safeUntil = Math.max(enemy.lockedUntil, enemyCounterAt + COUNTER_COOLDOWN)
             released = false
@@ -202,16 +225,9 @@ export const profileController =
             if (!casting && tick >= pauseUntil && !countered) {
                 if (tick < safeUntil) {
                     // the free-cast window: nothing to bait, and only casts released before the enemy can counter
-                    for (const entry of windowRotation) {
-                        if (
-                            self.spells[entry.slot].ready &&
-                            holds(entry.when) &&
-                            releaseTick(self, entry.slot, tick) < safeUntil
-                        ) {
-                            next = entry.slot
-                            break
-                        }
-                    }
+                    next = windowCast(self, tick, safeUntil)
+                    // edge greed (#126): with nothing safe, a cast that releases up to `edgeGreed` ticks later
+                    if (next === NONE && edgeGreed > 0) next = windowCast(self, tick, safeUntil + edgeGreed)
                 } else if (
                     fakeSlot !== NONE &&
                     fakes < fake.maxPerMatch &&

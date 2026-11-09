@@ -5,6 +5,7 @@ import {
     clampProfile,
     clampValue,
     CONDITION_PARAMETERS,
+    EDGE_GREED_MAX_SECONDS,
     crossoverProfiles,
     formatTuning,
     getAt,
@@ -194,6 +195,34 @@ describe('tuning bounds (#123)', () => {
         for (let i = 0; i < 60; i++) seen.add(mutateProfile(bait.profile, new Rng(i), 0.9).fakeCast.realBaitShare)
         expect(seen.size).toBeGreaterThan(3)
         for (const share of seen) expect(share >= 0 && share <= 1).toBe(true)
+    })
+})
+
+describe('edge greed (#126)', () => {
+    const GREED = 'lockoutWindow.edgeGreedSeconds'
+
+    it('is tunable in [0, 1.5] s, the range the loader accepts, and clamped to it', () => {
+        expect(PROFILE_PARAMETERS[GREED]).toMatchObject({ kind: 'number', min: 0, max: EDGE_GREED_MAX_SECONDS })
+        expect(EDGE_GREED_MAX_SECONDS).toBe(1.5)
+        for (const profile of archetypes) {
+            expect(parameterSlots(profile).map(s => s.path)).toContain(GREED)
+            // the shipped archetypes keep the #123 window: no greed
+            expect(profile.lockoutWindow.edgeGreedSeconds).toBe(0)
+        }
+        expect(clampProfile(withValue(aggressive.profile, GREED, 4)).lockoutWindow.edgeGreedSeconds).toBe(1.5)
+        expect(clampProfile(withValue(aggressive.profile, GREED, -1)).lockoutWindow.edgeGreedSeconds).toBe(0)
+        expect(clampValue(PROFILE_PARAMETERS[GREED], 0.704)).toBe(0.7)
+    })
+
+    it('mutation explores it within bounds, and the tuned profile loads', () => {
+        const seen = new Set<number>()
+        for (let i = 0; i < 60; i++) {
+            const mutant = mutateProfile(bait.profile, new Rng(i), 0.9)
+            seen.add(mutant.lockoutWindow.edgeGreedSeconds!)
+            expect(loadProfile(copy(mutant), bait.loadout)).toEqual(mutant)
+        }
+        expect(seen.size).toBeGreaterThan(3)
+        for (const greed of seen) expect(greed >= 0 && greed <= EDGE_GREED_MAX_SECONDS).toBe(true)
     })
 })
 

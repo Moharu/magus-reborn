@@ -56,8 +56,20 @@ export interface SelfView {
 }
 
 /**
+ * One entry of the opponent's spell log (#126), as the client's spell log shows it: what the opponent started,
+ * stopped, released or had cancelled, and its casts we interrupted. Only the spell id and the tick, the same as the
+ * engine log the server streams to both clients; never a loadout slot.
+ */
+export interface EnemyLogEntry {
+    readonly tick: number
+    readonly type: MatchEvent['type']
+    /** The spell started, stopped (the cast in progress), released, cancelled or interrupted. */
+    readonly spellId: SpellId
+}
+
+/**
  * What a player sees of their opponent, as a real client shows it: HP, the spell being cast (if any), a Counterspell
- * lock, and their buffs and debuffs. Never the loadout, cooldowns, GCD or any effect's internal fields.
+ * lock, their buffs and debuffs, and their spell log. Never the loadout, cooldowns, GCD or any effect's internal fields.
  */
 export interface EnemyView {
     readonly hp: number
@@ -65,11 +77,17 @@ export interface EnemyView {
     readonly lockedUntil: number
     /** The opponent's buffs and debuffs (for example the Ignites on them, Haste, Blur, Temporal Shield). */
     readonly effects: readonly EffectView[]
+    /**
+     * The opponent's spell log so far, oldest first (#126): every entry the engine logged for the opponent before
+     * this tick's decisions, instants included, so a Counterspell that hit an empty cast bar shows as its
+     * SPELL_RELEASE. The array only grows, and an entry never changes once added, so a controller may keep entries.
+     */
+    readonly log: readonly EnemyLogEntry[]
 }
 
 /**
  * Everything a controller sees on one tick. The runner reuses the same objects every tick (no per-tick allocation),
- * so a controller that wants to keep a value across ticks must copy it.
+ * so a controller that wants to keep a value across ticks must copy it (entries of `enemy.log` excepted).
  */
 export interface ArenaView {
     readonly tick: number

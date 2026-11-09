@@ -7,6 +7,7 @@ export { EXAMPLE_ENTRANTS } from './examples'
 export { conditionHolds, parseCondition, type Condition, type ConditionInput, type ConditionType } from './conditions'
 export {
     checkLoadout,
+    EDGE_GREED_MAX_SECONDS,
     GENERAL_SPELLS,
     loadProfile,
     parseProfile,

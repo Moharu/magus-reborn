@@ -38,7 +38,17 @@ export interface LockoutWindow {
      * none fitting, no cast starts until the window ends. Default: a copy of `rotation`.
      */
     readonly rotation: readonly RotationEntry[]
+    /**
+     * Edge greed (#126, pending an owner decision): when no entry fits, how far past the window's end, in seconds, a
+     * cast may still release, in [0, `EDGE_GREED_MAX_SECONDS`]. The entries are tried again in order against that
+     * later bound; the enemy may Counterspell such a cast. Default 0: none, the #123 rule as it was.
+     * `parseProfile` always sets it.
+     */
+    readonly edgeGreedSeconds?: number
 }
+
+/** The largest `lockoutWindow.edgeGreedSeconds` (#126). */
+export const EDGE_GREED_MAX_SECONDS = 1.5
 
 export interface CounterspellPolicy {
     readonly enabled: boolean
@@ -100,7 +110,7 @@ export type GeneralRule = 'never' | { readonly when: readonly Condition[] }
 const MAX_SECONDS = 10
 const MAX_TEXT = 200
 const PROFILE_KEYS = ['name', 'intent', 'rotation', 'lockoutWindow', 'counterspell', 'fakeCast', 'generals']
-const LOCKOUT_WINDOW_KEYS = ['rotation']
+const LOCKOUT_WINDOW_KEYS = ['rotation', 'edgeGreedSeconds']
 const COUNTERSPELL_KEYS = ['enabled', 'targets', 'reaction', 'timing', 'lateWindowSeconds']
 const FAKE_CAST_KEYS = [
     'enabled',
@@ -183,12 +193,19 @@ const parseFakeCast = (raw: unknown): FakeCast => {
     }
 }
 
-/** Absent: the window plays a copy of the rotation. */
+/** Absent: the window plays a copy of the rotation, with no edge greed. */
 const parseLockoutWindow = (raw: unknown, rotation: readonly RotationEntry[]): LockoutWindow => {
-    if (raw === undefined) return { rotation: rotation.map(entry => ({ spell: entry.spell, when: [...entry.when] })) }
+    if (raw === undefined)
+        return { rotation: rotation.map(entry => ({ spell: entry.spell, when: [...entry.when] })), edgeGreedSeconds: 0 }
     const value = record(raw, 'lockoutWindow', LOCKOUT_WINDOW_KEYS)
     if (!('rotation' in value)) fail('lockoutWindow.rotation', 'is required')
-    return { rotation: parseRotation(value.rotation, 'lockoutWindow.rotation') }
+    return {
+        rotation: parseRotation(value.rotation, 'lockoutWindow.rotation'),
+        edgeGreedSeconds:
+            value.edgeGreedSeconds === undefined
+                ? 0
+                : number(value.edgeGreedSeconds, 'lockoutWindow.edgeGreedSeconds', 0, EDGE_GREED_MAX_SECONDS),
+    }
 }
 
 const parseGenerals = (raw: unknown): Record<GeneralSpell, GeneralRule> => {
