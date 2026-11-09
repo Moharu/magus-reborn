@@ -239,7 +239,7 @@ it('Icy Touch needs Chilling and shows the engine GCD through its final tick', (
     const battle = new Battle({ name: 'a', spells }, { name: 'b', spells })
     const player = battle.state.player1
     const state = () => buttonState(player, player.spells[0], battle.state.gameTick)
-    expect(state()).toMatchObject({ fader: 1, missingChilling: true })
+    expect(state()).toMatchObject({ fader: 0, missingChilling: true })
     expect(battle.startCast('player1', 0)).toBe(false)
     player.chilling = 2
     expect(state()).toEqual(IDLE)
@@ -252,5 +252,25 @@ it('Icy Touch needs Chilling and shows the engine GCD through its final tick', (
     expect(state()).toEqual(IDLE)
     expect(battle.startCast('player1', 0)).toBe(true)
     advance(battle, GLOBAL_COOLDOWN)
-    expect(state()).toMatchObject({ fader: 1, missingChilling: true })
+    expect(state()).toMatchObject({ fader: 0, missingChilling: true })
+})
+
+it('keeps resource shortage independent of the personal cooldown and GCD sweeps', () => {
+    const battle = new Battle({ name: 'a', spells: ['SPELL_ICY_TOUCH'] }, { name: 'b', spells: DEFAULT_SPELLS })
+    const player = battle.state.player1
+    const spell = player.spells[0]
+    player.gcdUntil = GLOBAL_COOLDOWN
+    expect(buttonState(player, spell, GLOBAL_COOLDOWN / 2)).toMatchObject({
+        missingChilling: true,
+        fader: 0.5,
+        timer: 0,
+    })
+    player.gcdUntil = 0
+    spell.cooldown = GLOBAL_COOLDOWN * 2
+    spell.lastCast = 0
+    expect(buttonState(player, spell, GLOBAL_COOLDOWN)).toMatchObject({
+        missingChilling: true,
+        fader: 0.5,
+        timer: GLOBAL_COOLDOWN,
+    })
 })
