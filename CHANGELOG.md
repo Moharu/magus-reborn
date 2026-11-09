@@ -2,6 +2,65 @@
 
 All notable changes to Magus Reborn are listed here. Versions follow [semantic versioning](https://semver.org/). Each release is tagged `vX.Y.Z` on `dev` and then merged into `main`, which deploys it.
 
+## [0.3.0] - 2026-11-09
+
+The "Arena + UX" release. The battle screen moves to the Split Console layout and works on mobile landscape, and a new arena package runs AI-vs-AI matches to test balance. This release includes every pull request merged into `dev` since v0.2.0: [#110](https://github.com/Moharu/magus-reborn/pull/110) to [#132](https://github.com/Moharu/magus-reborn/pull/132).
+
+**Engine version:** `ENGINE_VERSION` changes from `reborn-0.2.0` to `reborn-0.3.0`. `BattleSnapshot` gained a `finished` field, which changes the protocol. Players with the game open on the old version are asked to refresh when they try to create or join a lobby. Between the server deploy and the client deploy, online play is briefly unavailable for everyone, because the two are on different versions.
+
+### Arena
+
+#### Added
+
+- **Headless match runner** for AI-vs-AI battles on the real engine. ([#110](https://github.com/Moharu/magus-reborn/pull/110))
+- **Behaviour profiles**, a Counterspell policy and fake-casting. ([#113](https://github.com/Moharu/magus-reborn/pull/113))
+- **Round-robin tournament** with win-rate scoring. ([#115](https://github.com/Moharu/magus-reborn/pull/115)) Entrants are the top N distinct Fire sets with K general pairs. ([#117](https://github.com/Moharu/magus-reborn/pull/117))
+- **Evolutionary tuner** for profile parameters. ([#120](https://github.com/Moharu/magus-reborn/pull/120))
+- **GitHub Actions workflow, `npm run arena` script, time budget and report format.** ([#131](https://github.com/Moharu/magus-reborn/pull/131))
+
+#### Changed
+
+- Profiles exploit the free-cast window after a Counterspell lockout, use sacrificial bait and tune within bounds. ([#125](https://github.com/Moharu/magus-reborn/pull/125))
+- The AI view includes the opponent's spell log, and profiles take edge greed in the lockout window. ([#129](https://github.com/Moharu/magus-reborn/pull/129))
+
+### Web and UX
+
+#### Added
+
+- **Split Console battle layout** on desktop. ([#111](https://github.com/Moharu/magus-reborn/pull/111))
+- **Floating spell log** with float-up entries, centred for Split Console. ([#114](https://github.com/Moharu/magus-reborn/pull/114), [#122](https://github.com/Moharu/magus-reborn/pull/122))
+- **Mobile landscape** battle layout. ([#118](https://github.com/Moharu/magus-reborn/pull/118))
+
+#### Changed
+
+- Setup and the private between-rounds swap follow Split Console, with the Ready final. ([#116](https://github.com/Moharu/magus-reborn/pull/116))
+- The training room works on mobile landscape. ([#122](https://github.com/Moharu/magus-reborn/pull/122))
+- Picker icons are square and touch devices hide keybind labels live. ([#127](https://github.com/Moharu/magus-reborn/pull/127))
+- On mobile, picker spell details sit in a fixed header slot. ([#130](https://github.com/Moharu/magus-reborn/pull/130))
+
+#### Fixed
+
+- Two input races left from the new layout: a release while paused and a same-tick manual replacement. ([#132](https://github.com/Moharu/magus-reborn/pull/132))
+
+### Engine and protocol
+
+#### Changed
+
+- `BattleSnapshot` has a `finished` field. ([#111](https://github.com/Moharu/magus-reborn/pull/111))
+- `ENGINE_VERSION` is `reborn-0.3.0`. No spell numbers change.
+- Arena dummy-DPS baseline `packages/arena/baselines/reborn-0.3.0.json` added for the new version (same numbers as 0.2.0).
+
+### Tooling
+
+#### Added
+
+- Optional Playwright browser checks (`npm run test:browser`), run by a non-required `browser` CI job that does not block `ci` or deploys.
+
+### Known issues
+
+- HUD HP rounding is still open ([#23](https://github.com/Moharu/magus-reborn/issues/23)).
+- [#133](https://github.com/Moharu/magus-reborn/issues/133) is a test-only follow-up with no user impact.
+
 ## [0.2.0] - 2026-11-08
 
 The "Loadouts" release. Your loadout is now seven spells: four Fire spells, Counterspell in its own fixed slot, and two general spells. Counterspell moves to the Space bar, general spells no longer use the global cooldown, and you can change your loadout between rounds. This release includes every pull request merged into `dev` since v0.1.0: [#79](https://github.com/Moharu/magus-reborn/pull/79) to [#98](https://github.com/Moharu/magus-reborn/pull/98).
