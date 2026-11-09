@@ -97,8 +97,14 @@ export const trainingScreen = (root: HTMLElement) => {
         view?.update(battle.snapshot(), newLog, events, true, logFrom, session)
     }
 
+    let picker: ReturnType<typeof spellPicker> | null = null
+    const updatePickerPresentation = () => {
+        picker?.setOverlayDetails(phoneLandscape(window.innerWidth, window.innerHeight))
+    }
+    window.addEventListener('resize', updatePickerPresentation)
+
     const openPicker = () => {
-        const picker = spellPicker(
+        picker = spellPicker(
             loadout,
             next => {
                 loadout = next
@@ -113,6 +119,7 @@ export const trainingScreen = (root: HTMLElement) => {
         )
         const before = loadout.join()
         modal.onclose = () => {
+            picker = null
             if (loadout.join() !== before) restart()
         }
         modal.showModal()
@@ -213,6 +220,7 @@ export const trainingScreen = (root: HTMLElement) => {
 
     return () => {
         disposed = true
+        window.removeEventListener('resize', updatePickerPresentation)
         cancelAnimationFrame(raf)
         view?.destroy()
     }

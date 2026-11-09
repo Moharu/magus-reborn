@@ -11,6 +11,7 @@ import {
     type PlayerView,
     type SpellId,
 } from '@magus/engine'
+import { NAME_MAX_LENGTH } from '@magus/engine/protocol'
 import { buttonState, type ButtonState } from './button-state'
 import {
     battleLayout,
@@ -110,7 +111,7 @@ export class PlayerHud extends Container {
 
     update(player: PlayerView, tick: number, dt: number) {
         const name =
-            (player.name.length > 20 ? player.name.slice(0, 19) + '…' : player.name) ||
+            (player.name.length > NAME_MAX_LENGTH ? player.name.slice(0, NAME_MAX_LENGTH - 1) + '…' : player.name) ||
             (this.seat === 'player1' ? 'Player 1' : 'Player 2')
         setText(this.nameText, this.me ? `${this.seat === this.me ? 'YOU' : 'OPPONENT'} · ${name}` : name)
         const infinite = player.hp >= INFINITE_HP

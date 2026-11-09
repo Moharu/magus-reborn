@@ -1266,7 +1266,8 @@ footer {
         z-index: 5;
         right: 0;
         top: 0;
-        bottom: 0;
+        /* mobileBattleLayout: 90px bar + 6px bottom gap; #app already applies safe-area padding. */
+        bottom: 96px;
         width: min(300px, 100%);
         background: #191426;
     }

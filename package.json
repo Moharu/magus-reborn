@@ -16,17 +16,19 @@
         "arena:tune": "npm run tune -w @magus/arena --",
         "build": "npm run build -w @magus/web",
         "deploy:server": "npm run deploy -w @magus/server",
-        "test": "vitest run",
+        "test": "vitest run && playwright test",
         "test:watch": "vitest",
         "typecheck": "npm run typecheck --workspaces --if-present",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "lint": "eslint ."
+        "lint": "eslint .",
+        "test:mobile": "playwright test"
     },
     "engines": {
         "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
     },
     "devDependencies": {
+        "@playwright/test": "^1.65.0",
         "eslint": "^10.14.0",
         "prettier": "^3.9.10",
         "typescript": "^7.0.2",

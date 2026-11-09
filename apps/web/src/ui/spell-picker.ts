@@ -55,6 +55,7 @@ const box = (x: number, y: number, w: number, hgt: number) =>
 
 export interface SpellPicker {
     el: HTMLElement
+    setOverlayDetails(value: boolean): void
     setLoadout(loadout: SpellId[]): void
     /** Makes the picker read-only. `reason` replaces the hint line. */
     setLocked(locked: boolean, reason?: string): void
@@ -352,6 +353,11 @@ export const spellPicker = (
     render()
     return {
         el,
+        setOverlayDetails(value: boolean) {
+            if (value === !!options.overlayDetails) return
+            options.overlayDetails = value
+            render()
+        },
         setLoadout(next) {
             if (next.join() === loadout.join()) return
             loadout = [...next]
