@@ -34,7 +34,7 @@ export { countAfterRelease, EFFECT_SOURCES } from './effects'
 export { CHILLING_MAX, chillingAfter, chillingGain, chillingSources, hasChillingSource } from './chilling'
 export { spellValues, type SpellValues } from './threat'
 export { baseHit, ownHits, type OwnHits } from './own-hits'
-export { profileController, profileEntrant } from './profile-controller'
+export { profileController, profileEntrant, reactionTicks } from './profile-controller'
 export { ProfileError } from './validate'
 export {
     ARCHETYPE_NAMES,
@@ -111,6 +111,7 @@ export {
     PROFILE_PARAMETERS,
     REACTION_MIN_SECONDS,
     shapeKey,
+    tunableSlots,
     type ChoiceParameter,
     type NumberParameter,
     type Parameter,

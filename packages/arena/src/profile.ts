@@ -70,7 +70,9 @@ export interface CounterspellPolicy {
     /**
      * Time from deciding to interrupt to the Counterspell landing, sampled once per enemy cast from the seeded stream:
      * uniform in [meanSeconds - spreadSeconds, meanSeconds + spreadSeconds], then rounded to ticks. `spreadSeconds` may
-     * not exceed `meanSeconds`, so no draw is negative and the mean is exact (no floor skews it).
+     * not exceed `meanSeconds`, so no draw is negative. Every single draw is floored at 0.25 s (`REACTION_MIN_SECONDS`,
+     * owner, #163), so a draw below it is raised to it and the mean of the draws is a little above `meanSeconds` when
+     * `meanSeconds - spreadSeconds` is under 0.25 s.
      */
     readonly reaction: { readonly meanSeconds: number; readonly spreadSeconds: number }
     /**

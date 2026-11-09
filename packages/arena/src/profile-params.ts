@@ -6,6 +6,8 @@ import {
     RELEASE_HOLD_MAX_SECONDS,
     type Profile,
 } from './profile'
+import type { SpellId } from '@magus/engine'
+import { buildRotation } from './adapt'
 import { CHILLING_MAX } from './chilling'
 import type { Rng } from './prng'
 
@@ -171,6 +173,41 @@ export const parameterSlots = (profile: Profile): ParameterSlot[] => {
     return slots
 }
 
+/**
+ * The rotation lists whose entries can show up in play on at least one of `loadouts` (#163): an entry that
+ * `adaptProfile` drops from every loadout (its spell is on none, or its `when` waits on a spell none has) is never
+ * played, so its condition values have no fitness signal there.
+ */
+const deadWhenPaths = (profile: Profile, loadouts: readonly (readonly SpellId[])[]) => {
+    const dead = new Set<string>()
+    const lists: [string, readonly Profile['rotation'][number][]][] = [
+        ['rotation', profile.rotation],
+        ['lockoutWindow.rotation', profile.lockoutWindow.rotation],
+    ]
+    for (const [name, entries] of lists)
+        entries.forEach((entry, i) => {
+            // a loadout with no entry left plays its own spells with no conditions, so it gives no signal either
+            const played = loadouts.some(loadout => {
+                const kept = buildRotation(entries, loadout)
+                return kept.length > 0 && kept.includes(entry)
+            })
+            if (!played) dead.add(`${name}[${i}].when`)
+        })
+    return dead
+}
+
+/**
+ * The slots of `profile` worth changing when it is scored on `loadouts` (#163): `parameterSlots` without the condition
+ * values of rotation entries that are never played on any of them (a Frost entry in a Fire-only run, and the other way
+ * round). Mutating those would only add drift that the score can't see. Without `loadouts`, every slot.
+ */
+export const tunableSlots = (profile: Profile, loadouts?: readonly (readonly SpellId[])[]): ParameterSlot[] => {
+    const slots = parameterSlots(profile)
+    if (!loadouts) return slots
+    const dead = deadWhenPaths(profile, loadouts)
+    return slots.filter(({ path, condition }) => !(condition && [...dead].some(base => path.startsWith(`${base}[`))))
+}
+
 const decimals = (precision: number) => Math.max(0, -Math.floor(Math.log10(precision)))
 
 /** `value` rounded to the parameter's precision and clamped to its bounds; a choice not among the options becomes the first. */
@@ -227,11 +264,17 @@ export const behaviourKey = (profile: Profile) => {
  * Mutates each tunable value with probability `rate`: a number moves by up to its `step` either way (at least one
  * `precision`, so rounding never undoes the move), a choice switches to another option. Then `clampProfile`. If that
  * leaves the profile's behaviour unchanged, one more value is drawn and changed until it differs, so a mutant always
- * differs from its (clamped) parent. Every draw comes from `rng`.
+ * differs from its (clamped) parent. Every draw comes from `rng`. With `loadouts`, values with no fitness signal on them
+ * (`tunableSlots`) are left alone.
  */
-export const mutateProfile = (profile: Profile, rng: Rng, rate: number): Profile => {
+export const mutateProfile = (
+    profile: Profile,
+    rng: Rng,
+    rate: number,
+    loadouts?: readonly (readonly SpellId[])[],
+): Profile => {
     const out = copy(profile)
-    const slots = parameterSlots(out)
+    const slots = tunableSlots(out, loadouts)
     const change = ({ path, parameter }: ParameterSlot) => {
         const value = getAt(out, path)
         if (parameter.kind === 'choice') {
@@ -261,12 +304,18 @@ export const mutateProfile = (profile: Profile, rng: Rng, rate: number): Profile
 /**
  * Uniform crossover: `a`'s structure, each tunable value taken from `b` with probability 1/2. Condition fields are only
  * taken when both profiles have the same structure (`shapeKey`), since a path like `rotation[0].when[0].count` means
- * something different in another profile. Then `clampProfile`.
+ * something different in another profile. Then `clampProfile`. With `loadouts`, values with no fitness signal on them
+ * (`tunableSlots`) keep `a`'s.
  */
-export const crossoverProfiles = (a: Profile, b: Profile, rng: Rng): Profile => {
+export const crossoverProfiles = (
+    a: Profile,
+    b: Profile,
+    rng: Rng,
+    loadouts?: readonly (readonly SpellId[])[],
+): Profile => {
     const out = copy(a)
     const sameShape = shapeKey(a) === shapeKey(b)
-    for (const { path, condition } of parameterSlots(out)) {
+    for (const { path, condition } of tunableSlots(out, loadouts)) {
         const take = rng.next() < 0.5
         // a block `b` lacks (`releaseHold`, #143) has no value to give
         if (take && (sameShape || !condition) && getAt(b, path) !== undefined) setAt(out, path, getAt(b, path))

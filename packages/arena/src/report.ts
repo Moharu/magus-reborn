@@ -44,6 +44,23 @@ const pool = (entrants: readonly RankedEntrant[]) => ({
     games: entrants.reduce((sum, r) => sum + r.games, 0),
 })
 
+/**
+ * An element's pooled entrant totals as games counted once (#163). `pooled` sums over the element's entrants, so a
+ * game between two of them is in it twice (a win and a loss, or two draws); `cross` is the element's games against the
+ * other element, which are in it once. Each same-element game becomes one game: half a win when decided, a draw when
+ * drawn. A Fire-only run has no cross games and every game is a same-element one.
+ */
+const onceEach = (pooled: ReturnType<typeof pool>, cross = { wins: 0, draws: 0, games: 0 }) => {
+    const sameGames = (pooled.games - cross.games) / 2
+    const sameDraws = (pooled.draws - cross.draws) / 2
+    return {
+        entrants: pooled.entrants,
+        wins: pooled.wins - (sameGames - sameDraws) / 2,
+        draws: cross.draws + sameDraws,
+        games: cross.games + sameGames,
+    }
+}
+
 export const rateWithInterval = (wins: number, games: number) => {
     if (games === 0) return NO_GAMES
     const { low, high } = wilsonInterval(wins, games)
@@ -205,12 +222,12 @@ const elementsSection = (result: TournamentResult) => {
         '',
         '### All games',
         '',
-        "Each element's win rate over all its entrants' games, those between two entrants of the same element included.",
+        "Each element's win rate over all its entrants' games, those between two entrants of the same element included. Every game counts once: a game between two entrants of the same element is one game of that element, worth half a win when it was decided (one entrant won, the other lost) and a draw when it was drawn.",
         '',
         table(
             ['Element', 'Entrants', 'Wins', 'Draws', 'Games', 'Win rate', '95% CI'],
             present.map(element => {
-                const p = pool(ranking.filter(r => elementOf(r) === element))
+                const p = onceEach(pool(ranking.filter(r => elementOf(r) === element)), cross.get(element))
                 return [
                     elementName(element),
                     String(p.entrants),

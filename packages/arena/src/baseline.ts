@@ -29,10 +29,10 @@ export interface Baseline {
 const KEYS = ['version', 'element', 'generatedBy', 'loadouts']
 const LOADOUT_KEYS = ['rank', 'loadout', 'dps', 'dpsUnderPressure']
 
-/** The file name of a version's table for `element`, under `baselines/`. */
 /** The element of a table: its `element`, or Fire. */
 export const baselineElement = (baseline: Baseline): SpellElement => baseline.element ?? DEFAULT_ELEMENT
 
+/** The file name of a version's table for `element`, under `baselines/`. */
 export const baselineFile = (version: string, element: SpellElement = DEFAULT_ELEMENT) =>
     element === DEFAULT_ELEMENT ? `${version}.json` : `${version}-${element.toLowerCase()}.json`
 

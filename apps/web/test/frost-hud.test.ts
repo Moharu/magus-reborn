@@ -8,6 +8,7 @@ import {
     HEIGHT,
     resourceMeterSlot,
     RESOURCE_METER_PLACEMENT,
+    RESOURCE_METER_POSITION,
     mobileWorldTransform,
     mobileBattleLayout,
     SIDE_X,
@@ -80,7 +81,8 @@ it.each([
     hud.scale.set(scale)
     const segments = pips(hud)
     const internals = hud as unknown as { nameText: Text }
-    hud.fitResource(width, height)
+    // the alternate `below-cast` position; the default is above the wizard (#163)
+    hud.fitResource(width, height, 'below-cast')
     const cast = battleLayout(WIDTH, HEIGHT).left.cast
     expect(hud.resourceSlot.y).toBe(cast.y + cast.height + 10)
     expect(hud.resourceSlot.x + segments.width / 2).toBe(cast.x + cast.width / 2)
@@ -100,6 +102,33 @@ it.each([
         ...Array(FROST_NUMBERS.chillingMaxStacks - 2).fill(0x394b60),
     ])
     hud.destroy({ children: true })
+})
+
+it.each([
+    [960, 600],
+    [844, 390],
+    [568, 320],
+])('puts the resource meter above the wizard by default, pips at least 6 px, at %ix%i', (width, height) => {
+    expect(RESOURCE_METER_POSITION).toBe('above-wizard')
+    expect(RESOURCE_METER_PLACEMENT.position).toBe('above-wizard')
+    expect(resourceCombatTextOffset()).toBe(100)
+    const compact = height <= 500
+    const factor = compact ? Math.min(0.8, (width - 120) / 728) : 1
+    const world = compact ? mobileWorldTransform(width, height) : { x: 0, y: 0, scale: 1 }
+    for (const side of ['left', 'right'] as const) {
+        const hud = new PlayerHud(side)
+        const battle = new Battle({ name: 'a', spells }, { name: 'b', spells })
+        hud.update({ ...battle.state.player1, chilling: 1 }, 0, 1)
+        hud.scale.set(factor)
+        hud.x = side === 'right' ? width - WIDTH * factor : 0
+        hud.fitResource(width, height)
+        expect(resourceMeterSlot(side, width, height)).toEqual(resourceMeterSlot(side, width, height, 'above-wizard'))
+        expect(hud.resourceSlot.position.y).toBe(resourceMeterSlot(side, width, height, 'above-wizard').y)
+        const centre = hud.x + (hud.resourceSlot.x + (pips(hud).width * hud.resourceSlot.scale.x) / 2) * factor
+        expect(centre).toBeCloseTo(world.x + SIDE_X[side] * world.scale)
+        expect(pips(hud).height * hud.resourceSlot.scale.y * factor).toBeGreaterThanOrEqual(6)
+        hud.destroy({ children: true })
+    }
 })
 
 it('renders Frost Fever and Frost Bomb as negative effect icons with decreasing durations', () => {

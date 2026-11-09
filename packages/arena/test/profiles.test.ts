@@ -13,6 +13,8 @@ import {
     profileController,
     profileEntrant,
     ProfileError,
+    reactionTicks,
+    REACTION_MIN_SECONDS,
     Rng,
     runMatch,
     start,
@@ -335,7 +337,7 @@ describe('profile controller: Counterspell policy', () => {
                 return view.self.casting && view.tick >= view.self.casting.completesAt ? stop(METEOR) : null
             }
             const seen: ArenaView[] = []
-            const counter = counterer('late', 0, 1)
+            const counter = counterer('late', REACTION_MIN_SECONDS, 1)
             const result = runMatch({
                 seed: 1,
                 [side]: { ...counter, controller: recording(counter.controller, seen) },
@@ -344,8 +346,9 @@ describe('profile controller: Counterspell policy', () => {
             } as unknown as Parameters<typeof runMatch>[0])
             expect(seen[1199].enemy.casting?.completesAt).toBe(1226)
             expect(seen[1200].enemy.casting?.completesAt).toBe(1262)
-            // the 1 s (20-tick) window opens on 1262 - 20 = 1242, not on the stale 1206
-            expect(of(result.log, enemy, 'INTERRUPTED').map(e => e.tick)).toEqual([1242])
+            // the 1 s (20-tick) window opens on 1262 - 20 = 1242, not on the stale 1206 (1226 - 20), and the Counterspell
+            // lands one reaction later (0.25 s, 5 ticks, the floor of every draw)
+            expect(of(result.log, enemy, 'INTERRUPTED').map(e => e.tick)).toEqual([1247])
         })
     }
 
@@ -401,6 +404,47 @@ describe('profile controller: Counterspell policy', () => {
         expect(new Set(first).size).toBeGreaterThan(5)
         expect(offsets(1)).toEqual(first)
         expect(offsets(2)).not.toEqual(first)
+    })
+
+    it('floors every single reaction draw at 0.25 s, not only the mean (bait: 0.3 +- 0.1, #163)', () => {
+        const floor = secondsToTicks(REACTION_MIN_SECONDS)
+        expect(floor).toBe(5)
+        // through the controller: the tick it presses Counterspell, counted from the first tick the cast is visible
+        const COUNTER = slotOf(METEOR_LOADOUT, 'SPELL_COUNTERSPELL')
+        const { meanSeconds, spreadSeconds } = ARCHETYPES.bait.profile.counterspell.reaction
+        expect([meanSeconds, spreadSeconds]).toEqual([0.3, 0.1])
+        const loaded = profile(raw => {
+            raw.counterspell = { ...raw.counterspell, enabled: true, reaction: { meanSeconds, spreadSeconds } }
+        })
+        const found: number[] = []
+        for (const seed of [1, 2, 3, 4]) {
+            const decide = profileController(loaded)({ loadout: METEOR_LOADOUT, rng: new Rng(seed) })
+            for (let cast = 0; cast < 30; cast++) {
+                const startTick = cast * 40
+                for (let tick = startTick + 1; tick < startTick + 40; tick++) {
+                    const view = handView(METEOR_LOADOUT, tick, { startTick, completesAt: startTick + 72 })
+                    if (actionsOf(decide(view)).some(a => a.type === 'start' && a.slot === COUNTER)) {
+                        found.push(tick - (startTick + 1))
+                        break
+                    }
+                }
+            }
+        }
+        expect(found).toHaveLength(120)
+        expect(Math.min(...found)).toBe(floor)
+        // the draws still vary above the floor (0.3 +- 0.1 s is 4 to 8 ticks, the lowest raised to 5)
+        expect(Math.max(...found)).toBeGreaterThan(floor)
+        // and the sampler itself: 0.2 s draws are raised to 0.25 s, the stream is read the same way
+        const rng = new Rng(9)
+        const draws = Array.from({ length: 2000 }, () => reactionTicks(rng, meanSeconds, spreadSeconds))
+        expect(Math.min(...draws)).toBe(floor)
+        expect(Math.max(...draws)).toBeLessThanOrEqual(secondsToTicks(0.4))
+        const again = new Rng(9)
+        expect(draws).toEqual(Array.from({ length: 2000 }, () => reactionTicks(again, meanSeconds, spreadSeconds)))
+        // no spread: no draw (the stream is untouched) and the mean below the floor is raised to it
+        const untouched = new Rng(5)
+        expect(reactionTicks(untouched, 0.1, 0)).toBe(floor)
+        expect(untouched.next()).toBe(new Rng(5).next())
     })
 })
 
