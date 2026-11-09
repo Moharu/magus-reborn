@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { Battle, DEFAULT_SPELLS, secondsToTicks } from '@magus/engine'
 import { EventBoundary, FederatedPointerEvent } from 'pixi.js'
 import { GROUND_Y, mobileBattleLayout, mobileWorldTransform, phoneLandscape, WIDTH } from '../src/game/layout'
-import { keybindsVisible } from '../src/game/hotkeys'
 import { ActionBar } from '../src/game/hud'
 
 vi.mock('../src/game/textures', async () => {
@@ -40,11 +39,6 @@ describe('phone presentation', () => {
         expect(phoneLandscape(915, 412)).toBe(true)
         expect(phoneLandscape(1024, 768)).toBe(false)
         expect(phoneLandscape(600, 600)).toBe(false)
-    })
-
-    it('hides keys with a coarse primary pointer even when hover is available', () => {
-        expect(keybindsVisible(query => ({ matches: query === '(pointer: coarse)' }))).toBe(false)
-        expect(keybindsVisible(() => ({ matches: false }))).toBe(true)
     })
 
     it('retains touch owners across resizing and shows a local blocked reason', () => {

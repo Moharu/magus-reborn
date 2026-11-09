@@ -67,3 +67,61 @@ test('an open picker keeps descriptions and selection available across rotation'
     await expect(picker.locator('.details')).toBeVisible()
     await expect(picker.locator('.details')).toContainText('Afterburn')
 })
+
+for (const [width, height] of [
+    [640, 360],
+    [740, 360],
+    [844, 390],
+    [932, 430],
+]) {
+    test(`picker art and teaser text fit at ${width}x${height}`, async ({ page }) => {
+        await page.setViewportSize({ width, height })
+        await page.goto('/training')
+        await expect(page.locator('.stage canvas')).toBeVisible()
+        await page.getByRole('button', { name: 'Change spells', exact: true }).last().click()
+        const picker = page.locator('.training-picker')
+        const icons = picker.locator('.slot img')
+        await expect(icons).toHaveCount(7)
+        for (const icon of await icons.all()) {
+            await expect(icon).toBeVisible()
+            const art = await icon.evaluate((img: HTMLImageElement) => {
+                const style = getComputedStyle(img)
+                return { fit: style.objectFit, width: img.clientWidth, height: img.clientHeight }
+            })
+            // Square sources must retain a uniform scale within each rectangular slot.
+            expect(art.width).toBeGreaterThan(art.height)
+            expect(art.fit).toBe('contain')
+        }
+        for (const teaser of await picker.locator('.teaser').all()) {
+            await expect(teaser).toHaveAttribute('aria-label', /Locked · coming later/)
+            await expect(teaser).toHaveAttribute('title', /Locked · coming later/)
+            const lines = await teaser.evaluate(button => {
+                const range = document.createRange()
+                range.selectNodeContents(button.querySelector('.teaser-compact')!)
+                return range.getClientRects().length
+            })
+            expect(lines).toBeGreaterThan(0)
+            expect(lines).toBeLessThanOrEqual(2)
+        }
+        await expect(picker.locator('.slot .key').first()).toBeHidden()
+    })
+}
+
+test('picker labels switch live on the first touch even with fine-pointer media reports', async ({ page }) => {
+    await page.addInitScript(() => {
+        const original = window.matchMedia.bind(window)
+        window.matchMedia = query => {
+            if (!['(pointer: coarse)', '(any-pointer: coarse)', '(hover: none)'].includes(query)) return original(query)
+            return Object.assign(new EventTarget(), { matches: false, media: query }) as MediaQueryList
+        }
+    })
+    await page.goto('/training')
+    await expect(page.locator('.stage canvas')).toBeVisible()
+    await page.getByRole('button', { name: 'Change spells', exact: true }).last().click()
+    const key = page.locator('.training-picker .slot .key').first()
+    await expect(key).toBeVisible()
+    await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch' })))
+    await expect(key).toBeHidden()
+    await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'mouse' })))
+    await expect(key).toBeHidden()
+})
