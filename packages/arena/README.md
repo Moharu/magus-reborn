@@ -10,6 +10,7 @@ npm run arena:match -- --seed 1 --log    # the full match log, then the summary
 npm run arena:match -- --seed 1 --max-ticks 600
 npm run arena:match -- --seed 1 --a bait --b patient-counter   # two archetypes from profiles/
 npm run arena:tournament -- --top 8 --games 2 --seed 1          # round-robin, ranked by win rate (#103)
+npm run arena:tune -- --top 2 --general-pairs 1 --population 6 --generations 4 --seed 1 --out best.json   # self-tuning (#104)
 ```
 
 ## Rules the arena keeps
@@ -196,6 +197,75 @@ tie), or turned off if it has none. Everything else is kept.
 
 From code: `planTournament({ baseline, profiles, top, generalPairs, games, seed })`, then `runTournament(plan)`, or `runShard(plan, i, n)`
 and `mergeShards(shards)`. `profiles` are plain `Profile` objects, so a tuner (#104) can pass its own.
+
+### Self-tuning (#104)
+
+```sh
+npm run arena:tune -- [--generations G] [--population P] [--elite K] [--seed S] [--max-matches M] [--out FILE]
+                      [--top N] [--general-pairs K] [--games G] [--max-ticks T] [--from a,b] [--field a,b] [--baseline VERSION]
+```
+
+An evolutionary search over profile parameters across generations, keeping the strongest. It is for the arena only:
+gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouched.
+
+- **Population.** Generation 0 is the `--from` profiles (default every archetype), then mutants of them in turn, up to
+  `--population P` (default 8). `--generations G` (default 5) counts generation 0.
+- **Score.** Each profile is scored against a fixed **field** (`--field`, default every archetype) on the tournament's
+  loadouts (`--top`, `--general-pairs`, `--games`, `--max-ticks` as in `arena:tournament`). The score is the profile's row
+  of the #103 round-robin: the tournament of `[profile, ...field]`, restricted to the pairs where one of the profile's
+  entrants meets a field entrant, played with the tournament's own pairing, side swap and `deriveSeed(seed, pair, game)`.
+  That is `L * (L * F) * games` matches per profile for `L` loadouts and `F` field profiles (16 x 64 x 2 = 2048 with the
+  defaults, so start small). Win rate only, as in #103. The pairs and seeds are the same for every profile in every
+  generation, so a profile's score depends on nothing but the profile, and identical profiles are only played once.
+- **Next generation.** The best `--elite K` (default 2, `0 <= K < P`) pass unchanged, so with `K >= 1` the best score
+  never drops. Each other member `i` of generation `g` is bred from the ranking (ties keep population order) with its
+  own stream `Rng(breedSeed(S, g, i))`: a parent by tournament selection (the better of two uniform picks), with
+  probability 1/2 a uniform crossover with a second one, then a mutation of each parameter with probability 0.2 (at
+  least one value always changes). Every random choice comes from that stream, so the same `S` gives the same run.
+- **What may change.** Only the tunable parameters declared in `src/profile-params.ts`, each with bounds that lie inside
+  what the profile loader accepts; out-of-bounds values are clamped (and `spreadSeconds` kept at most `meanSeconds`). The
+  profile's structure (rotation order, its conditions, Counterspell targets, which general spells it uses) never changes.
+  Crossover takes condition values from the second parent only if both have the same structure.
+
+    | Parameter                                                                    | Bounds                |
+    | ---------------------------------------------------------------------------- | --------------------- |
+    | `counterspell.enabled`, `fakeCast.enabled`                                   | `true` / `false`      |
+    | `counterspell.timing`                                                        | `early` / `late`      |
+    | `counterspell.reaction.meanSeconds`                                          | 0.25 to 1.5 s         |
+    | `counterspell.reaction.spreadSeconds`                                        | 0 to 0.5 s, <= mean   |
+    | `counterspell.lateWindowSeconds`                                             | 0 to 3 s              |
+    | `fakeCast.cancelAfterSeconds` / `pauseAfterSeconds` / `minGapSeconds`        | 0.05-2 / 0-2 / 0-60 s |
+    | `fakeCast.maxPerMatch`                                                       | 0 to 50               |
+    | every condition's `hp` / `count` / `seconds` (rotation, fake cast, generals) | 0-100 / 0-20 / 0-3 s  |
+
+- **Overfitting guard.** The final best profile is re-scored on a fresh seed set (a tournament seed derived from `S`
+  whose match seeds share none with the selection set). Both win rates are printed; a large gap means the search fitted
+  the selection seeds rather than the matchups.
+- **Budget.** `--max-matches M` caps the matches played, the holdout re-score included. When the next profile would not
+  fit, the run stops, prints and writes the best profile found so far, and says the result is partial (`PARTIAL:` in the
+  output, `(partial run)` in the written profile's intent).
+- **Output.** One row per generation: the population's best, median and worst win rate, the best profile (and the
+  starting profile it descends from) and its win rate on each loadout (`L<rank>`, legend at the end). Then the best
+  profile's selection and holdout win rates, and the parameters it changed from its starting profile. `--out FILE` writes
+  the best profile as profile JSON, which `parseProfile` (and `loadProfile` against its starting archetype's loadout)
+  accepts, named `<origin>-tuned-s<S>` with both win rates in its `intent`.
+
+```
+gen   best  median  worst  best profile         L01    L04
+  0  56.3%   40.6%  25.0%  g0-4 (aggressive)  87.5%  25.0%
+  1  56.3%   43.8%  25.0%  g0-4 (aggressive)  87.5%  25.0%
+
+Best profile: g0-4 (from aggressive)
+  selection seeds: 56.3% (9/16 wins)
+  fresh seeds (holdout, not used for selection): 56.3% (9/16 wins)
+Changed parameters:
+  counterspell.reaction.meanSeconds: 0.35 -> 0.39
+  rotation[0].when[0].count: 4 -> 5
+```
+
+From code: `tune({ baseline, seeds, field, generations, population, elite, seed, maxMatches, ... })` returns the
+`TuningResult` (`generations`, the final `population`, `best` with its `holdout` score and `changes`, `matches`,
+`partial`); `formatTuning(result)` is the text above and `tunedProfile(result)` the profile `--out` writes.
 
 ### Tick order and the end of a match
 

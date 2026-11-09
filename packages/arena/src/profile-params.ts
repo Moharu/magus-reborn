@@ -1,0 +1,225 @@
+import { GENERAL_SPELLS, parseProfile, type Profile } from './profile'
+import type { Rng } from './prng'
+
+/**
+ * The tunable parameters of a behaviour profile (#102) and their bounds, for the self-tuner (#104). Only these values
+ * are ever changed by mutation or crossover: a profile's structure (its rotation order, the conditions it checks, its
+ * Counterspell targets, which general spells it uses) stays as written. Every bound lies inside the range the profile
+ * loader accepts, so a profile clamped to these bounds always loads.
+ */
+
+/** A number in [min, max], kept on a multiple of `precision` (1 for counts, 0.01 for seconds). */
+export interface NumberParameter {
+    readonly kind: 'number'
+    readonly min: number
+    readonly max: number
+    readonly precision: number
+    /** A mutation moves the value by a uniform amount in [-step, +step], then rounds and clamps it. */
+    readonly step: number
+}
+
+/** One of a fixed set of values. A mutation switches to another one. */
+export interface ChoiceParameter {
+    readonly kind: 'choice'
+    readonly options: readonly (string | boolean)[]
+}
+
+export type Parameter = NumberParameter | ChoiceParameter
+
+const num = (min: number, max: number, precision: number, step: number): NumberParameter => ({
+    kind: 'number',
+    min,
+    max,
+    precision,
+    step,
+})
+
+/** The profile's own parameters, by path. `counterspell.reaction.spreadSeconds` is also kept at most `meanSeconds`. */
+export const PROFILE_PARAMETERS: Readonly<Record<string, Parameter>> = {
+    'counterspell.enabled': { kind: 'choice', options: [true, false] },
+    'counterspell.reaction.meanSeconds': num(0.25, 1.5, 0.01, 0.1),
+    'counterspell.reaction.spreadSeconds': num(0, 0.5, 0.01, 0.05),
+    'counterspell.timing': { kind: 'choice', options: ['early', 'late'] },
+    'counterspell.lateWindowSeconds': num(0, 3, 0.01, 0.2),
+    'fakeCast.enabled': { kind: 'choice', options: [true, false] },
+    'fakeCast.cancelAfterSeconds': num(0.05, 2, 0.01, 0.1),
+    'fakeCast.pauseAfterSeconds': num(0, 2, 0.01, 0.1),
+    'fakeCast.minGapSeconds': num(0, 60, 0.01, 3),
+    'fakeCast.maxPerMatch': num(0, 50, 1, 3),
+}
+
+/** The numeric fields of a condition, wherever it appears (`rotation[i].when`, `fakeCast.when`, `generals.<id>.when`). */
+export const CONDITION_PARAMETERS: Readonly<Record<'hp' | 'count' | 'seconds', NumberParameter>> = {
+    hp: num(0, 100, 1, 10),
+    count: num(0, 20, 1, 1),
+    seconds: num(0, 3, 0.01, 0.1),
+}
+
+/** One tunable value of a given profile: its path (`rotation[0].when[0].count`) and its parameter. */
+export interface ParameterSlot {
+    readonly path: string
+    /** The key of the parameter in `PROFILE_PARAMETERS`, or the condition field name (`hp`, `count`, `seconds`). */
+    readonly key: string
+    readonly parameter: Parameter
+    /** True for a condition field: what it means depends on the profile's structure. */
+    readonly condition: boolean
+}
+
+type Segment = string | number
+
+const segments = (path: string): Segment[] =>
+    path
+        .split(/\.|(?=\[)/)
+        .map(part => (part.startsWith('[') ? Number(part.slice(1, -1)) : part))
+        .filter(part => part !== '')
+
+type Json = Record<string | number, unknown>
+
+/** The value at `path` in `root`. */
+export const getAt = (root: unknown, path: string): unknown =>
+    segments(path).reduce<unknown>((node, key) => (node as Json | undefined)?.[key], root)
+
+/** Sets the value at `path` in `root` (a mutable copy), which must exist. */
+const setAt = (root: unknown, path: string, value: unknown) => {
+    const keys = segments(path)
+    const parent = keys.slice(0, -1).reduce<unknown>((node, key) => (node as Json)[key], root) as Json
+    parent[keys[keys.length - 1]] = value
+}
+
+/** Every tunable value of `profile`, in a fixed order: the profile's own parameters, then condition fields. */
+export const parameterSlots = (profile: Profile): ParameterSlot[] => {
+    const slots: ParameterSlot[] = Object.entries(PROFILE_PARAMETERS).map(([path, parameter]) => ({
+        path,
+        key: path,
+        parameter,
+        condition: false,
+    }))
+    const lists: [string, readonly object[]][] = [
+        ...profile.rotation.map((entry, i): [string, readonly object[]] => [`rotation[${i}].when`, entry.when]),
+        ['fakeCast.when', profile.fakeCast.when],
+        ...GENERAL_SPELLS.flatMap((id): [string, readonly object[]][] => {
+            const rule = profile.generals[id]
+            return rule === 'never' ? [] : [[`generals.${id}.when`, rule.when]]
+        }),
+    ]
+    for (const [base, when] of lists)
+        when.forEach((condition, j) => {
+            for (const key of Object.keys(CONDITION_PARAMETERS) as (keyof typeof CONDITION_PARAMETERS)[])
+                if (key in condition)
+                    slots.push({
+                        path: `${base}[${j}].${key}`,
+                        key,
+                        parameter: CONDITION_PARAMETERS[key],
+                        condition: true,
+                    })
+        })
+    return slots
+}
+
+const decimals = (precision: number) => Math.max(0, -Math.floor(Math.log10(precision)))
+
+/** `value` rounded to the parameter's precision and clamped to its bounds; a choice not among the options becomes the first. */
+export const clampValue = (parameter: Parameter, value: unknown): unknown => {
+    if (parameter.kind === 'choice') return parameter.options.includes(value as string) ? value : parameter.options[0]
+    const raw = typeof value === 'number' && Number.isFinite(value) ? value : parameter.min
+    const rounded = Number(
+        (Math.round(raw / parameter.precision) * parameter.precision).toFixed(decimals(parameter.precision)),
+    )
+    return Math.min(parameter.max, Math.max(parameter.min, rounded))
+}
+
+const copy = (profile: Profile) => JSON.parse(JSON.stringify(profile)) as Profile
+
+/**
+ * `profile` with every tunable value rounded and clamped to its bounds, and the reaction spread at most its mean. The
+ * result is checked by `parseProfile`, so it always loads. Values already in bounds are kept as they are.
+ */
+export const clampProfile = (profile: Profile): Profile => {
+    const out = copy(profile)
+    for (const { path, parameter } of parameterSlots(out)) {
+        const value = getAt(out, path)
+        if (
+            parameter.kind === 'number' &&
+            typeof value === 'number' &&
+            value >= parameter.min &&
+            value <= parameter.max
+        )
+            continue
+        if (parameter.kind === 'choice' && parameter.options.includes(value as string)) continue
+        setAt(out, path, clampValue(parameter, value))
+    }
+    const reaction = out.counterspell.reaction as { meanSeconds: number; spreadSeconds: number }
+    if (reaction.spreadSeconds > reaction.meanSeconds) reaction.spreadSeconds = reaction.meanSeconds
+    return parseProfile(out)
+}
+
+/** The profile's structure without its tunable values (nor its name and intent): equal for two profiles that differ only in them. */
+export const shapeKey = (profile: Profile) => {
+    const out = copy(profile) as unknown as Record<string, unknown>
+    for (const { path } of parameterSlots(profile)) setAt(out, path, null)
+    delete out.name
+    delete out.intent
+    return JSON.stringify(out)
+}
+
+/** The tunable behaviour of a profile, without its name and intent: equal profiles play identically. */
+export const behaviourKey = (profile: Profile) => {
+    const { name: _name, intent: _intent, ...rest } = profile
+    return JSON.stringify(rest)
+}
+
+/**
+ * Mutates each tunable value with probability `rate`: a number moves by up to its `step` either way (at least one
+ * `precision`, so rounding never undoes the move), a choice switches to another option. Then `clampProfile`. If that
+ * leaves the profile's behaviour unchanged, one more value is drawn and changed until it differs, so a mutant always
+ * differs from its (clamped) parent. Every draw comes from `rng`.
+ */
+export const mutateProfile = (profile: Profile, rng: Rng, rate: number): Profile => {
+    const out = copy(profile)
+    const slots = parameterSlots(out)
+    const change = ({ path, parameter }: ParameterSlot) => {
+        const value = getAt(out, path)
+        if (parameter.kind === 'choice') {
+            const others = parameter.options.filter(option => option !== value)
+            setAt(out, path, others[rng.int(others.length)])
+            return
+        }
+        const old = value as number
+        const delta = (rng.next() * 2 - 1) * parameter.step
+        const sign = delta < 0 ? -1 : 1
+        let next = clampValue(parameter, old + delta)
+        // a move smaller than the precision, or into a bound the value is already on: one precision the other way
+        if (next === old) next = clampValue(parameter, old + sign * parameter.precision)
+        if (next === old) next = clampValue(parameter, old - sign * parameter.precision)
+        setAt(out, path, next)
+    }
+    for (const slot of slots) if (rng.next() < rate) change(slot)
+    const parent = behaviourKey(clampProfile(profile))
+    let result = clampProfile(out)
+    for (let tries = 0; behaviourKey(result) === parent && tries < 100; tries++) {
+        change(slots[rng.int(slots.length)])
+        result = clampProfile(out)
+    }
+    return result
+}
+
+/**
+ * Uniform crossover: `a`'s structure, each tunable value taken from `b` with probability 1/2. Condition fields are only
+ * taken when both profiles have the same structure (`shapeKey`), since a path like `rotation[0].when[0].count` means
+ * something different in another profile. Then `clampProfile`.
+ */
+export const crossoverProfiles = (a: Profile, b: Profile, rng: Rng): Profile => {
+    const out = copy(a)
+    const sameShape = shapeKey(a) === shapeKey(b)
+    for (const { path, condition } of parameterSlots(out)) {
+        const take = rng.next() < 0.5
+        if (take && (sameShape || !condition)) setAt(out, path, getAt(b, path))
+    }
+    return clampProfile(out)
+}
+
+/** The tunable values where `to` differs from `from`, in slot order. Both must have the same structure for conditions. */
+export const parameterChanges = (from: Profile, to: Profile) =>
+    parameterSlots(to)
+        .map(({ path }) => ({ path, from: getAt(from, path), to: getAt(to, path) }))
+        .filter(change => change.from !== change.to)
