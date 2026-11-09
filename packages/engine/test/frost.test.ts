@@ -347,8 +347,8 @@ describe('Frost Fever', () => {
     })
 
     it('a Frost Fever tick that kills decides the winner inside tick(); the deciding tick still counts both actions', () => {
-        // player2 has 0.1 HP, so the second 0.05 Fever tick kills them; player1 has 3 HP, exactly Icy Touch's base damage
-        const b = new Battle({ name: 'A', spells: FROST_KIT, hp: 3 }, { name: 'B', spells: FROST_KIT, hp: 0.1 })
+        // player2 has 0.1 HP, so the second 0.05 Fever tick kills them; player1 has 2 HP, exactly Icy Touch's base damage (2)
+        const b = new Battle({ name: 'A', spells: FROST_KIT, hp: 2 }, { name: 'B', spells: FROST_KIT, hp: 0.1 })
         advance(b, 10)
         castFull(b, 'player1', 'SPELL_FROST_FEVER')
         for (let i = 0; i < 5 && b.state.winner === null; i++) b.tick()

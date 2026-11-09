@@ -328,8 +328,8 @@ describe('Chilling is built and spent sensibly (#150)', () => {
                 const { result, last } = watched(profileEntrant(ARCHETYPES[name].profile, FEVER_TOUCH), idler(), seed)
                 const touches = hitsOf(last.enemy.hpLog, 'SPELL_ICY_TOUCH')
                 expect(touches.length, name).toBeGreaterThan(0)
-                // 3 HP, plus 8.5 against Frost Fever (the approved numbers)
-                expect(new Set(touches), name).toEqual(new Set([11.5]))
+                // 2 HP, plus 6 against Frost Fever (the approved numbers)
+                expect(new Set(touches), name).toEqual(new Set([8]))
                 // the GCD and the stack cost are respected: the engine refuses nothing
                 expect(result.stats.a.rejected, name).toBe(0)
             }
@@ -471,7 +471,7 @@ describe('Frost sets in strategy mode (#150)', () => {
             games: 2,
         })
         expect(config.fireSets[0]).not.toHaveProperty('element')
-        expect(config.fireSets[1]).toMatchObject({ element: 'FROST', baseline: { rank: 4 } })
+        expect(config.fireSets[1]).toMatchObject({ element: 'FROST', baseline: { rank: 1 } })
         expect(config.setups.map(s => s.id.split('/')[0])).toEqual([...Array(6).fill('F1'), ...Array(6).fill('I2')])
         expect(config.setups[6].loadout).toEqual([
             ...FROST_DEFAULT.slice(0, 4),
@@ -607,10 +607,10 @@ describe('Fire faces Frost in the tournament (#150)', () => {
         // per profile: its 2 Fire entrants against the 4 Frost entrants, and its 2 Frost entrants against the 4 Fire ones
         expect(section).toMatch(/\| aggressive \| 0\.0% \(0\.0%-\d+\.\d%\) \| 100\.0% \(\d+\.\d%-100\.0%\) \|/)
         // the loadouts show their element's label and table
-        expect(text).toContain('| I01 | Glacier, Frost Bomb, Icy Touch, Frost Fever |')
+        expect(text).toContain('| I01 | Frostbolt, Glacier, Frost Bomb, Ice Spear |')
         expect(text).toContain(`baselines/${ENGINE_VERSION}-frost.json`)
         expect(text).toContain('top 2 Fire sets and top 2 Frost sets')
-        expect(formatTable(result)).toContain('I01  Glacier, Frost Bomb, Icy Touch, Frost Fever | Counterspell |')
+        expect(formatTable(result)).toContain('I01  Frostbolt, Glacier, Frost Bomb, Ice Spear | Counterspell |')
     })
 
     it('rates each element on its cross-element games only; same-element games are listed apart (#163)', () => {
