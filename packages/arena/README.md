@@ -92,7 +92,7 @@ must be in [0, 10], got 11`): unknown keys, missing keys and out-of-range values
 is its `ControllerFactory`, `profileEntrant(profile, loadout)` an entrant; both play the profile built for the loadout
 (`adaptProfile`, below). Every key except `intent`, a rotation entry's `when`, `lockoutWindow` (default: a copy of
 `rotation`), `lockoutWindow.edgeGreedSeconds` (default 0), `fakeCast.realBaitShare` (default 0),
-`counterspell.giveUpSeconds` and `patience` (default: no give-up timers) is required.
+`counterspell.giveUpSeconds`, `patience` (default: no give-up timers) and `releaseHold` (default: no hold) is required.
 
 **Built from the loadout (#136).** `rotation` and `lockoutWindow.rotation` are priority lists over the Fire spells, and
 `adaptProfile(profile, loadout)` keeps the entries a loadout can play, in order: an entry is dropped when its spell is
@@ -139,6 +139,11 @@ rotation is the loadout's Fire spells in slot order. A profile may leave out spe
         "thresholdGiveUpSeconds": 2, // idle this long on rotation `when`s: cast the first ready entry anyway
         "commitGiveUpSeconds": null, // set: wait this long for the opponent to commit before casting (see below)
     },
+    // #143, optional: keep a completed cast on the bar while `when` holds, at most giveUpSeconds (0-3) past completion
+    "releaseHold": {
+        "when": [{ "type": "enemyEffectsAtLeast", "effect": "BUFF_TEMPORAL_SHIELD", "count": 1 }],
+        "giveUpSeconds": 1.2,
+    },
     // one rule per general spell: "never" or { "when": [conditions] }; rules for spells not on the loadout are unused
     "generals": {
         "SPELL_HASTE": { "when": [{ "type": "selfNotCasting" }, { "type": "nextCastIsLongest" }] },
@@ -160,10 +165,12 @@ From #136: `nextCastIsLongest` (that cast is the loadout's longest by base cast 
 `enemyEffectEndsWithin` (`effect`, `seconds`: an effect ends within that long, e.g. a Living Bomb about to explode),
 `selfCastsAtLeast` (`spell`, `count`, `withinSeconds`: the player's own releases, e.g. Fireballs before Afterburn),
 `inLockoutWindow` (the free-cast window below is open) and `anyOf` (`of`: a list of condition lists, at least one of
-which holds; no `anyOf` inside one).
+which holds; no `anyOf` inside one). The effect counts include the effect of the cast the player releases this tick
+(#143): the view is built before the tick's actions, so it shows that effect only from the next tick, and a profile
+keeping one Living Bomb up would otherwise start a second one on the release tick, replacing its own.
 
 **Each tick** the controller: (1) cancels its fake cast once `cancelAfterSeconds` has passed, or releases a completed
-cast; (2) lands a committed Counterspell; (3) picks its next cast if it has none in progress, isn't pausing after a
+cast (unless `releaseHold` keeps it, below); (2) lands a committed Counterspell; (3) picks its next cast if it has none in progress, isn't pausing after a
 fake and didn't just press Counterspell (it waits one tick to see on the view whether the lock landed): in the
 free-cast window, the first `lockoutWindow.rotation` entry that is ready, whose `when` holds and that fits (or, with edge greed, fits the greedy bound), or none;
 else nothing while it waits for the opponent to commit; else a bait if `fakeCast` allows one (a fake, or a real cast,
@@ -186,10 +193,20 @@ cast. A `late` window shorter than the reaction lands after the release.
 progress or started) with no rotation `when` holding, the profile casts its first ready entry anyway.
 `patience.commitGiveUpSeconds`: when set, the profile starts no cast (nor a bait) while the opponent may Counterspell,
 waiting for it to commit (its Counterspell used, or ours landed: the free-cast window), for at most that long from the
-match start or from the end of the last window; then it plays its rotation until the next window. Two such profiles
+match start, from the end of the last window, or from its own Counterspell coming off cooldown, whichever is latest;
+then it plays its rotation until the next window. It waits only while its own Counterspell is off cooldown (#143):
+with it on cooldown, ours can't land on the commit, so a wait would only hand the opponent free time. (A profile whose
+Counterspell is off waits from the match start or the window's end.) Two such profiles
 facing each other both start casting when the timer ends. `counterspell.giveUpSeconds`: once its Counterspell has been
 off cooldown that long unused, the next enemy cast is interrupted whatever its spell. Ticks under an enemy Counterspell
 lock count toward none of them. Each is a tunable parameter.
+
+**Holding a completed cast (#143).** The engine releases a cast only when its caster stops it, so a completed cast
+can stay on the bar. With `releaseHold` set, the profile keeps its completed cast while every condition in
+`releaseHold.when` holds, for at most `releaseHold.giveUpSeconds` past the completion, then releases it whatever
+holds. The use: an enemy Temporal Shield rewinds every HP change made while it is up, so a Meteor that lands into it
+is undone; held until the shield no longer shows (the tick its rewind has run), the hit stays. A held cast is still
+on the cast bar, so the opponent may Counterspell it meanwhile.
 
 **Fake casts (#43).** Start `fakeCast.spell`, then cancel it with `Battle.stopCast` after `cancelAfterSeconds`; the
 cancel costs only the elapsed time (no lock, no damage). It baits a Counterspell when the enemy has committed before
@@ -443,21 +460,22 @@ gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouch
   after it last at least one standard reaction time (0.25 s, the reaction mean's minimum too).
   Crossover takes condition values from the second parent only if both have the same structure.
 
-    | Parameter                                                                            | Bounds                   |
-    | ------------------------------------------------------------------------------------ | ------------------------ |
-    | `fakeCast.enabled`                                                                   | `true` / `false`         |
-    | `counterspell.timing`                                                                | `early` / `late`         |
-    | `counterspell.reaction.meanSeconds`                                                  | 0.25 to 1.5 s            |
-    | `counterspell.reaction.spreadSeconds`                                                | 0 to 0.5 s, <= mean      |
-    | `counterspell.lateWindowSeconds`                                                     | 0 to 3 s                 |
-    | `fakeCast.cancelAfterSeconds` / `pauseAfterSeconds` / `minGapSeconds`                | 0.25-2 / 0.25-2 / 0-60 s |
-    | `fakeCast.maxPerMatch`                                                               | 0 to 50                  |
-    | `fakeCast.realBaitShare`                                                             | 0 to 1                   |
-    | `lockoutWindow.edgeGreedSeconds` (#126)                                              | 0 to 1.5 s               |
-    | `counterspell.giveUpSeconds` (#136, when set)                                        | 1 to 30 s                |
-    | `patience.thresholdGiveUpSeconds` / `commitGiveUpSeconds` (#136, when set)           | 0.25-10 / 0.25-15 s      |
-    | every condition's `hp` / `count` / `seconds` (rotation, window, fake cast, generals) | 0-100 / 0-20 / 0-3 s     |
-    | every `selfCastsAtLeast`'s `withinSeconds` (#136), `anyOf` lists included            | 0 to 15 s                |
+    | Parameter                                                                                  | Bounds                   |
+    | ------------------------------------------------------------------------------------------ | ------------------------ |
+    | `fakeCast.enabled`                                                                         | `true` / `false`         |
+    | `counterspell.timing`                                                                      | `early` / `late`         |
+    | `counterspell.reaction.meanSeconds`                                                        | 0.25 to 1.5 s            |
+    | `counterspell.reaction.spreadSeconds`                                                      | 0 to 0.5 s, <= mean      |
+    | `counterspell.lateWindowSeconds`                                                           | 0 to 3 s                 |
+    | `fakeCast.cancelAfterSeconds` / `pauseAfterSeconds` / `minGapSeconds`                      | 0.25-2 / 0.25-2 / 0-60 s |
+    | `fakeCast.maxPerMatch`                                                                     | 0 to 50                  |
+    | `fakeCast.realBaitShare`                                                                   | 0 to 1                   |
+    | `lockoutWindow.edgeGreedSeconds` (#126)                                                    | 0 to 1.5 s               |
+    | `counterspell.giveUpSeconds` (#136, when set)                                              | 1 to 30 s                |
+    | `patience.thresholdGiveUpSeconds` / `commitGiveUpSeconds` (#136, when set)                 | 0.25-10 / 0.25-15 s      |
+    | `releaseHold.giveUpSeconds` (#143, when the profile has `releaseHold`)                     | 0 to 3 s                 |
+    | every condition's `hp` / `count` / `seconds` (rotation, window, fake cast, hold, generals) | 0-100 / 0-20 / 0-3 s     |
+    | every `selfCastsAtLeast`'s `withinSeconds` (#136), `anyOf` lists included                  | 0 to 15 s                |
 
 - **Overfitting guard.** The final best profile is re-scored on a fresh seed set (a tournament seed derived from `S`
   whose match seeds share none with the selection set). Both win rates are printed; a large gap means the search fitted

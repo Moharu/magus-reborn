@@ -1,4 +1,4 @@
-import { EDGE_GREED_MAX_SECONDS, GENERAL_SPELLS, parseProfile, type Profile } from './profile'
+import { EDGE_GREED_MAX_SECONDS, GENERAL_SPELLS, parseProfile, RELEASE_HOLD_MAX_SECONDS, type Profile } from './profile'
 import type { Rng } from './prng'
 
 /**
@@ -58,11 +58,13 @@ export const PROFILE_PARAMETERS: Readonly<Record<string, Parameter>> = {
     'counterspell.giveUpSeconds': num(1, 30, 0.01, 2),
     'patience.thresholdGiveUpSeconds': num(REACTION_MIN_SECONDS, 10, 0.01, 0.5),
     'patience.commitGiveUpSeconds': num(REACTION_MIN_SECONDS, 15, 0.01, 1),
+    // holding a completed cast (#143): only tuned when the profile holds (`releaseHold` set)
+    'releaseHold.giveUpSeconds': num(0, RELEASE_HOLD_MAX_SECONDS, 0.01, 0.2),
 }
 
 /**
  * The numeric fields of a condition, wherever it appears (`rotation[i].when`, `lockoutWindow.rotation[i].when`,
- * `fakeCast.when`, `generals.<id>.when`, and the lists of an `anyOf` in any of them).
+ * `fakeCast.when`, `releaseHold.when`, `generals.<id>.when`, and the lists of an `anyOf` in any of them).
  */
 export const CONDITION_PARAMETERS: Readonly<Record<'hp' | 'count' | 'seconds' | 'withinSeconds', NumberParameter>> = {
     hp: num(0, 100, 1, 10),
@@ -121,6 +123,7 @@ export const parameterSlots = (profile: Profile): ParameterSlot[] => {
             entry.when,
         ]),
         ['fakeCast.when', profile.fakeCast.when],
+        ...(profile.releaseHold ? [['releaseHold.when', profile.releaseHold.when] as [string, readonly object[]]] : []),
         ...GENERAL_SPELLS.flatMap((id): [string, readonly object[]][] => {
             const rule = profile.generals[id]
             return rule === 'never' ? [] : [[`generals.${id}.when`, rule.when]]
@@ -241,7 +244,8 @@ export const crossoverProfiles = (a: Profile, b: Profile, rng: Rng): Profile => 
     const sameShape = shapeKey(a) === shapeKey(b)
     for (const { path, condition } of parameterSlots(out)) {
         const take = rng.next() < 0.5
-        if (take && (sameShape || !condition)) setAt(out, path, getAt(b, path))
+        // a block `b` lacks (`releaseHold`, #143) has no value to give
+        if (take && (sameShape || !condition) && getAt(b, path) !== undefined) setAt(out, path, getAt(b, path))
     }
     return clampProfile(out)
 }

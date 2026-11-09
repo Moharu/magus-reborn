@@ -10,7 +10,7 @@
     ],
     "profile": {
         "name": "aggressive",
-        "intent": "All-out damage: stack 4 Ignites, Combustion on them, Living Bomb kept up, Meteor otherwise; an early Counterspell on big casts, any cast after 8 s held. Generals: Haste and Magic Eater together on its longest cast (Meteor, else Combustion) or in a free-cast window; Temporal Shield just before an enemy Meteor or Combustion lands, or before its own Living Bomb explodes, to rewind the burst (or 1.2 s of 3+ Ignites, between casts); Blur as an enemy Living Bomb lands, or an Ignite when it is between casts or already carries 2 Ignites (then the cleanse is worth a cancelled cast).",
+        "intent": "All-out damage: stack 4 Ignites, Combustion on them, Living Bomb kept up, Meteor otherwise; an early Counterspell on big casts, any cast after 8 s held; a completed cast is held (up to 1.2 s) while the enemy shows a Temporal Shield, so its rewind can't undo the hit. Generals: Haste and Magic Eater on its longest cast or in a free-cast window; Temporal Shield just before an enemy Meteor or Combustion lands or its Living Bomb explodes (or on 3+ Ignites, between casts); Blur as an enemy Living Bomb lands, or an Ignite when between casts or already on 2 Ignites.",
         "rotation": [
             {
                 "spell": "SPELL_COMBUSTION",
@@ -126,6 +126,16 @@
         "patience": {
             "thresholdGiveUpSeconds": 2,
             "commitGiveUpSeconds": null
+        },
+        "releaseHold": {
+            "when": [
+                {
+                    "type": "enemyEffectsAtLeast",
+                    "effect": "BUFF_TEMPORAL_SHIELD",
+                    "count": 1
+                }
+            ],
+            "giveUpSeconds": 1.2
         },
         "generals": {
             "SPELL_HASTE": {

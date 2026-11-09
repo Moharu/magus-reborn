@@ -1,21 +1,7 @@
 import { ELEMENT_SPELL_COUNT, FIXED_SPELL, SPELLS, type EffectId, type SpellId } from '@magus/engine'
 import type { Condition } from './conditions'
+import { EFFECT_SOURCES } from './effects'
 import { checkLoadout, type Profile, type RotationEntry } from './profile'
-
-/**
- * The spell that applies each effect, and to whom: `caster` for a buff on its caster, `target` for a debuff on the
- * caster's opponent. Public spell data (the effect each spell's description names); no spell math. A `Record` over
- * every effect id, so a new effect without an entry fails typecheck.
- */
-const EFFECT_SOURCES: Readonly<Record<EffectId, { readonly spell: SpellId; readonly on: 'caster' | 'target' }>> = {
-    DEBUFF_IGNITE: { spell: 'SPELL_IGNITE', on: 'target' },
-    DEBUFF_LIVING_BOMB: { spell: 'SPELL_LIVING_BOMB', on: 'target' },
-    DEBUFF_COUNTERSPELL: { spell: FIXED_SPELL, on: 'target' },
-    BUFF_HASTE: { spell: 'SPELL_HASTE', on: 'caster' },
-    BUFF_BLUR: { spell: 'SPELL_BLUR', on: 'caster' },
-    BUFF_MAGIC_EATER: { spell: 'SPELL_MAGIC_EATER', on: 'caster' },
-    BUFF_TEMPORAL_SHIELD: { spell: 'SPELL_TEMPORAL_SHIELD', on: 'caster' },
-}
 
 /**
  * Whether an effect on `whom` can only come from this player's own spell, and the loadout lacks it: a debuff on the

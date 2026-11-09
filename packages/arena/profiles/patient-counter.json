@@ -10,7 +10,7 @@
     ],
     "profile": {
         "name": "patient-counter",
-        "intent": "Waits up to 3 s (after the match starts and after each free-cast window) for the opponent to commit, then steady short casts: 3 Ignites, Combustion, Afterburn after Fireballs. Holds Counterspell for big spells and lands it late in the cast bar, so short fakes don't fool it; after 6 s held it takes any cast. Generals: Haste in the free-cast window its Counterspell opens, or on its longest cast; Magic Eater in that window or over 3+ Ignites; Temporal Shield to rewind an enemy burst, its own Living Bomb's explosion or a 4-Ignite build-up; Blur as an enemy Ignite or Living Bomb lands.",
+        "intent": "With Counterspell ready it waits up to 3 s (from the start, a window's end or Counterspell's return) for the opponent to commit, then steady short casts: 3 Ignites, Combustion, Afterburn after Fireballs. Holds Counterspell for big spells, landing it late so short fakes don't fool it; after 6 s held it takes any cast. Generals: Haste in the window its Counterspell opens, or on its longest cast; Magic Eater in that window or over 3+ Ignites; Temporal Shield to rewind an enemy burst, its own Living Bomb's explosion or a 4-Ignite build-up; Blur as an enemy Ignite or Living Bomb lands.",
         "rotation": [
             {
                 "spell": "SPELL_COMBUSTION",

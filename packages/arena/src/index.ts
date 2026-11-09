@@ -19,6 +19,7 @@ export {
     GIVE_UP_MAX_SECONDS,
     loadProfile,
     parseProfile,
+    RELEASE_HOLD_MAX_SECONDS,
     type CounterspellPolicy,
     type FakeCast,
     type GeneralRule,
@@ -26,8 +27,10 @@ export {
     type LockoutWindow,
     type Patience,
     type Profile,
+    type ReleaseHold,
     type RotationEntry,
 } from './profile'
+export { countAfterRelease, EFFECT_SOURCES } from './effects'
 export { profileController, profileEntrant } from './profile-controller'
 export { ProfileError } from './validate'
 export {

@@ -18,6 +18,8 @@ export interface Profile {
     readonly fakeCast: FakeCast
     /** The give-up timers of the profile's own waits (#136). `parseProfile` always sets it. */
     readonly patience: Patience
+    /** Holding a completed cast (#143). Absent: no hold, every cast is released on the tick it completes. */
+    readonly releaseHold?: ReleaseHold
     /** One usage rule per general spell. Rules for general spells that aren't on the loadout are ignored. */
     readonly generals: Readonly<Record<GeneralSpell, GeneralRule>>
 }
@@ -97,6 +99,22 @@ export interface Patience {
     readonly commitGiveUpSeconds: number | null
 }
 
+/**
+ * Holding a completed cast (#143): the engine releases a cast only when its caster stops it, so a cast that has
+ * completed can stay on the bar. While every condition in `when` holds (for example the enemy shows a Temporal Shield,
+ * whose rewind would undo the damage), the profile keeps its completed cast instead of releasing it, for at most
+ * `giveUpSeconds` past the completion; then it releases it whatever holds. A held cast is still on the cast bar, so
+ * the enemy may Counterspell it meanwhile.
+ */
+export interface ReleaseHold {
+    readonly when: readonly Condition[]
+    /** In [0, `RELEASE_HOLD_MAX_SECONDS`]; 0 holds nothing. */
+    readonly giveUpSeconds: number
+}
+
+/** The longest hold of a completed cast (#143), in seconds. */
+export const RELEASE_HOLD_MAX_SECONDS = 3
+
 /** The largest give-up timer the loader accepts, in seconds. */
 export const GIVE_UP_MAX_SECONDS = 60
 
@@ -142,8 +160,19 @@ const MAX_SECONDS = 10
 const MAX_NAME = 200
 /** An intent's longest length: room for the plan, general spells included (#136). */
 const MAX_INTENT = 600
-const PROFILE_KEYS = ['name', 'intent', 'rotation', 'lockoutWindow', 'counterspell', 'fakeCast', 'patience', 'generals']
+const PROFILE_KEYS = [
+    'name',
+    'intent',
+    'rotation',
+    'lockoutWindow',
+    'counterspell',
+    'fakeCast',
+    'patience',
+    'releaseHold',
+    'generals',
+]
 const PATIENCE_KEYS = ['thresholdGiveUpSeconds', 'commitGiveUpSeconds']
+const RELEASE_HOLD_KEYS = ['when', 'giveUpSeconds']
 const LOCKOUT_WINDOW_KEYS = ['rotation', 'edgeGreedSeconds']
 const COUNTERSPELL_KEYS = ['enabled', 'targets', 'reaction', 'timing', 'lateWindowSeconds', 'giveUpSeconds']
 /** Counterspell keys that may be left out (default null). */
@@ -225,6 +254,15 @@ const parsePatience = (raw: unknown): Patience => {
     }
 }
 
+const parseReleaseHold = (raw: unknown): ReleaseHold => {
+    const value = record(raw, 'releaseHold', RELEASE_HOLD_KEYS)
+    for (const key of RELEASE_HOLD_KEYS) if (!(key in value)) fail(`releaseHold.${key}`, 'is required')
+    return {
+        when: parseWhen(value.when, 'releaseHold.when'),
+        giveUpSeconds: number(value.giveUpSeconds, 'releaseHold.giveUpSeconds', 0, RELEASE_HOLD_MAX_SECONDS),
+    }
+}
+
 const parseFakeCast = (raw: unknown): FakeCast => {
     const value = record(raw, 'fakeCast', FAKE_CAST_KEYS)
     for (const key of FAKE_CAST_KEYS)
@@ -290,6 +328,7 @@ export const parseProfile = (raw: unknown): Profile => {
         counterspell: parseCounterspell(value.counterspell),
         fakeCast: parseFakeCast(value.fakeCast),
         patience: parsePatience(value.patience),
+        ...(value.releaseHold === undefined ? {} : { releaseHold: parseReleaseHold(value.releaseHold) }),
         generals: parseGenerals(value.generals),
     }
     return profile
