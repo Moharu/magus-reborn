@@ -1357,3 +1357,55 @@ html.touch-keybinds {
         display: inline;
     }
 }
+
+/* A reserved header cell keeps phone details clear of both rows and the bar. */
+.header-details {
+    display: none;
+}
+@media (max-height: 500px) and (orientation: landscape) {
+    .picker-top > .details-trigger,
+    .picker-stage > .details {
+        display: none !important;
+    }
+    .picker-top > .header-details {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        align-items: center;
+        gap: 5px;
+        flex: 1;
+        min-width: 0;
+        height: 44px;
+        overflow: hidden;
+        color: var(--text);
+        font-size: 10px;
+        line-height: 11px;
+    }
+    .header-details img {
+        width: 28px;
+        height: 28px;
+        object-fit: contain;
+    }
+    .header-details > div {
+        min-width: 0;
+    }
+    .header-details strong,
+    .header-details .meta {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .header-details p {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        margin: 0;
+        line-height: 11px;
+        max-height: 22px;
+    }
+    .picker-top > .element,
+    .picker-top > .toggle {
+        flex-shrink: 0;
+    }
+}

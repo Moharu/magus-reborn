@@ -65,3 +65,18 @@ it('places all seven editable bar icons at the battle coordinates and size', () 
         )
     })
 })
+
+it('keeps header details on the last tapped spell after deselection with accessible full text', () => {
+    const root = spellPicker([...DEFAULT_SPELLS], vi.fn(), { overlayDetails: true }).el as unknown as FakeElement
+    const details = () => root.querySelector('.header-details')!
+    expect(details().textContent).toContain('Fireball')
+    target(root, 'spell:SPELL_AFTERBURN').click()
+    target(root, 'spell:SPELL_AFTERBURN').click()
+    expect(target(root, 'spell:SPELL_AFTERBURN').attrs.get('aria-pressed')).toBe('false')
+    expect(details().textContent).toContain('Afterburn')
+    const description = details().find(el => el.tag === 'p')!
+    expect(description.attrs.get('title')).toBe(description.textContent)
+    expect(description.attrs.get('aria-label')).toBe(description.textContent)
+    expect(details().find(el => el.tag === 'img')).not.toBeNull()
+    expect(details().textContent).toContain('Cast')
+})
