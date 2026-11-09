@@ -57,8 +57,9 @@ const giveUpTicks = (seconds: number | null | undefined) =>
  * the next enemy cast it sees is planned for as if it were a target. Ticks under an enemy Counterspell lock, when the
  * player can't act, count toward none of the give-up timers.
  *
- * Own releases (`selfCastsAtLeast`) count from the tick the release is sent; one the engine then rejects (an enemy
- * Counterspell acting first on that tick interrupted the cast) is dropped on the next view, which shows that lock.
+ * Own releases (`selfCastsAtLeast`) are the SPELL_RELEASEs on the player's own spell log (`self.log`), what the
+ * engine did. A release sent this tick counts for this tick's decisions, then gives way to the log on the next view:
+ * dropped if the engine rejected it (an enemy Counterspell acting first on that tick interrupted the cast).
  *
  * Nothing here depends on the side: player1 acting first within a tick is the runner's, and tournaments swap sides.
  */
@@ -87,10 +88,12 @@ export const profileController =
         const castSeconds = (id: SpellId) => SPELLS[id].castSeconds ?? 0
         const longestSeconds = Math.max(0, ...loadout.map(castSeconds))
         const longest = longestSeconds > 0 ? loadout.filter(id => castSeconds(id) === longestSeconds) : []
-        // own releases, oldest first (`selfCastsAtLeast`); the last one is checked on the next view (see below)
+        // own releases, oldest first (`selfCastsAtLeast`): those on the own spell log, then the one sent this tick
         const releases: OwnRelease[] = []
-        // the tick of a release made last tick and not yet confirmed (NONE: none)
-        let unconfirmed = NONE
+        // whether the last entry of `releases` is the one sent last tick, not yet read from the log; how much of the
+        // own log has been read
+        let provisional = false
+        let ownLogRead = 0
 
         // give-up timers (#136), NONE when off
         const thresholdGiveUp = giveUpTicks(profile.patience?.thresholdGiveUpSeconds)
@@ -193,15 +196,16 @@ export const profileController =
                 else if (effect.id === 'BUFF_HASTE') hasteEnds = effect.expiresAt
             }
             if (hasteEnds === NONE) for (let i = 0; i < baseCast.length; i++) baseCast[i] = self.spells[i].castTime
-            // a release is only queued: an enemy Counterspell acting first in that tick (as player1) interrupts the
-            // cast and the engine rejects the stopCast. Its lock then shows on the buff bar, starting on that tick
-            if (unconfirmed !== NONE) {
-                for (const effect of self.effects)
-                    if (effect.id === 'DEBUFF_COUNTERSPELL' && effect.startingTick === unconfirmed) {
-                        releases.pop()
-                        break
-                    }
-                unconfirmed = NONE
+            // a release sent is only queued (an enemy Counterspell acting first in that tick interrupts the cast and the
+            // engine rejects the stopCast): the own spell log says what happened
+            if (provisional) {
+                releases.pop()
+                provisional = false
+            }
+            const ownLog = self.log ?? []
+            for (; ownLogRead < ownLog.length; ownLogRead++) {
+                const entry = ownLog[ownLogRead]
+                if (entry.type === 'SPELL_RELEASE') releases.push({ spellId: entry.spellId, tick: entry.tick })
             }
             // what the enemy's spell log shows (#126): every Counterspell it used, a whiff included
             for (; logRead < enemy.log.length; logRead++) {
@@ -238,7 +242,7 @@ export const profileController =
                     casting = false
                     released = true
                     releases.push({ spellId: own.spellId, tick })
-                    unconfirmed = tick
+                    provisional = true
                 }
             }
 

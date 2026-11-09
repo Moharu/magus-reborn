@@ -252,6 +252,37 @@ describe('review fixes (#136)', () => {
         ])
     })
 
+    it('keeps a release when the cast started after it on the same tick is the one interrupted', () => {
+        // as player1 it releases a Fireball on tick 26 and starts an Afterburn at once; the enemy, acting second, counters
+        // the Afterburn on that tick. The Fireball went off, so after the lock it is an Afterburn again
+        const afterFireball = custom(raw => {
+            raw.rotation = [
+                {
+                    spell: 'SPELL_AFTERBURN',
+                    when: [{ type: 'selfCastsAtLeast', spell: 'SPELL_FIREBALL', count: 1, withinSeconds: 10 }],
+                },
+                'SPELL_FIREBALL',
+            ]
+        })
+        const result = runMatch({
+            seed: 1,
+            a: profileEntrant(afterFireball, OTHER_LOADOUT),
+            b: counterAt(26),
+            maxTicks: 120,
+        })
+        expect(of(result.log, 'a', 'SPELL_RELEASE')[0]).toMatchObject({ tick: 26, spellId: 'SPELL_FIREBALL' })
+        expect(of(result.log, 'a', 'INTERRUPTED')).toMatchObject([{ tick: 26, spellId: 'SPELL_AFTERBURN' }])
+        expect(
+            of(result.log, 'a', 'START_CAST')
+                .slice(0, 3)
+                .map(e => [e.tick, e.spellId]),
+        ).toEqual([
+            [0, 'SPELL_FIREBALL'],
+            [26, 'SPELL_AFTERBURN'],
+            [86, 'SPELL_AFTERBURN'],
+        ])
+    })
+
     it('does not count time under a Counterspell lock toward a give-up timer', () => {
         // holds Counterspell for Meteor, giving up after 5 s (100 ticks) held; casts Fireballs meanwhile
         const holder = custom(raw => {

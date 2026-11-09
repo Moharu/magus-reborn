@@ -57,8 +57,9 @@ one early (a fake cast). Use the shared `start(slot)`/`stop(slot)` helpers to av
 
 - `tick`
 - `self`: `hp`, `casting` (`slot`, `spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `gcdUntil`,
-  `lockedUntil`, `effects`, and `spells`, the player's own loadout with `castTime`, `cooldownRemaining`,
-  `lockRemaining` and `ready` per slot.
+  `lockedUntil`, `effects`, `spells`, the player's own loadout with `castTime`, `cooldownRemaining`,
+  `lockRemaining` and `ready` per slot, and `log` (#136), the player's own spell log in the same form as `enemy.log`
+  (its own casts released, cancelled or interrupted by the opponent), as the client's spell log shows it too.
 - `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil`, `effects` and
   `log`. Never the opponent's loadout, cooldowns or GCD.
 - `enemy.log` (#126) is the opponent's spell log, what the game client's spell log shows: one `{ tick, type, spellId }`

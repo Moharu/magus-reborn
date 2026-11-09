@@ -74,6 +74,7 @@ const handView = (
         lockedUntil: 0,
         effects: [],
         spells: loadout.map(id => ({ id, castTime: 0, cooldownRemaining: 0, lockRemaining: 0, ready: true })),
+        log: [],
     },
     enemy: {
         hp: 80,
@@ -609,6 +610,7 @@ const freeView = (
             lockRemaining: 0,
             ready: true,
         })),
+        log: [],
     },
     enemy: {
         hp: 100,
