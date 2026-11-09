@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { DEFAULT_SPELLS, SPELLBOOKS, SPELLS, loadoutElement } from '@magus/engine'
+import { DEFAULT_LOADOUTS, DEFAULT_SPELLS, SPELLBOOKS, SPELLS, loadoutElement, type SpellId } from '@magus/engine'
 import { battleLayout, HEIGHT, WIDTH } from '../src/game/layout'
 import { spellPicker } from '../src/ui/spell-picker'
 import { FakeElement, FakeNode } from './fake-dom'
@@ -44,7 +44,7 @@ it('selects Frost with four of six spells, while Lightning stays locked', () => 
     const root = spellPicker([...DEFAULT_SPELLS], save, { overlayDetails: true }).el as unknown as FakeElement
     root.button('Frost')!.click()
     expect(loadoutElement(save.mock.calls[0][0])).toBe('FROST')
-    expect(save.mock.calls[0][0].slice(0, 4)).toEqual(SPELLBOOKS.FROST.elementSpells.slice(0, 4))
+    expect(save.mock.calls[0][0]).toEqual(DEFAULT_LOADOUTS.FROST)
     for (const id of SPELLBOOKS.FROST.elementSpells) {
         const card = target(root, `spell:${id}`)
         expect(card).not.toBeNull()
@@ -60,6 +60,27 @@ it('selects Frost with four of six spells, while Lightning stays locked', () => 
     const teaser = root.find(el => el.tag === 'button' && el.textContent.includes('Lightning'))!
     expect((teaser as unknown as HTMLButtonElement).disabled).toBe(true)
     expect(teaser.textContent).toContain('Locked · coming later')
+})
+
+it('switching element keeps the Counterspell and general picks, and only the four element slots change', () => {
+    const save = vi.fn()
+    const fire: SpellId[] = [...DEFAULT_LOADOUTS.FIRE.slice(0, 5), 'SPELL_MAGIC_EATER', 'SPELL_BLUR']
+    const root = spellPicker(fire, save).el as unknown as FakeElement
+    root.button('Frost')!.click()
+    const frost = save.mock.lastCall![0]
+    expect(frost.slice(0, 4)).toEqual(DEFAULT_LOADOUTS.FROST.slice(0, 4))
+    expect(frost.slice(4)).toEqual(fire.slice(4))
+    expect(loadoutElement(frost)).toBe('FROST')
+
+    // a Frost pick made here survives a round trip, and the generals stay throughout
+    target(root, 'spell:SPELL_ICY_TOUCH').click()
+    target(root, 'slot:0').click()
+    const edited = save.mock.lastCall![0]
+    root.button('Fire')!.click()
+    expect(save.mock.lastCall![0].slice(0, 4)).toEqual(fire.slice(0, 4))
+    expect(save.mock.lastCall![0].slice(4)).toEqual(edited.slice(4))
+    root.button('Frost')!.click()
+    expect(save.mock.lastCall![0].slice(0, 4)).toEqual(edited.slice(0, 4))
 })
 
 it('locks the Frost element between rounds but allows same-element swaps until Ready', () => {

@@ -164,7 +164,7 @@ it.each(SPELLBOOKS.FROST.elementSpells)('logs and floats real engine damage from
     for (let i = 0; i < battle.state.player1.spells[0].castTime; i++) battle.tick()
     battle.stopCast('player1', 0)
     // Include DoT/pulse damage as well as direct releases.
-    for (let i = 0; i < 200; i++) battle.tick()
+    for (let i = 0; i < 300; i++) battle.tick()
     const log = mapSpellLog(emptySpellLog(), battle.state.log, 'player1')
     expect(log.added).toEqual([{ text: SPELLS[id].label, side: 'left', label: `YOU: ${SPELLS[id].label}` }])
     view.update(battle.snapshot(), battle.state.log, battle.drainEvents())

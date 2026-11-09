@@ -346,6 +346,35 @@ describe('Frost Fever', () => {
         expect(b.state.player2.hp).toBe(100 - N.frostFever.damage)
     })
 
+    it('a Frost Fever tick that kills decides the winner inside tick(); the deciding tick still counts both actions', () => {
+        // player2 has 0.1 HP, so the second 0.05 Fever tick kills them; player1 has 3 HP, exactly Icy Touch's base damage
+        const b = new Battle({ name: 'A', spells: FROST_KIT, hp: 3 }, { name: 'B', spells: FROST_KIT, hp: 0.1 })
+        advance(b, 10)
+        castFull(b, 'player1', 'SPELL_FROST_FEVER')
+        for (let i = 0; i < 5 && b.state.winner === null; i++) b.tick()
+        expect(b.state.player2.hp).toBe(0)
+        expect(b.state.winner).toBe('player1')
+        expect(b.finished).toBe(false)
+
+        // the dead player's last action in the deciding tick still lands, and trading lethal damage is a draw
+        b.state.player2.chilling = 1
+        expect(b.startCast('player2', slot(b, 'player2', 'SPELL_ICY_TOUCH'))).toBe(true)
+        expect(b.state.player1.hp).toBe(0)
+        expect(b.state.winner).toBe('draw')
+
+        // the next tick makes it final, and nothing resolves after the deciding tick: the clock stays, no effect runs
+        const decidingTick = b.state.gameTick
+        const logged = b.state.log.length
+        const effects = JSON.stringify(b.state.player2.effects)
+        advance(b, 3)
+        expect(b.finished).toBe(true)
+        expect(b.state.gameTick).toBe(decidingTick)
+        expect(b.state.log).toHaveLength(logged)
+        expect(JSON.stringify(b.state.player2.effects)).toBe(effects)
+        expect(b.state.player2.hp).toBe(0)
+        expect(b.state.winner).toBe('draw')
+    })
+
     it('a recast refreshes the duration and does not stack', () => {
         const b = frostVsGeneral()
         castFull(b, 'player1', 'SPELL_FROST_FEVER')

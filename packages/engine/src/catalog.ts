@@ -100,7 +100,7 @@ export const FIXED_SLOT = LOADOUT_SLOTS.indexOf('fixed')
 export const HOTKEYS = ['Q', 'W', 'E', 'R', 'Space', 'D', 'F'] as const
 
 /** Placeholder until the owner picks a 0.2 default: the 0.1 default plus Afterburn as the 4th Fire spell. */
-export const DEFAULT_SPELLS: SpellId[] = [
+const FIRE_DEFAULT: SpellId[] = [
     'SPELL_FIREBALL',
     'SPELL_IGNITE',
     'SPELL_COMBUSTION',
@@ -109,6 +109,26 @@ export const DEFAULT_SPELLS: SpellId[] = [
     'SPELL_HASTE',
     'SPELL_TEMPORAL_SHIELD',
 ]
+
+/** The Frost default (owner, #148): Frostbolt, Glacier, Frost Bomb, Ice Spear, Counterspell, Haste, Temporal Shield. */
+const FROST_DEFAULT: SpellId[] = [
+    'SPELL_FROSTBOLT',
+    'SPELL_GLACIER',
+    'SPELL_FROST_BOMB',
+    'SPELL_ICE_SPEAR',
+    'SPELL_COUNTERSPELL',
+    'SPELL_HASTE',
+    'SPELL_TEMPORAL_SHIELD',
+]
+
+/** The loadout a player starts from when they pick an element. Copy it before changing it. */
+export const DEFAULT_LOADOUTS: Record<SpellElement, readonly SpellId[]> = {
+    FIRE: FIRE_DEFAULT,
+    FROST: FROST_DEFAULT,
+}
+
+/** The default loadout of `DEFAULT_ELEMENT` (Fire). */
+export const DEFAULT_SPELLS: SpellId[] = FIRE_DEFAULT
 
 export const isSpellId = (id: unknown): id is SpellId => typeof id === 'string' && Object.hasOwn(SPELLS, id)
 

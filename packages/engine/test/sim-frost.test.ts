@@ -162,4 +162,38 @@ describe('sim:search covers Frost (#147)', () => {
             /not one of the frost spells/,
         )
     })
+
+    it('the approved numbers give the best Frost set 8.38 pressure DPS (#148)', () => {
+        // Glacier, Frost Bomb, Icy Touch, Frost Fever + Haste, the top row of the full search: Fever (if not active) >
+        // Icy Touch > Haste > Bomb (if not active) > Glacier, 60 s against the dummy with a 0.4 s reaction
+        const { dps, dpsUnderPressure } = simulate({
+            loadout: [
+                'SPELL_GLACIER',
+                'SPELL_FROST_BOMB',
+                'SPELL_ICY_TOUCH',
+                'SPELL_FROST_FEVER',
+                'SPELL_COUNTERSPELL',
+                'SPELL_HASTE',
+                'SPELL_BLUR',
+            ],
+            policy: [
+                {
+                    spell: 'SPELL_FROST_FEVER',
+                    when: [{ type: 'targetEffectsBelow', effect: 'DEBUFF_FROST_FEVER', count: 1 }],
+                },
+                'SPELL_ICY_TOUCH',
+                'SPELL_HASTE',
+                {
+                    spell: 'SPELL_FROST_BOMB',
+                    when: [{ type: 'targetEffectsBelow', effect: 'DEBUFF_FROST_BOMB', count: 1 }],
+                },
+                'SPELL_GLACIER',
+            ],
+            durationSeconds: 60,
+            pressure: { reactionSeconds: 0.4 },
+        })
+        expect(dpsUnderPressure).toBeCloseTo(8.384167, 6)
+        expect(dpsUnderPressure.toFixed(2)).toBe('8.38')
+        expect(dps).toBeCloseTo(10.273333, 6)
+    })
 })

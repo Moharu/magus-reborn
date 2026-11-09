@@ -36,6 +36,7 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
         case 'set_spells': {
             // one element per player: four spells of one element, Counterspell, two general spells; never mixed
             const element = loadoutElement(raw.spells)
+            // loadoutElement already validated it; this second call only narrows `raw.spells` to SpellId[] for the type
             return element && isValidLoadout(raw.spells, element) ? { t: raw.t, spells: [...raw.spells] } : null
         }
         case 'start_cast':

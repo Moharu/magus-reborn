@@ -1,4 +1,6 @@
 import {
+    DEFAULT_LOADOUTS,
+    ELEMENT_SPELL_COUNT,
     DEFAULT_ELEMENT,
     ELEMENTS,
     loadoutElement,
@@ -98,6 +100,8 @@ export const spellPicker = (
     let element = options.element ?? loadoutElement(initial) ?? DEFAULT_ELEMENT
     let book = SPELLBOOKS[element]
     let loadout = [...initial]
+    /** The element spells last picked per element in this picker, so a round trip between elements loses nothing. */
+    const pickedElementSpells = new Map<SpellElement, SpellId[]>()
     let selection: Selection = null
     let detail: SpellId = loadout[0]
     let locked = false
@@ -288,13 +292,18 @@ export const spellPicker = (
                                 'aria-pressed': String(value === element),
                                 onclick: () => {
                                     if (locked || options.elementLocked || value === element) return
+                                    // remember the element spells being left, so switching back restores them
+                                    pickedElementSpells.set(element, loadout.slice(0, ELEMENT_SPELL_COUNT))
                                     element = value
                                     book = SPELLBOOKS[element]
                                     selection = null
+                                    // only the four element slots change: the player's Counterspell and general picks
+                                    // stay. They take the spells picked earlier for this element, else its default.
                                     const next = [...loadout]
-                                    LOADOUT_SLOTS.forEach((kind, i) => {
-                                        if (kind === 'element') next[i] = book.elementSpells[i]
-                                    })
+                                    const elementSpells =
+                                        pickedElementSpells.get(element) ??
+                                        DEFAULT_LOADOUTS[element].slice(0, ELEMENT_SPELL_COUNT)
+                                    elementSpells.forEach((id, i) => (next[i] = id))
                                     detail = next[0]
                                     commit(next)
                                     render()
