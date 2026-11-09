@@ -120,7 +120,8 @@ const pad2 = (n: number) => String(n).padStart(2, '0')
 
 /**
  * Makes `profile` playable on `loadout` (which `checkLoadout` requires): drops rotation entries whose spell is not on
- * the loadout (with no entry left, the loadout's own Fire spells in slot order), and, when the fake-cast spell is
+ * the loadout (with no entry left, the loadout's own Fire spells in slot order), the same for the free-cast window's
+ * rotation (with no entry left, the adapted rotation), and, when the fake-cast spell is
  * missing, retargets the fake to the loadout's longest cast-time spell (the first in slot order on a tie), turning
  * fake-casting off only if the loadout has no cast-time spell. Everything else is kept, and a profile that already fits
  * comes back unchanged.
@@ -128,6 +129,11 @@ const pad2 = (n: number) => String(n).padStart(2, '0')
 export const adaptProfile = (profile: Profile, loadout: readonly SpellId[]): Profile => {
     let rotation = profile.rotation.filter(({ spell }) => loadout.includes(spell))
     if (rotation.length === 0) rotation = loadout.slice(0, ELEMENT_SPELL_COUNT).map(spell => ({ spell, when: [] }))
+    const windowRotation = profile.lockoutWindow.rotation.filter(({ spell }) => loadout.includes(spell))
+    const lockoutWindow =
+        windowRotation.length === profile.lockoutWindow.rotation.length
+            ? profile.lockoutWindow
+            : { rotation: windowRotation.length > 0 ? windowRotation : rotation }
     let fakeCast = profile.fakeCast
     if (fakeCast.enabled && !loadout.includes(fakeCast.spell)) {
         let longest: SpellId | undefined
@@ -136,7 +142,7 @@ export const adaptProfile = (profile: Profile, loadout: readonly SpellId[]): Pro
                 longest = id
         fakeCast = longest ? { ...fakeCast, spell: longest } : { ...fakeCast, enabled: false }
     }
-    return checkLoadout({ ...profile, rotation, fakeCast }, loadout)
+    return checkLoadout({ ...profile, rotation, lockoutWindow, fakeCast }, loadout)
 }
 
 /** Spell ids of a loadout's Fire set, in a canonical (sorted) order: slot order does not make a different set. */

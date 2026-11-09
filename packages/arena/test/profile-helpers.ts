@@ -7,6 +7,8 @@ export const quietProfile = () => ({
     intent: 'Does nothing unless a test turns something on.',
     // never true: HP is never below 0
     rotation: [{ spell: 'SPELL_FIREBALL', when: [{ type: 'selfHpBelow', hp: 0 }] }] as unknown[],
+    /** Absent by default: the loader then uses a copy of `rotation`. */
+    lockoutWindow: undefined as unknown,
     counterspell: {
         enabled: false,
         targets: ['SPELL_METEOR'] as SpellId[],

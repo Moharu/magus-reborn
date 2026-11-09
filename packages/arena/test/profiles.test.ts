@@ -1,4 +1,4 @@
-import { secondsToTicks, type SpellId } from '@magus/engine'
+import { secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
 import { describe, expect, it } from 'vitest'
 import {
     ARCHETYPE_NAMES,
@@ -21,7 +21,7 @@ import {
     type Entrant,
     type MatchEvent,
 } from '../src'
-import { entrant, idler, METEOR_LOADOUT, OTHER_LOADOUT, recording, scripted, slotOf } from './helpers'
+import { entrant, idler, METEOR_LOADOUT, only, OTHER_LOADOUT, recording, scripted, slotOf } from './helpers'
 import { actionsOf, legalFor, quietProfile, type RawProfile } from './profile-helpers'
 
 const METEOR = slotOf(METEOR_LOADOUT, 'SPELL_METEOR')
@@ -147,6 +147,21 @@ describe('profile loader', () => {
         expect((error as Error).message.startsWith(`${key}: `)).toBe(true)
     }
 
+    it('defaults the free-cast window to a copy of the rotation and real baits to none', () => {
+        const raw = quietProfile()
+        raw.rotation = ['SPELL_METEOR', { spell: 'SPELL_FIREBALL', when: [{ type: 'enemyHpBelow', hp: 50 }] }]
+        const loaded = loadProfile(raw, METEOR_LOADOUT)
+        expect(loaded.lockoutWindow).toEqual({ rotation: loaded.rotation })
+        expect(loaded.lockoutWindow.rotation).not.toBe(loaded.rotation)
+        expect(loaded.fakeCast.realBaitShare).toBe(0)
+        const withWindow = { ...raw, lockoutWindow: { rotation: ['SPELL_FIREBALL'] } }
+        withWindow.fakeCast = { ...raw.fakeCast, realBaitShare: 0.3 } as typeof raw.fakeCast
+        const explicit = loadProfile(withWindow, METEOR_LOADOUT)
+        expect(explicit.lockoutWindow).toEqual({ rotation: [{ spell: 'SPELL_FIREBALL', when: [] }] })
+        expect(explicit.fakeCast.realBaitShare).toBe(0.3)
+        expect(parseProfile(JSON.parse(JSON.stringify(explicit)))).toEqual(explicit)
+    })
+
     it('rejects unknown keys, naming the key', () => {
         rejects(raw => (raw.speed = 1), 'speed')
         rejects(raw => Object.assign(raw.counterspell, { kick: true }), 'counterspell.kick')
@@ -160,6 +175,7 @@ describe('profile loader', () => {
         rejects(raw => (raw.rotation = [{ spell: 'SPELL_METEOR', if: [] }]), 'rotation[0].if')
         rejects(raw => (raw.fakeCast.when = [{ type: 'selfHpBelow', hp: 50, below: 1 }]), 'fakeCast.when[0].below')
         rejects(raw => (raw.fakeCast.when = [{ type: 'enemyCooldownReady' }]), 'fakeCast.when[0].type')
+        rejects(raw => (raw.lockoutWindow = { rotation: ['SPELL_FIREBALL'], greedy: true }), 'lockoutWindow.greedy')
     })
 
     it('rejects out-of-range and malformed values, naming the key', () => {
@@ -196,6 +212,15 @@ describe('profile loader', () => {
         rejects(raw => (raw.rotation = ['SPELL_COUNTERSPELL']), 'rotation[0]')
         rejects(raw => (raw.rotation = ['SPELL_HASTE']), 'rotation[0]')
         rejects(raw => (raw.name = ''), 'name')
+        rejects(raw => (raw.lockoutWindow = { rotation: [] }), 'lockoutWindow.rotation')
+        rejects(raw => (raw.lockoutWindow = {}), 'lockoutWindow.rotation')
+        rejects(raw => (raw.lockoutWindow = { rotation: ['SPELL_COUNTERSPELL'] }), 'lockoutWindow.rotation[0]')
+        rejects(
+            raw => (raw.lockoutWindow = { rotation: ['SPELL_FIREBALL', 'SPELL_FIREBALL'] }),
+            'lockoutWindow.rotation[1]',
+        )
+        rejects(raw => Object.assign(raw.fakeCast, { realBaitShare: 1.5 }), 'fakeCast.realBaitShare')
+        rejects(raw => Object.assign(raw.fakeCast, { realBaitShare: -0.1 }), 'fakeCast.realBaitShare')
     })
 
     it('rejects, at load time, a rotation spell that is not on the loadout instead of skipping it', () => {
@@ -204,6 +229,10 @@ describe('profile loader', () => {
         raw.rotation = ['SPELL_FIREBALL', 'SPELL_METEOR']
         expect(() => loadProfile(raw, METEOR_LOADOUT)).not.toThrow()
         expect(() => loadProfile(raw, OTHER_LOADOUT)).toThrow(/^rotation\[1\]: SPELL_METEOR is not on the loadout/)
+        const windowRaw = { ...quietProfile(), lockoutWindow: { rotation: ['SPELL_FIREBALL', 'SPELL_METEOR'] } }
+        expect(() => loadProfile(windowRaw, OTHER_LOADOUT)).toThrow(
+            /^lockoutWindow\.rotation\[1\]: SPELL_METEOR is not on the loadout/,
+        )
         // shape-only parsing passes, but every way of playing it checks the loadout before the first tick
         const parsed = parseProfile(raw)
         expect(() => profileEntrant(parsed, OTHER_LOADOUT)).toThrow(/rotation\[1\]/)
@@ -296,9 +325,9 @@ describe('profile controller: Counterspell policy', () => {
     })
 
     it('commits later in the cast once Counterspell will be ready in time', () => {
-        // b counters the tick-0 Meteor on tick 11, then is on cooldown (11.7 s = 234 ticks) until tick 245
-        const meteors = entrant('meteors', profileController(profile(raw => (raw.rotation = ['SPELL_METEOR']))))
-        const result = runMatch({ seed: 1, a: meteors, b: counterer('early', 0.5), maxTicks: 400 })
+        // b counters the tick-0 Meteor on tick 11, then is on cooldown (11.7 s = 234 ticks) until tick 245; a casts
+        // Meteors back to back without minding that (a profile would hold its Meteor for the cooldown, see #123)
+        const result = runMatch({ seed: 1, a: only('SPELL_METEOR'), b: counterer('early', 0.5), maxTicks: 400 })
         const interrupts = of(result.log, 'a', 'INTERRUPTED').map(e => e.tick)
         expect(interrupts[0]).toBe(11)
         // the Meteor in progress when the cooldown ends is interrupted as soon as Counterspell is ready
@@ -400,7 +429,9 @@ describe('profile controller: fake casts', () => {
     })
 
     it('does not let nextCastIs rules (Haste before Meteor) fire for a fake cast', () => {
-        const result = runMatch({ seed: 1, a: archetypeEntrant('bait'), b: idler(), maxTicks: 20 })
+        const { profile: bait, loadout } = ARCHETYPES.bait
+        const fakesOnly = { ...bait, fakeCast: { ...bait.fakeCast, realBaitShare: 0 } }
+        const result = runMatch({ seed: 1, a: profileEntrant(fakesOnly, loadout), b: idler(), maxTicks: 20 })
         // the fake Meteor starts on tick 0 and is cancelled on 5; Haste goes with the real Meteor on 13
         expect(result.log.map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
             '0 START_CAST SPELL_METEOR',
@@ -417,18 +448,21 @@ describe('profile controller: fake casts', () => {
     })
 
     it('the bait archetype fake-casts against a reactive Counterspell in a seeded match', () => {
-        for (const seed of [1, 2, 3]) {
+        let fakes = 0
+        let wasted = 0
+        for (const seed of [1, 2, 3, 4]) {
             const result = runMatch({ seed, a: archetypeEntrant('bait'), b: archetypeEntrant('aggressive') })
-            const fakes = fakeCasts(result.log, 'a', 'SPELL_METEOR')
-            expect(fakes.length).toBeGreaterThanOrEqual(1)
-            // at least one of the enemy's Counterspells hit nothing
-            const wasted = of(result.log, 'b', 'SPELL_RELEASE').filter(
+            fakes += fakeCasts(result.log, 'a', 'SPELL_METEOR').length
+            // the enemy's Counterspells that hit nothing
+            wasted += of(result.log, 'b', 'SPELL_RELEASE').filter(
                 e =>
                     e.spellId === 'SPELL_COUNTERSPELL' &&
                     !result.log.some(i => i.tick === e.tick && i.side === 'a' && i.type === 'INTERRUPTED'),
-            )
-            expect(wasted.length).toBeGreaterThanOrEqual(1)
+            ).length
         }
+        // half its baits are real casts (realBaitShare 0.5), so not every match has a fake
+        expect(fakes).toBeGreaterThanOrEqual(1)
+        expect(wasted).toBeGreaterThanOrEqual(1)
     })
 })
 
@@ -511,6 +545,375 @@ describe('profile controller: general spells', () => {
             expect(replayed).toEqual(decisions)
             expect(decisions.some(d => (d as unknown[]).length > 0)).toBe(true)
         }
+    })
+})
+
+/** A spell's base cast time in ticks, from the public spell data (the view shows the same). */
+const castTicks = (id: SpellId) => secondsToTicks(SPELLS[id].castSeconds ?? 0)
+
+/**
+ * A hand-built view on `tick`: every spell ready with its base cast time, the enemy idle with `ignites` Ignites and
+ * locked until `enemyLockedUntil`.
+ */
+const freeView = (
+    loadout: readonly SpellId[],
+    tick: number,
+    { enemyLockedUntil = 0, ignites = 0 }: { enemyLockedUntil?: number; ignites?: number } = {},
+): ArenaView => ({
+    tick,
+    self: {
+        hp: 100,
+        casting: null,
+        gcdUntil: 0,
+        lockedUntil: 0,
+        effects: [],
+        spells: loadout.map(id => ({
+            id,
+            castTime: castTicks(id),
+            cooldownRemaining: 0,
+            lockRemaining: 0,
+            ready: true,
+        })),
+    },
+    enemy: {
+        hp: 100,
+        casting: null,
+        lockedUntil: enemyLockedUntil,
+        effects: Array.from({ length: ignites }, () => ({
+            id: 'DEBUFF_IGNITE' as const,
+            type: 'negative' as const,
+            startingTick: tick - 10,
+            expiresAt: tick + 190,
+        })),
+    },
+})
+
+/** The view one tick after an enemy Counterspell landed on `landedAt`: locked for 3 s, its debuff on the buff bar. */
+const counteredView = (loadout: readonly SpellId[], landedAt: number): ArenaView => {
+    const view = freeView(loadout, landedAt + 1)
+    return {
+        ...view,
+        self: {
+            ...view.self,
+            lockedUntil: landedAt + 60,
+            effects: [
+                { id: 'DEBUFF_COUNTERSPELL', type: 'negative', startingTick: landedAt, expiresAt: landedAt + 60 },
+            ],
+            spells: view.self.spells.map(s => ({ ...s, lockRemaining: 59, ready: false })),
+        },
+    }
+}
+
+/** The cast-time spell a decision starts, or null. */
+const castOf = (loadout: readonly SpellId[], decision: Decision) =>
+    actionsOf(decision)
+        .filter(a => a.type === 'start' && castTicks(loadout[a.slot]) > 0)
+        .map(a => loadout[a.slot])[0] ?? null
+
+/** A fresh controller for `loaded` on `loadout`. */
+const controllerFor = (loaded: ReturnType<typeof parseProfile>, loadout: readonly SpellId[], seed = 1) =>
+    profileController(loaded)({ loadout, rng: new Rng(seed) })
+
+/** The ticks `side` started a cast of `spell`. */
+const startsOf = (log: readonly MatchEvent[], side: 'a' | 'b', spell?: SpellId) =>
+    of(log, side, 'START_CAST')
+        .filter(e => !spell || e.spellId === spell)
+        .map(e => e.tick)
+
+describe('profile controller: free-cast window after a Counterspell (#123)', () => {
+    // Combustion (2.4 s = 48 ticks) is a target of every archetype's Counterspell: risky unless the enemy can't counter
+    const cases = [
+        { name: 'aggressive', ignites: 2, window: 'SPELL_COMBUSTION', normal: 'SPELL_IGNITE' },
+        { name: 'defensive', ignites: 1, window: 'SPELL_COMBUSTION', normal: 'SPELL_LIVING_BOMB' },
+        { name: 'patient-counter', ignites: 1, window: 'SPELL_COMBUSTION', normal: 'SPELL_IGNITE' },
+        // a 3 s lockout has no room for Meteor (3.6 s), so bait casts a Fireball instead of a bait or a Meteor
+        { name: 'bait', ignites: 0, window: 'SPELL_FIREBALL', normal: undefined },
+    ] as const
+
+    it('every archetype casts from its window list while the enemy is locked out', () => {
+        for (const { name, ignites, window, normal } of cases) {
+            const { profile: loaded, loadout } = ARCHETYPES[name]
+            // the view one tick after the Counterspell landed on tick 99: the enemy is locked until 159
+            const locked = castOf(
+                loadout,
+                controllerFor(loaded, loadout)(freeView(loadout, 100, { enemyLockedUntil: 159, ignites })),
+            )
+            const free = castOf(loadout, controllerFor(loaded, loadout)(freeView(loadout, 100, { ignites })))
+            expect(locked, name).toBe(window)
+            if (normal) expect(free, name).toBe(normal)
+            expect(free, name).not.toBe(locked)
+        }
+    })
+
+    it('a window cast must release before the lockout ends: on that tick the enemy may act first', () => {
+        const { profile: loaded, loadout } = ARCHETYPES.aggressive
+        const decide = (enemyLockedUntil: number) =>
+            castOf(loadout, controllerFor(loaded, loadout)(freeView(loadout, 100, { enemyLockedUntil, ignites: 2 })))
+        // Combustion started on 100 releases on 148
+        expect(decide(149)).toBe('SPELL_COMBUSTION')
+        expect(decide(148)).toBe('SPELL_IGNITE')
+        // Ignite (32 ticks) releases on 132: with the lockout ending on it, nothing fits and nothing starts
+        expect(decide(133)).toBe('SPELL_IGNITE')
+        expect(decide(132)).toBe('SPELL_FIREBALL')
+        expect(decide(126)).toBeNull()
+    })
+
+    for (const side of ['a', 'b'] as const) {
+        const enemy = side === 'a' ? 'b' : 'a'
+        it(`in a match (as ${side}): the cast after its Counterspell is a Combustion that lands before the lockout ends`, () => {
+            // the enemy Meteor's start tick is picked so the archetype has the Ignites its window rule asks for
+            for (const [name, meteorAt] of [
+                ['aggressive', 70],
+                ['defensive', 100],
+                ['patient-counter', 60],
+            ] as const) {
+                const meteor = entrant('meteor', scripted({ [meteorAt]: start(METEOR), [meteorAt + 72]: stop(METEOR) }))
+                const result = runMatch({
+                    seed: 1,
+                    [side]: archetypeEntrant(name),
+                    [enemy]: meteor,
+                    maxTicks: meteorAt + 200,
+                } as unknown as Parameters<typeof runMatch>[0])
+                const [landed] = of(result.log, enemy, 'INTERRUPTED').map(e => e.tick)
+                expect(landed, name).toBeGreaterThan(meteorAt)
+                // one tick to see the lock on the view, then Combustion, released before the lock ends on landed + 60
+                const next = of(result.log, side, 'START_CAST').find(e => e.tick > landed)
+                expect(next, name).toMatchObject({ tick: landed + 1, spellId: 'SPELL_COMBUSTION' })
+                const release = of(result.log, side, 'SPELL_RELEASE').find(
+                    e => e.tick > landed && e.spellId === 'SPELL_COMBUSTION',
+                )
+                expect(release?.tick, name).toBe(landed + 1 + 48)
+                expect(release!.tick, name).toBeLessThan(landed + 60)
+                expect(result.stats[side].interrupted, name).toBe(0)
+            }
+        })
+    }
+
+    it('counts a hasted cast at its base time when the Haste will not last to its release', () => {
+        const loaded = profile(raw => (raw.rotation = ['SPELL_COMBUSTION', 'SPELL_FIREBALL']))
+        const HASTED: Partial<Record<SpellId, number>> = { SPELL_COMBUSTION: 24, SPELL_FIREBALL: 13, SPELL_METEOR: 36 }
+        // on tick 100, Haste on and the enemy locked until 140: hasted, Combustion releases on 124; un-hasted, on 148
+        const decide = (hasteEnds: number, releasing: boolean) => {
+            const decideNow = controllerFor(loaded, METEOR_LOADOUT)
+            decideNow(freeView(METEOR_LOADOUT, 10)) // no Haste yet: the base cast times
+            const view = freeView(METEOR_LOADOUT, 100, { enemyLockedUntil: 140 })
+            const hasted: ArenaView = {
+                ...view,
+                self: {
+                    ...view.self,
+                    effects: [{ id: 'BUFF_HASTE', type: 'positive', startingTick: 60, expiresAt: hasteEnds }],
+                    spells: view.self.spells.map(s => ({ ...s, castTime: HASTED[s.id] ?? s.castTime })),
+                    // a hasted Meteor completing now: releasing it uses up the Haste
+                    casting: releasing
+                        ? { slot: METEOR, spellId: 'SPELL_METEOR', startTick: 64, castTime: 36, completesAt: 100 }
+                        : null,
+                },
+            }
+            return castOf(METEOR_LOADOUT, decideNow(hasted))
+        }
+        expect(decide(1260, false)).toBe('SPELL_COMBUSTION')
+        // this tick's release uses up the Haste: Combustion would take its base 48 ticks, a Fireball 26 fits
+        expect(decide(1260, true)).toBe('SPELL_FIREBALL')
+        // Haste ends on 120, before the hasted release on 124
+        expect(decide(120, false)).toBe('SPELL_FIREBALL')
+        expect(decide(125, false)).toBe('SPELL_COMBUSTION')
+    })
+
+    it('a cast that ends after the lockout is chosen only if the enemy Counterspell is seen on cooldown', () => {
+        const loadout = METEOR_LOADOUT
+        const meteors = profile(raw => (raw.rotation = ['SPELL_METEOR', 'SPELL_FIREBALL']))
+        // on tick 300 the enemy is locked until 359; a Meteor started then releases on 372, after the lockout
+        const decide = (seenLanding?: number) => {
+            const decideNow = controllerFor(meteors, loadout)
+            if (seenLanding !== undefined) expect(actionsOf(decideNow(counteredView(loadout, seenLanding)))).toEqual([])
+            return castOf(loadout, decideNow(freeView(loadout, 300, { enemyLockedUntil: 359 })))
+        }
+        // no enemy Counterspell seen: it may be ready when the lockout ends, so only a Fireball (326) fits
+        expect(decide()).toBe('SPELL_FIREBALL')
+        // its Counterspell landed on 139: on cooldown (11.7 s = 234 ticks) until 373, so the Meteor releases first
+        expect(decide(139)).toBe('SPELL_METEOR')
+        // landed on 138: ready on 372, the Meteor's release tick
+        expect(decide(138)).toBe('SPELL_FIREBALL')
+    })
+
+    it('holds a long cast while the enemy Counterspell is on cooldown but would be ready before its release', () => {
+        // b counters the tick-0 Meteor on tick 11 and is on cooldown until 245: Meteors started on 71 and 143 release
+        // first, the one after waits for 245 instead of starting on 215, where it would still be on the bar at 245
+        const meteors = player('meteors', raw => (raw.rotation = ['SPELL_METEOR']))
+        const result = runMatch({ seed: 1, a: meteors, b: counterer('early', 0.5), maxTicks: 400 })
+        const before = (e: MatchEvent) => e.tick < 300
+        expect(
+            of(result.log, 'a', 'START_CAST')
+                .filter(before)
+                .map(e => e.tick),
+        ).toEqual([0, 71, 143, 245])
+        expect(
+            of(result.log, 'a', 'SPELL_RELEASE')
+                .filter(before)
+                .map(e => e.tick),
+        ).toEqual([143, 215])
+        // the Meteor started on 245 is countered as soon as b sees it and reacts, like the first one
+        expect(
+            of(result.log, 'a', 'INTERRUPTED')
+                .filter(before)
+                .map(e => e.tick),
+        ).toEqual([11, 256])
+    })
+
+    it('starts no fake cast and no real bait in the window', () => {
+        for (const realBaitShare of [0, 1]) {
+            const baiter = player('baiter', raw => {
+                raw.rotation = ['SPELL_FIREBALL', 'SPELL_IGNITE']
+                ;(raw as Record<string, unknown>).lockoutWindow = { rotation: ['SPELL_FIREBALL'] }
+                raw.counterspell = {
+                    ...raw.counterspell,
+                    enabled: true,
+                    reaction: { meanSeconds: 0.25, spreadSeconds: 0 },
+                }
+                Object.assign(raw.fakeCast, { enabled: true, minGapSeconds: 0, maxPerMatch: 50, realBaitShare })
+            })
+            const meteor = entrant('meteor', scripted({ 20: start(METEOR), 92: stop(METEOR) }))
+            const result = runMatch({ seed: 1, a: baiter, b: meteor, maxTicks: 160 })
+            const [landed] = of(result.log, 'b', 'INTERRUPTED').map(e => e.tick)
+            const lockEnds = landed + 60
+            const inWindow = (tick: number) => tick > landed && tick < lockEnds
+            // baits before and after the window (a fake Meteor, or a real Ignite, the lowest-priority entry) ...
+            const baits = realBaitShare
+                ? startsOf(result.log, 'a', 'SPELL_IGNITE')
+                : fakeCasts(result.log, 'a', 'SPELL_METEOR')
+            expect(
+                baits.some(t => t < landed),
+                `share ${realBaitShare}`,
+            ).toBe(true)
+            expect(
+                baits.some(t => t >= lockEnds),
+                `share ${realBaitShare}`,
+            ).toBe(true)
+            // ... and none in it: only Fireballs, each released before the lockout ends
+            expect(baits.filter(inWindow), `share ${realBaitShare}`).toEqual([])
+            const windowCasts = of(result.log, 'a', 'START_CAST').filter(e => inWindow(e.tick))
+            expect(windowCasts.map(e => e.spellId)).toEqual(['SPELL_FIREBALL', 'SPELL_FIREBALL'])
+            expect(windowCasts.every(e => e.tick + 26 < lockEnds)).toBe(true)
+        }
+    })
+
+    it('never starts a spell while locked out, whatever its rules want', () => {
+        for (const name of ARCHETYPE_NAMES) {
+            const { profile: loaded, loadout } = ARCHETYPES[name]
+            const decide = controllerFor(loaded, loadout)
+            const view = counteredView(loadout, 100)
+            // an enemy Meteor about to land and Ignites on both: every rule has a reason to act
+            const meteorView: ArenaView = {
+                ...view,
+                self: { ...view.self, hp: 20 },
+                enemy: {
+                    ...view.enemy,
+                    hp: 10,
+                    casting: { spellId: 'SPELL_METEOR', startTick: 40, castTime: 72, completesAt: 112 },
+                    effects: freeView(loadout, 101, { ignites: 6 }).enemy.effects,
+                },
+            }
+            for (let tick = 101; tick < 160; tick++)
+                expect(actionsOf(decide({ ...meteorView, tick })), `${name} on ${tick}`).toEqual([])
+        }
+    })
+})
+
+describe('profile controller: sacrificial bait (#123)', () => {
+    const realBait = (share: number) => {
+        const { profile: bait, loadout } = ARCHETYPES.bait
+        return profileEntrant({ ...bait, fakeCast: { ...bait.fakeCast, realBaitShare: share } }, loadout, 'bait')
+    }
+
+    for (const side of ['a', 'b'] as const) {
+        const enemy = side === 'a' ? 'b' : 'a'
+        it(`sacrifices a real low-priority Combustion, then lands Meteors while the Counterspell is on cooldown (as ${side})`, () => {
+            const result = runMatch({
+                seed: 1,
+                [side]: realBait(1),
+                [enemy]: archetypeEntrant('aggressive'),
+                maxTicks: 400,
+            } as unknown as Parameters<typeof runMatch>[0])
+            // the bait: its rotation's last entry, cast for real (no cancel), countered by the enemy
+            expect(of(result.log, side, 'START_CAST')[0]).toMatchObject({ tick: 0, spellId: 'SPELL_COMBUSTION' })
+            const [landed] = of(result.log, side, 'INTERRUPTED').map(e => e.tick)
+            expect(of(result.log, side, 'INTERRUPTED')[0].spellId).toBe('SPELL_COMBUSTION')
+            const readyAgain = landed + 234
+            // from the end of the lock until the enemy Counterspell is ready again: Meteors (Haste on the first), no
+            // bait, and every cast released before the enemy can counter it
+            const between = (e: MatchEvent) => e.tick >= landed + 60 && e.tick < readyAgain
+            const starts = of(result.log, side, 'START_CAST').filter(between)
+            expect(starts[0]).toMatchObject({ tick: landed + 60, spellId: 'SPELL_METEOR' })
+            expect(starts.filter(e => e.spellId === 'SPELL_METEOR').length).toBeGreaterThanOrEqual(2)
+            expect(starts.some(e => e.spellId === 'SPELL_COMBUSTION')).toBe(false)
+            expect(fakeCasts(result.log, side, 'SPELL_METEOR').filter(t => t < readyAgain)).toEqual([])
+            const releases = of(result.log, side, 'SPELL_RELEASE').filter(
+                e => between(e) && e.spellId === 'SPELL_METEOR',
+            )
+            expect(releases.length).toBeGreaterThanOrEqual(2)
+            expect(of(result.log, side, 'INTERRUPTED').filter(e => e.tick < readyAgain)).toHaveLength(1)
+        })
+    }
+
+    it('the shipped bait archetype mixes both kinds of bait (realBaitShare 0.5)', () => {
+        const first = (seed: number) =>
+            of(
+                runMatch({ seed, a: archetypeEntrant('bait'), b: archetypeEntrant('aggressive') }).log,
+                'a',
+                'START_CAST',
+            )[0].spellId
+        // seed 1 draws a real Combustion for its first bait, seed 3 a fake Meteor
+        expect(first(1)).toBe('SPELL_COMBUSTION')
+        expect(first(3)).toBe('SPELL_METEOR')
+        expect(ARCHETYPES.bait.profile.fakeCast.realBaitShare).toBe(0.5)
+    })
+
+    it('picks the bait by rotation priority: the last entry that is ready and whose when holds', () => {
+        const loaded = profile(raw => {
+            raw.rotation = [
+                'SPELL_METEOR',
+                'SPELL_FIREBALL',
+                {
+                    spell: 'SPELL_COMBUSTION',
+                    when: [{ type: 'enemyEffectsAtLeast', effect: 'DEBUFF_IGNITE', count: 1 }],
+                },
+            ]
+            Object.assign(raw.fakeCast, { enabled: true, realBaitShare: 1 })
+        })
+        const first = (ignites: number) =>
+            castOf(METEOR_LOADOUT, controllerFor(loaded, METEOR_LOADOUT)(freeView(METEOR_LOADOUT, 50, { ignites })))
+        expect(first(1)).toBe('SPELL_COMBUSTION')
+        expect(first(0)).toBe('SPELL_FIREBALL')
+        // a real bait is released when complete, not cancelled
+        const result = runMatch({ seed: 1, a: entrant('bait', profileController(loaded)), b: idler(), maxTicks: 30 })
+        expect(result.log.filter(e => e.side === 'a').map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
+            '0 START_CAST SPELL_FIREBALL',
+            '26 STOP_CAST SPELL_FIREBALL',
+            '26 SPELL_RELEASE SPELL_FIREBALL',
+            '26 START_CAST SPELL_METEOR',
+        ])
+    })
+
+    it('realBaitShare sets how often a bait is real: never at 0, always at 1, drawn per bait in between', () => {
+        const kinds = (share: number, seed: number) => {
+            const loaded = profile(raw => {
+                raw.rotation = ['SPELL_METEOR', 'SPELL_FIREBALL']
+                Object.assign(raw.fakeCast, { enabled: true, minGapSeconds: 0, maxPerMatch: 10, realBaitShare: share })
+            })
+            // 10 baits back to back, then Meteors; at most 10 Fireballs (56 HP), so the idle enemy outlives them
+            const result = runMatch({ seed, a: entrant('bait', profileController(loaded)), b: idler(), maxTicks: 600 })
+            return {
+                fakes: fakeCasts(result.log, 'a', 'SPELL_METEOR').length,
+                real: startsOf(result.log, 'a', 'SPELL_FIREBALL').length,
+            }
+        }
+        expect(kinds(0, 1)).toEqual({ fakes: 10, real: 0 })
+        expect(kinds(1, 1)).toEqual({ fakes: 0, real: 10 })
+        const mixed = kinds(0.5, 1)
+        expect(mixed.fakes).toBeGreaterThan(0)
+        expect(mixed.real).toBeGreaterThan(0)
+        expect(mixed.fakes + mixed.real).toBe(10)
+        expect(kinds(0.5, 1)).toEqual(mixed)
     })
 })
 

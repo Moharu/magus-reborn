@@ -13,6 +13,7 @@ export interface Profile {
     readonly intent?: string
     /** Which cast to start when nothing else applies: the first entry whose spell is ready and whose `when` holds. */
     readonly rotation: readonly RotationEntry[]
+    readonly lockoutWindow: LockoutWindow
     readonly counterspell: CounterspellPolicy
     readonly fakeCast: FakeCast
     /** One usage rule per general spell. Rules for general spells that aren't on the loadout are ignored. */
@@ -24,6 +25,19 @@ export interface RotationEntry {
     readonly spell: SpellId
     /** All must hold. Default `[]`: always. */
     readonly when: readonly Condition[]
+}
+
+/**
+ * The free-cast window (#123): while the enemy can't Counterspell (its Counterspell lock, or its Counterspell on
+ * cooldown, both from the view), the profile casts from this list instead of `rotation`, and only a cast that is
+ * released before the enemy can next Counterspell. No fake cast or bait is started in the window.
+ */
+export interface LockoutWindow {
+    /**
+     * Highest value first: the first entry whose spell is ready, whose `when` holds and whose cast fits the window. With
+     * none fitting, no cast starts until the window ends. Default: a copy of `rotation`.
+     */
+    readonly rotation: readonly RotationEntry[]
 }
 
 export interface CounterspellPolicy {
@@ -67,6 +81,14 @@ export interface FakeCast {
     readonly maxPerMatch: number
     /** All must hold to start a fake (as well as the spell being ready and no own cast in progress). */
     readonly when: readonly Condition[]
+    /**
+     * Sacrificial bait (#123): the share of baits, in [0, 1], that are a real cast of the lowest-priority rotation entry
+     * (the last one that is ready and whose `when` holds) instead of a fake. A real bait is not cancelled: it may be
+     * countered, which shows the enemy's Counterspell on cooldown and opens the free-cast window. Drawn from the seeded
+     * stream per bait (no draw at 0 or 1). Default 0: every bait is a fake. The fake-cast gates above (`enabled`,
+     * `minGapSeconds`, `maxPerMatch`, `when`) apply to both kinds.
+     */
+    readonly realBaitShare: number
 }
 
 export const GENERAL_SPELLS = ['SPELL_HASTE', 'SPELL_TEMPORAL_SHIELD', 'SPELL_MAGIC_EATER', 'SPELL_BLUR'] as const
@@ -77,7 +99,8 @@ export type GeneralRule = 'never' | { readonly when: readonly Condition[] }
 
 const MAX_SECONDS = 10
 const MAX_TEXT = 200
-const PROFILE_KEYS = ['name', 'intent', 'rotation', 'counterspell', 'fakeCast', 'generals']
+const PROFILE_KEYS = ['name', 'intent', 'rotation', 'lockoutWindow', 'counterspell', 'fakeCast', 'generals']
+const LOCKOUT_WINDOW_KEYS = ['rotation']
 const COUNTERSPELL_KEYS = ['enabled', 'targets', 'reaction', 'timing', 'lateWindowSeconds']
 const FAKE_CAST_KEYS = [
     'enabled',
@@ -87,7 +110,10 @@ const FAKE_CAST_KEYS = [
     'minGapSeconds',
     'maxPerMatch',
     'when',
+    'realBaitShare',
 ]
+/** Keys that may be left out, with their default. */
+const OPTIONAL_FAKE_CAST_KEYS = ['realBaitShare']
 
 const castTimeSpell = (raw: unknown, path: string) => {
     if (!isSpellId(raw)) fail(path, `unknown spell id ${JSON.stringify(raw)}`)
@@ -96,11 +122,11 @@ const castTimeSpell = (raw: unknown, path: string) => {
     return id
 }
 
-const parseRotation = (raw: unknown): RotationEntry[] => {
-    if (!Array.isArray(raw) || raw.length === 0) fail('rotation', 'must be a non-empty array')
+const parseRotation = (raw: unknown, base = 'rotation'): RotationEntry[] => {
+    if (!Array.isArray(raw) || raw.length === 0) fail(base, 'must be a non-empty array')
     const seen = new Set<SpellId>()
     return (raw as unknown[]).map((entry, i) => {
-        const path = `rotation[${i}]`
+        const path = `${base}[${i}]`
         const value = typeof entry === 'string' ? { spell: entry } : record(entry, path, ['spell', 'when'])
         if (!isSpellId(value.spell)) fail(typeof entry === 'string' ? path : `${path}.spell`, 'unknown spell id')
         const spell = value.spell as SpellId
@@ -140,7 +166,8 @@ const parseCounterspell = (raw: unknown): CounterspellPolicy => {
 
 const parseFakeCast = (raw: unknown): FakeCast => {
     const value = record(raw, 'fakeCast', FAKE_CAST_KEYS)
-    for (const key of FAKE_CAST_KEYS) if (!(key in value)) fail(`fakeCast.${key}`, 'is required')
+    for (const key of FAKE_CAST_KEYS)
+        if (!(key in value) && !OPTIONAL_FAKE_CAST_KEYS.includes(key)) fail(`fakeCast.${key}`, 'is required')
     const cancelAfterSeconds = number(value.cancelAfterSeconds, 'fakeCast.cancelAfterSeconds', 0, MAX_SECONDS)
     if (secondsToTicks(cancelAfterSeconds) < 1) fail('fakeCast.cancelAfterSeconds', 'must be at least one tick')
     return {
@@ -151,7 +178,17 @@ const parseFakeCast = (raw: unknown): FakeCast => {
         minGapSeconds: number(value.minGapSeconds, 'fakeCast.minGapSeconds', 0, 180),
         maxPerMatch: number(value.maxPerMatch, 'fakeCast.maxPerMatch', 0, 1000, true),
         when: parseWhen(value.when, 'fakeCast.when'),
+        realBaitShare:
+            value.realBaitShare === undefined ? 0 : number(value.realBaitShare, 'fakeCast.realBaitShare', 0, 1),
     }
+}
+
+/** Absent: the window plays a copy of the rotation. */
+const parseLockoutWindow = (raw: unknown, rotation: readonly RotationEntry[]): LockoutWindow => {
+    if (raw === undefined) return { rotation: rotation.map(entry => ({ spell: entry.spell, when: [...entry.when] })) }
+    const value = record(raw, 'lockoutWindow', LOCKOUT_WINDOW_KEYS)
+    if (!('rotation' in value)) fail('lockoutWindow.rotation', 'is required')
+    return { rotation: parseRotation(value.rotation, 'lockoutWindow.rotation') }
 }
 
 const parseGenerals = (raw: unknown): Record<GeneralSpell, GeneralRule> => {
@@ -176,10 +213,12 @@ const parseGenerals = (raw: unknown): Record<GeneralSpell, GeneralRule> => {
 export const parseProfile = (raw: unknown): Profile => {
     if (!isRecord(raw)) fail('profile', 'must be an object')
     const value = record(raw, '', PROFILE_KEYS)
+    const rotation = parseRotation(value.rotation)
     const profile: Profile = {
         name: string(value.name, 'name', MAX_TEXT),
         ...(value.intent === undefined ? {} : { intent: string(value.intent, 'intent', MAX_TEXT) }),
-        rotation: parseRotation(value.rotation),
+        rotation,
+        lockoutWindow: parseLockoutWindow(value.lockoutWindow, rotation),
         counterspell: parseCounterspell(value.counterspell),
         fakeCast: parseFakeCast(value.fakeCast),
         generals: parseGenerals(value.generals),
@@ -188,12 +227,15 @@ export const parseProfile = (raw: unknown): Profile => {
 }
 
 /**
- * Rejects a profile that names a spell the loadout doesn't have: every rotation spell, and the fake-cast spell when
+ * Rejects a profile that names a spell the loadout doesn't have: every rotation and window spell, and the fake-cast spell when
  * fake-casting is enabled. Rejected here, at load time, never skipped during a match.
  */
 export const checkLoadout = (profile: Profile, loadout: readonly SpellId[]) => {
     profile.rotation.forEach(({ spell }, i) => {
         if (!loadout.includes(spell)) fail(`rotation[${i}]`, `${spell} is not on the loadout`)
+    })
+    profile.lockoutWindow.rotation.forEach(({ spell }, i) => {
+        if (!loadout.includes(spell)) fail(`lockoutWindow.rotation[${i}]`, `${spell} is not on the loadout`)
     })
     if (profile.fakeCast.enabled && !loadout.includes(profile.fakeCast.spell))
         fail('fakeCast.spell', `${profile.fakeCast.spell} is not on the loadout`)

@@ -14,6 +14,7 @@ import {
     parameterSlots,
     parseProfile,
     PROFILE_PARAMETERS,
+    REACTION_MIN_SECONDS,
     Rng,
     runMatch,
     scorer,
@@ -128,16 +129,71 @@ describe('tunable parameter schema', () => {
         p = withValue(p, 'rotation[0].when[0].count', 1000)
         p = withValue(p, 'counterspell.reaction.spreadSeconds', 0.3)
         p = withValue(p, 'fakeCast.cancelAfterSeconds', 0)
+        p = withValue(p, 'fakeCast.pauseAfterSeconds', 0)
+        p = withValue(p, 'fakeCast.realBaitShare', 3)
         const clamped = clampProfile(p)
         expect(clamped.counterspell.reaction.meanSeconds).toBe(1.5)
         expect(clamped.fakeCast.maxPerMatch).toBe(0)
         expect(clamped.fakeCast.minGapSeconds).toBe(60)
         expect(getAt(clamped, 'rotation[0].when[0].count')).toBe(20)
-        expect(clamped.fakeCast.cancelAfterSeconds).toBe(0.05)
+        // a fake cast and the pause after it last at least one standard reaction time (0.25 s)
+        expect(clamped.fakeCast.cancelAfterSeconds).toBe(0.25)
+        expect(clamped.fakeCast.pauseAfterSeconds).toBe(0.25)
+        expect(clamped.fakeCast.realBaitShare).toBe(1)
         expect(clamped.counterspell.reaction.spreadSeconds).toBe(0.3) // 0.3 <= 1.5: kept
 
         const spread = clampProfile(withValue(aggressive.profile, 'counterspell.reaction.spreadSeconds', 0.45))
         expect(spread.counterspell.reaction.spreadSeconds).toBe(0.35) // above the 0.35 mean: lowered to it
+    })
+})
+
+describe('tuning bounds (#123)', () => {
+    it('never tunes counterspell.enabled: everyone has Counterspell', () => {
+        expect(Object.keys(PROFILE_PARAMETERS)).not.toContain('counterspell.enabled')
+        const off = { ...aggressive.profile, counterspell: { ...aggressive.profile.counterspell, enabled: false } }
+        for (const profile of [...archetypes, off]) {
+            expect(parameterSlots(profile).map(s => s.path)).not.toContain('counterspell.enabled')
+            for (let i = 0; i < 40; i++) {
+                const rng = new Rng(i)
+                // a high rate: every declared parameter is likely to move
+                expect(mutateProfile(profile, rng, 0.9).counterspell.enabled).toBe(profile.counterspell.enabled)
+                expect(crossoverProfiles(profile, off, rng).counterspell.enabled).toBe(profile.counterspell.enabled)
+            }
+        }
+    })
+
+    it('keeps fake-cast cancel and pause at least one reaction time (0.25 s), clamped', () => {
+        expect(REACTION_MIN_SECONDS).toBe(0.25)
+        for (const path of [
+            'fakeCast.cancelAfterSeconds',
+            'fakeCast.pauseAfterSeconds',
+            'counterspell.reaction.meanSeconds',
+        ])
+            expect((PROFILE_PARAMETERS[path] as NumberParameter).min, path).toBe(REACTION_MIN_SECONDS)
+        for (const value of [0, 0.05, 0.1, 0.24])
+            for (const path of ['fakeCast.cancelAfterSeconds', 'fakeCast.pauseAfterSeconds'])
+                expect(getAt(clampProfile(withValue(bait.profile, path, value)), path), `${path} ${value}`).toBe(0.25)
+        expect(
+            clampProfile(withValue(bait.profile, 'fakeCast.pauseAfterSeconds', 0.3)).fakeCast.pauseAfterSeconds,
+        ).toBe(0.3)
+        // mutation never goes below it either
+        for (let i = 0; i < 60; i++) {
+            const mutant = mutateProfile(bait.profile, new Rng(i), 0.9)
+            expect(mutant.fakeCast.cancelAfterSeconds).toBeGreaterThanOrEqual(0.25)
+            expect(mutant.fakeCast.pauseAfterSeconds).toBeGreaterThanOrEqual(0.25)
+        }
+    })
+
+    it('tunes the bait style and the window conditions within bounds', () => {
+        expect(PROFILE_PARAMETERS['fakeCast.realBaitShare']).toMatchObject({ kind: 'number', min: 0, max: 1 })
+        expect(clampValue(PROFILE_PARAMETERS['fakeCast.realBaitShare'], -1)).toBe(0)
+        const paths = parameterSlots(aggressive.profile).map(s => s.path)
+        expect(paths).toContain('fakeCast.realBaitShare')
+        expect(paths).toContain('lockoutWindow.rotation[1].when[0].count')
+        const seen = new Set<number>()
+        for (let i = 0; i < 60; i++) seen.add(mutateProfile(bait.profile, new Rng(i), 0.9).fakeCast.realBaitShare)
+        expect(seen.size).toBeGreaterThan(3)
+        for (const share of seen) expect(share >= 0 && share <= 1).toBe(true)
     })
 })
 
