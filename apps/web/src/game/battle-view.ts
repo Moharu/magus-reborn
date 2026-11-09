@@ -6,6 +6,7 @@ import {
     type LogEntry,
     type PlayerKey,
     type PlayerState,
+    type PlayerView,
     type SpellId,
 } from '@magus/engine'
 import { ActionBar, INFINITE_HP, PlayerHud, setText } from './hud'
@@ -99,6 +100,9 @@ export class BattleView {
     private readonly keysDown = new Set<number>()
     // Bind deferred releases to the cast identity so they cannot release a replacement.
     private readonly pausedReleases = new Map<number, number>()
+    // A pause release for a cast no snapshot shows yet, keyed to the tick of the snapshot at release.
+    // Its cast was started at or after that tick; a later snapshot without it means it is gone.
+    private readonly unseenReleases = new Map<number, number>()
     private readonly handledKeyUps = new Set<string>()
     private resizeObserver: ResizeObserver | null = null
     private destroyed = false
@@ -185,10 +189,7 @@ export class BattleView {
 
         if (this.options.me) {
             this.actionBar = new ActionBar(
-                i => {
-                    if (!this.combatActive()) return false
-                    return this.options.onPress?.(i)
-                },
+                i => this.pressInput(i),
                 i => this.releaseInput(i),
             )
             stage.addChild(this.actionBar)
@@ -233,10 +234,14 @@ export class BattleView {
         this.snap = { ...snap, finished: snap.finished ?? false }
         this.snapAt = performance.now()
         const mine = this.options.me ? snap[this.options.me] : null
-        if (snap.finished === true) this.actionBar?.clearAccessibleCast()
+        if (snap.finished === true) {
+            this.actionBar?.clearAccessibleCast()
+            this.unseenReleases.clear()
+        }
         // Catch-up initializes a recreated view after reconnect. Recover the surviving
         // authoritative cast so losing its original input cannot leave it stuck at 100%.
         if (!fresh && mine?.spells && snap.finished !== true) this.actionBar?.recoverCast(mine as PlayerState)
+        if (mine) this.adoptUnseenReleases(mine, snap.gameTick)
         if (mine?.spells)
             this.actionBar?.update(
                 mine as PlayerState,
@@ -624,8 +629,9 @@ export class BattleView {
         if (event.repeat || this.keysDown.has(index)) return
         this.handledKeyUps.add(event.code)
         this.keysDown.add(index)
+        this.unseenReleases.delete(index)
         this.actionBar?.manualPress(index)
-        this.options.onPress?.(index)
+        if (this.options.onPress?.(index) !== false) this.actionBar?.manualOwn(index)
     }
 
     private onKeyUp = (event: KeyboardEvent) => {
@@ -637,11 +643,20 @@ export class BattleView {
         this.releaseInput(index)
     }
 
+    /** Pointer and accessible presses from the action bar. */
+    private pressInput(index: number) {
+        if (!this.combatActive()) return false
+        this.unseenReleases.delete(index)
+        return this.options.onPress?.(index)
+    }
+
     private releaseInput(index: number) {
         if (this.frozen) {
             const mine = this.options.me && this.snap?.[this.options.me]
             if (mine && mine.cast === index && mine.castStartingTick !== null)
                 this.pausedReleases.set(index, mine.castStartingTick)
+            // The press may already be accepted but not broadcast yet: keep the release for that cast.
+            else if (mine && this.snap) this.unseenReleases.set(index, this.snap.gameTick)
             return
         }
         this.options.onRelease?.(index)
@@ -653,6 +668,19 @@ export class BattleView {
         for (const [index, startingTick] of this.pausedReleases) {
             this.pausedReleases.delete(index)
             if (mine && mine.cast === index && mine.castStartingTick === startingTick) this.options.onRelease?.(index)
+        }
+    }
+
+    /**
+     * Hands a cast released before any snapshot showed it to automatic release, like a recovered cast:
+     * the input is already up, so it releases once the engine confirms completion after resume.
+     */
+    private adoptUnseenReleases(mine: PlayerView, gameTick: number) {
+        for (const [index, since] of this.unseenReleases) {
+            if (mine.cast === index && mine.castStartingTick !== null && mine.castStartingTick >= since) {
+                this.unseenReleases.delete(index)
+                this.actionBar?.adoptCast(index, mine.castStartingTick)
+            } else if (gameTick !== since) this.unseenReleases.delete(index)
         }
     }
 

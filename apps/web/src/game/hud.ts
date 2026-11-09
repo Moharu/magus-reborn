@@ -249,6 +249,20 @@ export class ActionBar extends Container {
         this.accessibleRequests.delete(index)
     }
 
+    /**
+     * A sent manual press of the bound spell replaces that cast and owns its release, even when the
+     * replacement lands in the same engine tick (same index and castStartingTick). Called after the press
+     * was sent, so a press rejected before sending keeps the binding.
+     */
+    manualOwn(index: number) {
+        if (this.accessibleCast?.index === index) this.accessibleCast = null
+    }
+
+    /** Automatic release for a cast whose input was released before any snapshot showed it. */
+    adoptCast(index: number, startingTick: number) {
+        this.accessibleCast = { index, startingTick }
+    }
+
     clearAccessibleCast() {
         this.accessibleCast = null
         this.accessibleRequests.clear()
@@ -308,13 +322,13 @@ export class ActionBar extends Container {
             clip.addChild(icon, overlay)
             clip.mask = mask
             root.addChild(mask, clip, frame, center, key, name, feedback)
-            // Manual input does not own automatic release. Only accepted cast state
-            // can invalidate the existing accessible binding.
+            // Manual input never claims automatic release. Cast state invalidates a binding to
+            // another spell; a sent press of the bound spell takes its release over (manualOwn).
             root.on('pointerdown', () => {
                 if (this.pressed.has(i)) return
                 this.pressed.add(i)
                 this.manualPress(i)
-                onPress(i)
+                if (onPress(i) !== false) this.manualOwn(i)
                 setText(feedback, this.buttons[i].blockedReason)
                 // Show the reason for one second of engine time, then clear it.
                 this.buttons[i].feedbackUntil = this.requestTick + FEEDBACK_TICKS
