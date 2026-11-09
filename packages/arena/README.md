@@ -64,7 +64,8 @@ one early (a fake cast). Use the shared `start(slot)`/`stop(slot)` helpers to av
   `hpLog` (#146), its floating combat text: one `{ tick, amount, spellId, kind }` per HP change on the player, oldest
   first, from the engine's attributed HP events, which the server streams to both clients (`events` of each `battle`
   message). `spellId` is the spell the change came from, `kind` is `spell` (a release) or `effect` (a tick, a burst, a
-  heal). Same timing as the logs: a change on tick `t` shows from tick `t + 1`.
+  heal). Same timing as the logs: a change on tick `t` shows from tick `t + 1`. `enemy.hpLog` is the same for the
+  opponent, the floating combat text over its wizard.
 - `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil`, `effects` and
   `log`. Never the opponent's loadout, cooldowns or GCD.
 - `enemy.log` (#126) is the opponent's spell log, what the game client's spell log shows: one `{ tick, type, spellId }`
@@ -148,12 +149,10 @@ rotation is the loadout's Fire spells in slot order. A profile may leave out spe
     },
     // #143, optional: keep a completed cast on the bar while `when` holds, at most giveUpSeconds (0-3) past completion
     "releaseHold": {
-        // hold through an enemy Temporal Shield, unless the enemy is low enough for the cast to kill it (death is final)
-        "when": [
-            { "type": "enemyEffectsAtLeast", "effect": "BUFF_TEMPORAL_SHIELD", "count": 1 },
-            { "type": "enemyHpAtLeast", "hp": 29 },
-        ],
+        "when": [{ "type": "enemyEffectsAtLeast", "effect": "BUFF_TEMPORAL_SHIELD", "count": 1 }],
         "giveUpSeconds": 1.2,
+        // optional (#146 review): release at once when the enemy has at most the cast's expected hit + this margin
+        "lethalMarginHp": 0,
     },
     // one rule per general spell: "never" or { "when": [conditions] }; rules for spells not on the loadout are unused
     "generals": {
@@ -201,7 +200,7 @@ inference split a hit with a same-tick release or effect expiry, #146 review).
 Until a spell has been seen to deal damage, its value is its public base cast time times
 `counterspell.unseenValuePerSecond`. A visible enemy cast is a target when its spell's value is at least
 `counterspell.minValue` and at least `counterspell.bestShare` times the highest value among the spells the opponent
-has been seen casting. It never reads the opponent's loadout, cooldowns or effect internals. The archetypes: aggressive
+has been seen casting. Values are summed and compared in exact centi-HP (invariant 8), so a tie is a tie. It never reads the opponent's loadout, cooldowns or effect internals. The archetypes: aggressive
 counters big threats early (12 HP, 60% of the best), patient-counter holds out for the best target late (10 HP, 100%),
 bait 12 HP and 75%, defensive anything worth 6 HP early (30%). The give-up timer still makes any cast a target.
 
@@ -232,7 +231,12 @@ holds. The use: an enemy Temporal Shield rewinds every HP change made while it i
 is undone; held until the shield no longer shows (the tick its rewind has run), the hit stays. A held cast is still
 on the cast bar, so the opponent may Counterspell it meanwhile, and an instant of the profile's own (its Counterspell,
 or a general spell whose rule fires) cancels it like any cast. A hit that would kill needs no hold: a player at 0 HP
-stays dead whatever a rewind does, so aggressive holds only while the enemy has 29+ HP (Meteor deals 28).
+stays dead whatever a rewind does, so with `releaseHold.lethalMarginHp` set the profile releases at once when the
+enemy's HP is at most the cast's expected hit plus that margin (in centi-HP). The expected hit is the one that spell's
+last release dealt, read from the floating combat text over the opponent (`enemy.hpLog`), so it carries the modifiers
+it had then (Fireballs before an Afterburn, Ignites before a Combustion); before its first release, its catalog hit,
+measured once by releasing it on a fresh real-engine battle (`baseHit`; no spell module is read, no spell math
+reimplemented).
 
 **Fake casts (#43).** Start `fakeCast.spell`, then cancel it with `Battle.stopCast` after `cancelAfterSeconds`; the
 cancel costs only the elapsed time (no lock, no damage). It baits a Counterspell when the enemy has committed before

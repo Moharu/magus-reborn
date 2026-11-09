@@ -119,10 +119,20 @@ export interface ReleaseHold {
     readonly when: readonly Condition[]
     /** In [0, `RELEASE_HOLD_MAX_SECONDS`]; 0 holds nothing. */
     readonly giveUpSeconds: number
+    /**
+     * Release at once, never hold, when the cast would kill (#146 review): when the enemy's HP is at most the cast's
+     * expected hit plus this margin, in HP, in [0, `LETHAL_MARGIN_MAX_HP`]. A player at 0 HP stays dead whatever a
+     * rewind does, so a lethal hit needs no hold. The expected hit is the one this spell's last release dealt, from the
+     * floating combat text over the opponent, or before any, its catalog hit on a fresh battle (`ownHits`). Compared in
+     * centi-HP. Absent: no such check.
+     */
+    readonly lethalMarginHp?: number
 }
 
 /** The longest hold of a completed cast (#143), in seconds. */
 export const RELEASE_HOLD_MAX_SECONDS = 3
+/** The largest `releaseHold.lethalMarginHp`, in HP. */
+export const LETHAL_MARGIN_MAX_HP = 20
 
 /** The largest give-up timer the loader accepts, in seconds. */
 export const GIVE_UP_MAX_SECONDS = 60
@@ -181,7 +191,9 @@ const PROFILE_KEYS = [
     'generals',
 ]
 const PATIENCE_KEYS = ['thresholdGiveUpSeconds', 'commitGiveUpSeconds']
-const RELEASE_HOLD_KEYS = ['when', 'giveUpSeconds']
+const RELEASE_HOLD_KEYS = ['when', 'giveUpSeconds', 'lethalMarginHp']
+/** Release-hold keys that may be left out. */
+const OPTIONAL_RELEASE_HOLD_KEYS = ['lethalMarginHp']
 const LOCKOUT_WINDOW_KEYS = ['rotation', 'edgeGreedSeconds']
 const COUNTERSPELL_KEYS = [
     'enabled',
@@ -286,10 +298,16 @@ const parsePatience = (raw: unknown): Patience => {
 
 const parseReleaseHold = (raw: unknown): ReleaseHold => {
     const value = record(raw, 'releaseHold', RELEASE_HOLD_KEYS)
-    for (const key of RELEASE_HOLD_KEYS) if (!(key in value)) fail(`releaseHold.${key}`, 'is required')
+    for (const key of RELEASE_HOLD_KEYS)
+        if (!(key in value) && !OPTIONAL_RELEASE_HOLD_KEYS.includes(key)) fail(`releaseHold.${key}`, 'is required')
     return {
         when: parseWhen(value.when, 'releaseHold.when'),
         giveUpSeconds: number(value.giveUpSeconds, 'releaseHold.giveUpSeconds', 0, RELEASE_HOLD_MAX_SECONDS),
+        ...(value.lethalMarginHp === undefined
+            ? {}
+            : {
+                  lethalMarginHp: number(value.lethalMarginHp, 'releaseHold.lethalMarginHp', 0, LETHAL_MARGIN_MAX_HP),
+              }),
     }
 }
 

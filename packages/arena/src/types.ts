@@ -111,6 +111,11 @@ export interface EnemyView {
      * SPELL_RELEASE. The array only grows, and an entry never changes once added, so a controller may keep entries.
      */
     readonly log: readonly EnemyLogEntry[]
+    /**
+     * Every HP change on the opponent so far (#146): the floating combat text over the opponent's wizard, which every
+     * client shows; the same form and timing as `self.hpLog`. The runner always sets it.
+     */
+    readonly hpLog?: readonly HpLogEntry[]
 }
 
 /**

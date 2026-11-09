@@ -1,17 +1,19 @@
-import { FIXED_SPELL, secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
+import { FIXED_SPELL, secondsToTicks, SPELLS, toCenti, type SpellId } from '@magus/engine'
 import { adaptProfile } from './adapt'
 import { allHold, type Condition, type ConditionInput, type OwnRelease } from './conditions'
+import { ownHits } from './own-hits'
 import { spellValues } from './threat'
 import { start, stop } from './controllers'
 import {
     EDGE_GREED_MAX_SECONDS,
     GENERAL_SPELLS,
     GIVE_UP_MAX_SECONDS,
+    LETHAL_MARGIN_MAX_HP,
     RELEASE_HOLD_MAX_SECONDS,
     type GeneralSpell,
     type Profile,
 } from './profile'
-import type { Action, ArenaView, ControllerFactory, Decision, Entrant } from './types'
+import type { Action, ArenaView, ControllerFactory, Decision, Entrant, OwnCastView } from './types'
 
 const NONE = -1
 
@@ -122,10 +124,13 @@ export const profileController =
         const csSlot = cs.enabled ? slotOf(FIXED_SPELL) : NONE
         // what each opponent spell is worth to counter, learned from the view (#143)
         const values = spellValues(cs.unseenValuePerSecond)
-        /** Whether an enemy cast of `spell` is worth a Counterspell (#143): see `CounterspellPolicy.minValue`. */
+        /**
+         * Whether an enemy cast of `spell` is worth a Counterspell (#143): see `CounterspellPolicy.minValue`. Compared
+         * in centi-HP (AGENTS.md invariant 8), so a tie with the best value is a tie.
+         */
         const isTarget = (spell: SpellId) => {
-            const value = values.valueOf(spell)
-            return value >= cs.minValue && value >= cs.bestShare * values.best(spell)
+            const value = toCenti(values.valueOf(spell))
+            return value >= toCenti(cs.minValue) && value >= Math.round(cs.bestShare * toCenti(values.best(spell)))
         }
         const lateWindow = secondsToTicks(cs.lateWindowSeconds)
         const { meanSeconds, spreadSeconds } = cs.reaction
@@ -189,6 +194,12 @@ export const profileController =
             hold && Number.isFinite(hold.giveUpSeconds)
                 ? secondsToTicks(Math.min(RELEASE_HOLD_MAX_SECONDS, Math.max(0, hold.giveUpSeconds)))
                 : 0
+        // the lethal check's margin in centi-HP (NONE: off), and the expected hits of the own casts
+        const lethalMargin =
+            hold?.lethalMarginHp !== undefined && Number.isFinite(hold.lethalMarginHp)
+                ? toCenti(Math.min(LETHAL_MARGIN_MAX_HP, Math.max(0, hold.lethalMarginHp)))
+                : NONE
+        const hits = ownHits(loadout)
 
         const actions: Action[] = []
         const input: {
@@ -225,10 +236,13 @@ export const profileController =
         }
         /**
          * Whether to keep the own cast that completed on `completesAt` on the bar this tick rather than release it
-         * (#143): within `holdTicks` of the completion, while `releaseHold.when` holds (read as still casting).
+         * (#143): within `holdTicks` of the completion, while `releaseHold.when` holds (read as still casting), unless
+         * the cast would kill (`releaseHold.lethalMarginHp`).
          */
-        const holding = (completesAt: number, tick: number) => {
-            if (!hold || tick - completesAt >= holdTicks) return false
+        const holding = (own: OwnCastView, enemyHp: number, tick: number) => {
+            if (!hold || tick - own.completesAt >= holdTicks) return false
+            // a lethal hit needs no hold (#146 review): death is final, a rewind can't undo it
+            if (lethalMargin !== NONE && toCenti(enemyHp) <= hits.predict(own.slot) + lethalMargin) return false
             input.casting = true
             return holds(hold.when)
         }
@@ -245,6 +259,7 @@ export const profileController =
             const { tick, self, enemy } = view
             actions.length = 0
             values.observe(view)
+            hits.observe(view)
             input.view = view
             input.nextCast = null
             let casting = self.casting !== null
@@ -309,7 +324,7 @@ export const profileController =
                         casting = false
                         pauseUntil = tick + fakePause
                     }
-                } else if (tick >= own.completesAt && !holding(own.completesAt, tick)) {
+                } else if (tick >= own.completesAt && !holding(own, enemy.hp, tick)) {
                     actions.push(stop(own.slot))
                     casting = false
                     released = true

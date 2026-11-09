@@ -58,7 +58,14 @@ interface ViewState {
             log: EnemyLogEntry[]
             hpLog: HpLogEntry[]
         }
-        enemy: { hp: number; casting: Cast | null; lockedUntil: number; effects: EffectSlot[]; log: EnemyLogEntry[] }
+        enemy: {
+            hp: number
+            casting: Cast | null
+            lockedUntil: number
+            effects: EffectSlot[]
+            log: EnemyLogEntry[]
+            hpLog: HpLogEntry[]
+        }
     }
     /** Reused cast objects, linked from the view only while that player is casting. */
     ownCast: OwnCast
@@ -107,7 +114,7 @@ const createView = (loadout: readonly SpellId[]): ViewState => ({
             log: [],
             hpLog: [],
         },
-        enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [], log: [] },
+        enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [], log: [], hpLog: [] },
     },
     ownCast: emptyCast(),
     enemyCast: emptyEnemyCast(),
@@ -255,16 +262,15 @@ const validate = ({ seed, a, b, maxTicks }: MatchOptions & { maxTicks: number })
 /** Per-side stats and the side-keyed log, from the engine's log and HP events. */
 /**
  * Moves the engine's attributed HP events (the `events` the server streams to both clients, #146) into the `hpLog` of
- * the player each one is about, and adds the damage to `taken` (centi-HP), for the stats.
+ * the player each one is about (`self.hpLog`) and its opponent's view of that player (`enemy.hpLog`), and adds the damage to `taken` (centi-HP), for the stats.
  */
 const readHpEvents = (battle: Battle, views: Record<PlayerKey, ViewState>, taken: Record<Side, number>) => {
     for (const event of battle.drainEvents()) {
-        views[event.player].view.self.hpLog.push({
-            tick: event.tick,
-            amount: event.amount,
-            spellId: event.source,
-            kind: event.kind,
-        })
+        const entry = { tick: event.tick, amount: event.amount, spellId: event.source, kind: event.kind }
+        // the floating combat text over each wizard: on the player's own, and on its opponent's view of it; one copy
+        // per view, as for the spell logs
+        views[event.player].view.self.hpLog.push(entry)
+        views[event.player === 'player1' ? 'player2' : 'player1'].view.enemy.hpLog.push({ ...entry })
         if (event.amount < 0) taken[SIDE_OF[event.player]] += toCenti(-event.amount)
     }
 }

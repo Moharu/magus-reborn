@@ -1,4 +1,11 @@
-import { EDGE_GREED_MAX_SECONDS, GENERAL_SPELLS, parseProfile, RELEASE_HOLD_MAX_SECONDS, type Profile } from './profile'
+import {
+    EDGE_GREED_MAX_SECONDS,
+    GENERAL_SPELLS,
+    LETHAL_MARGIN_MAX_HP,
+    parseProfile,
+    RELEASE_HOLD_MAX_SECONDS,
+    type Profile,
+} from './profile'
 import type { Rng } from './prng'
 
 /**
@@ -64,6 +71,8 @@ export const PROFILE_PARAMETERS: Readonly<Record<string, Parameter>> = {
     'patience.commitGiveUpSeconds': num(REACTION_MIN_SECONDS, 15, 0.01, 1),
     // holding a completed cast (#143): only tuned when the profile holds (`releaseHold` set)
     'releaseHold.giveUpSeconds': num(0, RELEASE_HOLD_MAX_SECONDS, 0.01, 0.2),
+    // the lethal-release margin (#146 review), only when the profile has one
+    'releaseHold.lethalMarginHp': num(0, LETHAL_MARGIN_MAX_HP, 0.01, 1),
 }
 
 /**

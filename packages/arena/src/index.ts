@@ -32,6 +32,7 @@ export {
 } from './profile'
 export { countAfterRelease, EFFECT_SOURCES } from './effects'
 export { spellValues, type SpellValues } from './threat'
+export { baseHit, ownHits, type OwnHits } from './own-hits'
 export { profileController, profileEntrant } from './profile-controller'
 export { ProfileError } from './validate'
 export {

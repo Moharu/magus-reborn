@@ -18,8 +18,9 @@ import {
     profileController,
     Rng,
     type Action,
+    type HpLogEntry,
+    baseHit,
     type ArenaView,
-    type EffectView,
     type MatchEvent,
 } from '../src'
 import { entrant, idler, recording, scripted, slotOf } from './helpers'
@@ -311,9 +312,11 @@ describe('Counterspell targets from what the opponent is seen to cast (#143)', (
         const sources = new Set(seen.at(-1)!.self.hpLog!.map(e => e.spellId))
         expect([...sources].sort()).toEqual(['SPELL_LIVING_BOMB', 'SPELL_METEOR'])
         // 7 over 11 s, then 21 when it runs out; 28 for the Meteor, now the best seen
-        expect(values.valueOf('SPELL_LIVING_BOMB')).toBeCloseTo(28)
-        expect(values.valueOf('SPELL_METEOR')).toBeCloseTo(28)
-        expect(values.best()).toBeCloseTo(28)
+        // summed in centi-HP (Codex P1): the Living Bomb's many events tie the Meteor's one hit exactly, so a
+        // bestShare of 1 still takes the Meteor (float sums gave 28.000000000000014 against 28)
+        expect(values.valueOf('SPELL_LIVING_BOMB')).toBe(28)
+        expect(values.valueOf('SPELL_METEOR')).toBe(28)
+        expect(values.best()).toBe(values.valueOf('SPELL_METEOR'))
         // an unseen spell keeps its cast-time prior
         expect(values.valueOf('SPELL_FIREBALL')).toBeCloseTo(1.3 * 6)
     })
@@ -417,17 +420,27 @@ describe('#146 review fixes', () => {
         expect(values.valueOf('SPELL_HASTE')).toBe(0)
     })
 
-    it('aggressive does not hold a completed cast when the enemy is too low to survive it', () => {
-        const loadout = HASTE_SHIELD
-        const meteor = slotOf(loadout, 'SPELL_METEOR')
-        const decide = (enemyHp: number) => {
+    describe('aggressive releases a held cast at once when it would kill', () => {
+        const loadout: SpellId[] = [
+            'SPELL_METEOR',
+            'SPELL_FIREBALL',
+            'SPELL_AFTERBURN',
+            'SPELL_COMBUSTION',
+            'SPELL_COUNTERSPELL',
+            'SPELL_HASTE',
+            'SPELL_TEMPORAL_SHIELD',
+        ]
+        /** Whether aggressive releases its completed `spell` on a view with the enemy shielded at `enemyHp`. */
+        const releases = (spell: SpellId, enemyHp: number, enemyHpLog: HpLogEntry[] = []) => {
+            const slot = slotOf(loadout, spell)
             const controller = profileController(ARCHETYPES.aggressive.profile)({ loadout, rng: new Rng(1) })
             const tick = 100
+            const castTime = ticksOf(spell)
             const view: ArenaView = {
                 tick,
                 self: {
                     hp: 100,
-                    casting: { slot: meteor, spellId: 'SPELL_METEOR', startTick: 28, castTime: 72, completesAt: 100 },
+                    casting: { slot, spellId: spell, startTick: tick - castTime, castTime, completesAt: tick },
                     gcdUntil: 0,
                     lockedUntil: 0,
                     effects: [],
@@ -446,13 +459,39 @@ describe('#146 review fixes', () => {
                     lockedUntil: 0,
                     effects: [{ id: 'BUFF_TEMPORAL_SHIELD', type: 'positive', startingTick: 96, expiresAt: 120 }],
                     log: [],
+                    hpLog: enemyHpLog,
                 },
             }
-            return actionsOf(controller(view)).some(a => a.type === 'stop' && a.slot === meteor)
+            return actionsOf(controller(view)).some(a => a.type === 'stop' && a.slot === slot)
         }
-        // 50 HP: held through the shield; 28 HP: the Meteor (28) kills, and death is final, so release at once
-        expect(decide(50)).toBe(false)
-        expect(decide(28)).toBe(true)
+
+        it('Meteor: released when exactly lethal (28 HP), held one hundredth above', () => {
+            expect(ARCHETYPES.aggressive.profile.releaseHold?.lethalMarginHp).toBe(0)
+            expect(releases('SPELL_METEOR', 28)).toBe(true)
+            expect(releases('SPELL_METEOR', 28.01)).toBe(false)
+            expect(releases('SPELL_METEOR', 50)).toBe(false)
+        })
+
+        it('a non-Meteor cast uses its own hit: Fireball (5.6), not a fixed threshold', () => {
+            expect(releases('SPELL_FIREBALL', 5.6)).toBe(true)
+            expect(releases('SPELL_FIREBALL', 5.61)).toBe(false)
+            // 20 HP is below a Meteor's hit but not a Fireball's: held
+            expect(releases('SPELL_FIREBALL', 20)).toBe(false)
+        })
+
+        it("the hit its last release dealt, from the enemy's combat text, carries the modifiers it had", () => {
+            // an Afterburn after 3 Fireballs hit for 12.6 (its catalog hit alone is 2.1)
+            const last: HpLogEntry[] = [{ tick: 60, amount: -12.6, spellId: 'SPELL_AFTERBURN', kind: 'spell' }]
+            expect(baseHit(loadout, slotOf(loadout, 'SPELL_AFTERBURN'))).toBe(210)
+            expect(releases('SPELL_AFTERBURN', 12.6, last)).toBe(true)
+            expect(releases('SPELL_AFTERBURN', 12.61, last)).toBe(false)
+            expect(releases('SPELL_AFTERBURN', 12.6)).toBe(false)
+            // a Combustion that last hit for 30 (its Ignites included) is lethal at 30 HP: a fixed Meteor-sized
+            // threshold (29) would have held it
+            const combustion: HpLogEntry[] = [{ tick: 70, amount: -30, spellId: 'SPELL_COMBUSTION', kind: 'spell' }]
+            expect(releases('SPELL_COMBUSTION', 30, combustion)).toBe(true)
+            expect(releases('SPELL_COMBUSTION', 30.01, combustion)).toBe(false)
+        })
     })
 
     it('a profile that still lists Counterspell targets gets a clear error', () => {
