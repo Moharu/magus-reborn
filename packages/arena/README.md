@@ -186,7 +186,8 @@ progress or started) with no rotation `when` holding, the profile casts its firs
 waiting for it to commit (its Counterspell used, or ours landed: the free-cast window), for at most that long from the
 match start or from the end of the last window; then it plays its rotation until the next window. Two such profiles
 facing each other both start casting when the timer ends. `counterspell.giveUpSeconds`: once its Counterspell has been
-off cooldown that long unused, the next enemy cast is interrupted whatever its spell. Each is a tunable parameter.
+off cooldown that long unused, the next enemy cast is interrupted whatever its spell. Ticks under an enemy Counterspell
+lock count toward none of them. Each is a tunable parameter.
 
 **Fake casts (#43).** Start `fakeCast.spell`, then cancel it with `Battle.stopCast` after `cancelAfterSeconds`; the
 cancel costs only the elapsed time (no lock, no damage). It baits a Counterspell when the enemy has committed before

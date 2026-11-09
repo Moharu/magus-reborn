@@ -11,8 +11,13 @@ const EFFECT_SOURCES: Partial<Record<EffectId, SpellId>> = {
     DEBUFF_LIVING_BOMB: 'SPELL_LIVING_BOMB',
 }
 
-/** Whether `condition` can never hold on `loadout`, because it waits on a spell the loadout lacks. */
-const needsMissingSpell = (condition: Condition, loadout: readonly SpellId[]) => {
+/**
+ * Whether `condition` can never hold on `loadout`, because it waits on a spell the loadout lacks. An `anyOf` can never
+ * hold when none of its lists can: each holds a condition that waits on a missing spell.
+ */
+const needsMissingSpell = (condition: Condition, loadout: readonly SpellId[]): boolean => {
+    if (condition.type === 'anyOf')
+        return condition.of.every(when => when.some(inner => needsMissingSpell(inner, loadout)))
     if (condition.type === 'enemyEffectsAtLeast' && condition.count > 0) {
         const source = EFFECT_SOURCES[condition.effect]
         return source !== undefined && !loadout.includes(source)
@@ -38,8 +43,10 @@ const buildRotation = (entries: readonly RotationEntry[], loadout: readonly Spel
  * Everything else is kept. Building a built profile again for the same loadout changes nothing.
  */
 export const adaptProfile = (profile: Profile, loadout: readonly SpellId[]): Profile => {
-    let rotation = buildRotation(profile.rotation, loadout)
-    if (rotation.length === 0) rotation = loadout.slice(0, ELEMENT_SPELL_COUNT).map(spell => ({ spell, when: [] }))
+    const kept = buildRotation(profile.rotation, loadout)
+    // unchanged only when every entry was kept: a fallback of the same length is still a new rotation
+    const rotationKept = kept.length === profile.rotation.length
+    const rotation = kept.length > 0 ? kept : loadout.slice(0, ELEMENT_SPELL_COUNT).map(spell => ({ spell, when: [] }))
     const windowRotation = buildRotation(profile.lockoutWindow.rotation, loadout)
     const lockoutWindow =
         windowRotation.length === profile.lockoutWindow.rotation.length
@@ -54,9 +61,7 @@ export const adaptProfile = (profile: Profile, loadout: readonly SpellId[]): Pro
         fakeCast = longest ? { ...fakeCast, spell: longest } : { ...fakeCast, enabled: false }
     }
     return checkLoadout(
-        rotation.length === profile.rotation.length &&
-            lockoutWindow === profile.lockoutWindow &&
-            fakeCast === profile.fakeCast
+        rotationKept && lockoutWindow === profile.lockoutWindow && fakeCast === profile.fakeCast
             ? profile
             : { ...profile, rotation, lockoutWindow, fakeCast },
         loadout,

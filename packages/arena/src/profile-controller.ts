@@ -54,7 +54,11 @@ const giveUpTicks = (seconds: number | null | undefined) =>
  * above 0 (#126), the entries are tried again against `safeUntil` plus that much.
  *
  * Counterspell give-up (#136): once its Counterspell has been off cooldown for `counterspell.giveUpSeconds` unused,
- * the next enemy cast it sees is planned for as if it were a target.
+ * the next enemy cast it sees is planned for as if it were a target. Ticks under an enemy Counterspell lock, when the
+ * player can't act, count toward none of the give-up timers.
+ *
+ * Own releases (`selfCastsAtLeast`) count from the tick the release is sent; one the engine then rejects (an enemy
+ * Counterspell acting first on that tick interrupted the cast) is dropped on the next view, which shows that lock.
  *
  * Nothing here depends on the side: player1 acting first within a tick is the runner's, and tournaments swap sides.
  */
@@ -83,8 +87,10 @@ export const profileController =
         const castSeconds = (id: SpellId) => SPELLS[id].castSeconds ?? 0
         const longestSeconds = Math.max(0, ...loadout.map(castSeconds))
         const longest = longestSeconds > 0 ? loadout.filter(id => castSeconds(id) === longestSeconds) : []
-        // own releases, oldest first (`selfCastsAtLeast`)
+        // own releases, oldest first (`selfCastsAtLeast`); the last one is checked on the next view (see below)
         const releases: OwnRelease[] = []
+        // the tick of a release made last tick and not yet confirmed (NONE: none)
+        let unconfirmed = NONE
 
         // give-up timers (#136), NONE when off
         const thresholdGiveUp = giveUpTicks(profile.patience?.thresholdGiveUpSeconds)
@@ -187,6 +193,16 @@ export const profileController =
                 else if (effect.id === 'BUFF_HASTE') hasteEnds = effect.expiresAt
             }
             if (hasteEnds === NONE) for (let i = 0; i < baseCast.length; i++) baseCast[i] = self.spells[i].castTime
+            // a release is only queued: an enemy Counterspell acting first in that tick (as player1) interrupts the
+            // cast and the engine rejects the stopCast. Its lock then shows on the buff bar, starting on that tick
+            if (unconfirmed !== NONE) {
+                for (const effect of self.effects)
+                    if (effect.id === 'DEBUFF_COUNTERSPELL' && effect.startingTick === unconfirmed) {
+                        releases.pop()
+                        break
+                    }
+                unconfirmed = NONE
+            }
             // what the enemy's spell log shows (#126): every Counterspell it used, a whiff included
             for (; logRead < enemy.log.length; logRead++) {
                 const entry = enemy.log[logRead]
@@ -199,6 +215,12 @@ export const profileController =
             // the window is open: a new wait for the opponent to commit starts when it ends
             if (tick < safeUntil) commitWaitFrom = safeUntil
             if (self.casting || lastBusy === NONE) lastBusy = tick
+            // under a Counterspell lock the player can't act: those ticks don't count toward its give-up timers
+            if (self.lockedUntil > tick) {
+                lastBusy += 1
+                commitWaitFrom += 1
+                if (counterHeldSince !== NONE) counterHeldSince += 1
+            }
             released = false
             let countered = false
 
@@ -216,6 +238,7 @@ export const profileController =
                     casting = false
                     released = true
                     releases.push({ spellId: own.spellId, tick })
+                    unconfirmed = tick
                 }
             }
 

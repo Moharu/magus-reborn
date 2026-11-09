@@ -17,7 +17,8 @@ import {
     type MatchEvent,
     type Profile,
 } from '../src'
-import { idler, METEOR_LOADOUT } from './helpers'
+import { idler, METEOR_LOADOUT, OTHER_LOADOUT, entrant, scripted, slotOf } from './helpers'
+import { start, stop } from '../src'
 import { quietProfile } from './profile-helpers'
 
 // #136: rotations built from the loadout, give-up timers on every wait, and every general spell used
@@ -210,5 +211,118 @@ describe('rotations built from the loadout (#136)', () => {
         const loadout = METEOR_LOADOUT.map(id => (id === 'SPELL_METEOR' ? 'SPELL_LIVING_BOMB' : id))
         const result = runMatch({ seed: 1, a: profileEntrant(meteorOnly, loadout), b: idler(), maxTicks: 200 })
         expect(of(result.log, 'a', 'SPELL_RELEASE').filter(e => isFire(e.spellId)).length).toBeGreaterThan(0)
+    })
+})
+
+/** Counterspells with METEOR_LOADOUT on each of `ticks`, nothing else. */
+const counterAt = (...ticks: number[]) => {
+    const slot = slotOf(METEOR_LOADOUT, 'SPELL_COUNTERSPELL')
+    return entrant('counter', scripted(Object.fromEntries(ticks.map(t => [t, start(slot)]))))
+}
+
+describe('review fixes (#136)', () => {
+    it('counts only releases the engine made: a Fireball interrupted on the tick it completes is no Fireball', () => {
+        // Afterburn only after a Fireball: an interrupted one must not count
+        const afterFireball = custom(raw => {
+            raw.rotation = [
+                {
+                    spell: 'SPELL_AFTERBURN',
+                    when: [{ type: 'selfCastsAtLeast', spell: 'SPELL_FIREBALL', count: 1, withinSeconds: 10 }],
+                },
+                'SPELL_FIREBALL',
+            ]
+        })
+        // the enemy is player1 and acts first: its Counterspell on tick 26 interrupts the Fireball due to release on 26
+        const result = runMatch({
+            seed: 1,
+            a: counterAt(26),
+            b: profileEntrant(afterFireball, OTHER_LOADOUT),
+            maxTicks: 120,
+        })
+        expect(of(result.log, 'b', 'INTERRUPTED')).toMatchObject([{ tick: 26, spellId: 'SPELL_FIREBALL' }])
+        expect(of(result.log, 'b', 'SPELL_RELEASE').filter(e => e.tick <= 86)).toEqual([])
+        // after the lock (until tick 86) it casts a Fireball, not an Afterburn on a Fireball that never went off
+        expect(
+            of(result.log, 'b', 'START_CAST')
+                .slice(0, 2)
+                .map(e => [e.tick, e.spellId]),
+        ).toEqual([
+            [0, 'SPELL_FIREBALL'],
+            [86, 'SPELL_FIREBALL'],
+        ])
+    })
+
+    it('does not count time under a Counterspell lock toward a give-up timer', () => {
+        // holds Counterspell for Meteor, giving up after 5 s (100 ticks) held; casts Fireballs meanwhile
+        const holder = custom(raw => {
+            raw.rotation = ['SPELL_FIREBALL']
+            Object.assign(raw.counterspell, { enabled: true, targets: ['SPELL_METEOR'], giveUpSeconds: 5 })
+        })
+        // the enemy counters its first Fireball on tick 10 (locked until 70), then casts Fireballs on 105 and 165
+        const FIREBALL = slotOf(METEOR_LOADOUT, 'SPELL_FIREBALL')
+        const COUNTER = slotOf(METEOR_LOADOUT, 'SPELL_COUNTERSPELL')
+        const enemy = entrant(
+            'enemy',
+            scripted({
+                10: start(COUNTER),
+                105: start(FIREBALL),
+                131: stop(FIREBALL),
+                165: start(FIREBALL),
+                191: stop(FIREBALL),
+            }),
+        )
+        const result = runMatch({ seed: 1, a: profileEntrant(holder, METEOR_LOADOUT), b: enemy, maxTicks: 240 })
+        expect(of(result.log, 'a', 'INTERRUPTED').map(e => e.tick)).toEqual([10])
+        // held from tick 0, but the 59 locked ticks don't count: it gives up on tick 159, so the Fireball started on
+        // 105 is let through and the one started on 165 (seen on 166) is interrupted one reaction (8 ticks) later
+        expect(of(result.log, 'b', 'INTERRUPTED').map(e => [e.tick, e.spellId])).toEqual([[174, 'SPELL_FIREBALL']])
+    })
+
+    it('builds a new rotation when every entry is dropped, even if the fallback has as many entries', () => {
+        const ignite = { type: 'enemyEffectsAtLeast', effect: 'DEBUFF_IGNITE', count: 1 }
+        const needsIgnites = custom(raw => {
+            raw.rotation = ['SPELL_FIREBALL', 'SPELL_COMBUSTION', 'SPELL_LIVING_BOMB', 'SPELL_AFTERBURN'].map(
+                spell => ({
+                    spell,
+                    when: [ignite],
+                }),
+            )
+            raw.lockoutWindow = { rotation: ['SPELL_FIREBALL'] }
+        })
+        const loadout: SpellId[] = [
+            'SPELL_FIREBALL',
+            'SPELL_COMBUSTION',
+            'SPELL_LIVING_BOMB',
+            'SPELL_AFTERBURN',
+            'SPELL_COUNTERSPELL',
+            'SPELL_HASTE',
+            'SPELL_BLUR',
+        ]
+        const built = adaptProfile(needsIgnites, loadout)
+        expect(built.rotation).toEqual(loadout.slice(0, 4).map(spell => ({ spell, when: [] })))
+        expect(built.lockoutWindow.rotation.map(e => e.spell)).toEqual(['SPELL_FIREBALL'])
+    })
+
+    it('drops an entry whose anyOf can only hold with a missing spell, and keeps one with a branch that can', () => {
+        const combustion = (of: unknown[][]) =>
+            custom(raw => {
+                raw.rotation = [{ spell: 'SPELL_COMBUSTION', when: [{ type: 'anyOf', of }] }, 'SPELL_FIREBALL']
+            })
+        const loadout = METEOR_LOADOUT.map(id => (id === 'SPELL_IGNITE' ? 'SPELL_LIVING_BOMB' : id))
+        const ignites = [{ type: 'enemyEffectsAtLeast', effect: 'DEBUFF_IGNITE', count: 1 }]
+        expect(adaptProfile(combustion([ignites]), loadout).rotation.map(e => e.spell)).toEqual(['SPELL_FIREBALL'])
+        // one branch can hold (a Living Bomb on the enemy): the entry stays
+        const bomb = [{ type: 'enemyEffectsAtLeast', effect: 'DEBUFF_LIVING_BOMB', count: 1 }]
+        expect(adaptProfile(combustion([ignites, bomb]), loadout).rotation.map(e => e.spell)).toEqual([
+            'SPELL_COMBUSTION',
+            'SPELL_FIREBALL',
+        ])
+    })
+
+    it('keeps profile names short (200 characters) while an intent may hold a plan of 600', () => {
+        expect(() => custom(raw => (raw.name = 'n'.repeat(200)))).not.toThrow()
+        expect(() => custom(raw => (raw.name = 'n'.repeat(201)))).toThrow(/^name: must be one line of at most 200/)
+        expect(() => custom(raw => (raw.intent = 'i'.repeat(600)))).not.toThrow()
+        expect(() => custom(raw => (raw.intent = 'i'.repeat(601)))).toThrow(/^intent: must be one line of at most 600/)
     })
 })

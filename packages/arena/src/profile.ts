@@ -138,7 +138,10 @@ export type GeneralSpell = (typeof GENERAL_SPELLS)[number]
 export type GeneralRule = 'never' | { readonly when: readonly Condition[] }
 
 const MAX_SECONDS = 10
-const MAX_TEXT = 600
+/** A profile name's longest length. */
+const MAX_NAME = 200
+/** An intent's longest length: room for the plan, general spells included (#136). */
+const MAX_INTENT = 600
 const PROFILE_KEYS = ['name', 'intent', 'rotation', 'lockoutWindow', 'counterspell', 'fakeCast', 'patience', 'generals']
 const PATIENCE_KEYS = ['thresholdGiveUpSeconds', 'commitGiveUpSeconds']
 const LOCKOUT_WINDOW_KEYS = ['rotation', 'edgeGreedSeconds']
@@ -280,8 +283,8 @@ export const parseProfile = (raw: unknown): Profile => {
     const value = record(raw, '', PROFILE_KEYS)
     const rotation = parseRotation(value.rotation)
     const profile: Profile = {
-        name: string(value.name, 'name', MAX_TEXT),
-        ...(value.intent === undefined ? {} : { intent: string(value.intent, 'intent', MAX_TEXT) }),
+        name: string(value.name, 'name', MAX_NAME),
+        ...(value.intent === undefined ? {} : { intent: string(value.intent, 'intent', MAX_INTENT) }),
         rotation,
         lockoutWindow: parseLockoutWindow(value.lockoutWindow, rotation),
         counterspell: parseCounterspell(value.counterspell),
