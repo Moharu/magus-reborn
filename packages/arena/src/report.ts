@@ -205,20 +205,24 @@ const elementsSection = (result: TournamentResult) => {
         '',
         '### All games',
         '',
-        "Each element's win rate over all its entrants' games, those between two entrants of the same element included.",
+        "Each element's win rate over its games against the other element, with the games between two entrants of the same element listed apart: those are decided by one side of the same element, add no information about the elements, and would only narrow the interval.",
         '',
         table(
-            ['Element', 'Entrants', 'Wins', 'Draws', 'Games', 'Win rate', '95% CI'],
+            ['Element', 'Entrants', 'Wins', 'Draws', 'Games', 'Win rate', '95% CI', 'Same-element games'],
             present.map(element => {
+                const value = cross.get(element) ?? { wins: 0, draws: 0, games: 0 }
                 const p = pool(ranking.filter(r => elementOf(r) === element))
+                // each same-element game is in the pooled totals of two entrants of the element
+                const same = (p.games - value.games) / 2
                 return [
                     elementName(element),
                     String(p.entrants),
-                    String(p.wins),
-                    String(p.draws),
-                    String(p.games),
-                    p.games === 0 ? NO_GAMES : percent(rate(p.wins, p.games)),
-                    ci(p.wins, p.games),
+                    String(value.wins),
+                    String(value.draws),
+                    String(value.games),
+                    value.games === 0 ? NO_GAMES : percent(rate(value.wins, value.games)),
+                    ci(value.wins, value.games),
+                    String(same),
                 ]
             }),
         ),

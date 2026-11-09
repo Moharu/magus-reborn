@@ -70,7 +70,7 @@ const needsMissingSpell = (condition: Condition, loadout: readonly SpellId[]): b
 }
 
 /** The entries whose spell is on the loadout and whose `when` relies on no spell it lacks, in order. */
-const buildRotation = (entries: readonly RotationEntry[], loadout: readonly SpellId[]) =>
+export const buildRotation = (entries: readonly RotationEntry[], loadout: readonly SpellId[]) =>
     entries.filter(
         ({ spell, when }) => loadout.includes(spell) && !when.some(condition => needsMissingSpell(condition, loadout)),
     )

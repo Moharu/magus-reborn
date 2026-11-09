@@ -137,7 +137,7 @@ export const mobileBattleLayout = (width: number, height: number) => {
 
 /** Change this one setting to move every class resource, including future polarity UI. */
 export type ResourceMeterPosition = 'below-cast' | 'above-wizard'
-export const RESOURCE_METER_POSITION: ResourceMeterPosition = 'below-cast'
+export const RESOURCE_METER_POSITION: ResourceMeterPosition = 'above-wizard'
 /** Settable placement seam shared by HUD placement and combat text. */
 export const RESOURCE_METER_PLACEMENT: { position: ResourceMeterPosition } = { position: RESOURCE_METER_POSITION }
 export const RESOURCE_METER = { width: 126, height: 8, gap: 10 } as const

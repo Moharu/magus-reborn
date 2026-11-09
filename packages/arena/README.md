@@ -131,7 +131,7 @@ loadout's element spells in slot order. A profile may leave out spells it judges
         "minValue": 12, // HP a cast must be worth
         "bestShare": 0.6, // and at least this share of the best value seen from this opponent (1: only the best)
         "unseenValuePerSecond": 6, // a spell not yet seen to deal damage: its public base cast time x this
-        "reaction": { "meanSeconds": 0.4, "spreadSeconds": 0.1 }, // uniform in mean ± spread (spread ≤ mean), per cast
+        "reaction": { "meanSeconds": 0.4, "spreadSeconds": 0.1 }, // uniform in mean ± spread (spread ≤ mean), per cast, each draw at least 0.25 s
         "timing": "early", // or "late"
         "lateWindowSeconds": 0, // late: decide once the cast is within this long of its release
         "giveUpSeconds": 8, // #136: held unused this long, interrupt the next cast whatever it is (null: never)

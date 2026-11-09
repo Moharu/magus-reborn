@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { SPELLBOOKS, type SpellId } from '@magus/engine'
+import { describe, expect, it, vi } from 'vitest'
 import {
     ARCHETYPES,
     breedSeed,
@@ -22,6 +23,7 @@ import {
     scorer,
     shapeKey,
     tune,
+    tunableSlots,
     tunedProfile,
     type Baseline,
     type MatchFn,
@@ -30,6 +32,10 @@ import {
     type TuningOptions,
 } from '../src'
 import { METEOR_LOADOUT, OTHER_LOADOUT } from './helpers'
+
+// The tuner tests run real mutation and scoring loops and timed out under local load (#140, #163): the 120 s the CLI
+// tests use, for every test of the file.
+vi.setConfig({ testTimeout: 120_000 })
 
 const baseline: Baseline = {
     version: 'test',
@@ -272,7 +278,7 @@ describe('mutation and crossover', () => {
             }
         // 4 archetypes x 60 mutants and their crossovers: about 2 s alone, more under a loaded full run, and the
         // archetypes' Frost entries (#150) added slots
-    }, 30_000)
+    })
 
     it('crossover of two same-shape parents mixes their values', () => {
         const a = aggressive.profile
@@ -292,6 +298,106 @@ describe('mutation and crossover', () => {
         expect(mutateProfile(bait.profile, new Rng(5), MUTATION_RATE)).not.toEqual(
             mutateProfile(bait.profile, new Rng(6), MUTATION_RATE),
         )
+    })
+})
+
+describe('parameters with no fitness signal (#163)', () => {
+    // a Fire-only run: Frost rotation entries (and their conditions) are dropped from every loadout by adaptProfile
+    const fireOnly = [METEOR_LOADOUT, OTHER_LOADOUT]
+    const frostEntries = (profile: Profile) =>
+        [
+            ...profile.rotation.map((entry, i) => [`rotation[${i}].when`, entry.spell] as const),
+            ...profile.lockoutWindow.rotation.map(
+                (entry, i) => [`lockoutWindow.rotation[${i}].when`, entry.spell] as const,
+            ),
+        ].filter(([, spell]) => (SPELLBOOKS.FROST.elementSpells as readonly SpellId[]).includes(spell))
+    const frostSlots = (profile: Profile) =>
+        parameterSlots(profile).filter(({ path, condition }) =>
+            frostEntries(profile).some(([base]) => condition && path.startsWith(`${base}[`)),
+        )
+
+    it('leaves out the condition values of rotation entries no scored loadout plays', () => {
+        // bait has Frost entries with conditions: otherwise this test would prove nothing
+        expect(frostSlots(bait.profile).length).toBeGreaterThan(0)
+        for (const profile of archetypes) {
+            const dead = frostSlots(profile)
+            const paths = tunableSlots(profile, fireOnly).map(slot => slot.path)
+            for (const { path } of dead) expect(paths, `${profile.name} ${path}`).not.toContain(path)
+            // everything else stays, and no loadouts means every slot
+            expect(paths).toHaveLength(parameterSlots(profile).length - dead.length)
+            expect(tunableSlots(profile)).toEqual(parameterSlots(profile))
+        }
+    })
+
+    it('keeps the Frost values when a Frost loadout is scored', () => {
+        const frost: SpellId[] = [
+            'SPELL_FROSTBOLT',
+            'SPELL_ICE_SPEAR',
+            'SPELL_ICY_TOUCH',
+            'SPELL_GLACIER',
+            'SPELL_COUNTERSPELL',
+            'SPELL_HASTE',
+            'SPELL_BLUR',
+        ]
+        const profile = bait.profile
+        const withFrost = tunableSlots(profile, [METEOR_LOADOUT, frost]).map(slot => slot.path)
+        const without = tunableSlots(profile, [METEOR_LOADOUT]).map(slot => slot.path)
+        const played = frostSlots(profile).filter(({ path }) => withFrost.includes(path))
+        expect(played.length).toBeGreaterThan(0)
+        for (const { path } of played) expect(without).not.toContain(path)
+    })
+
+    it('mutation and crossover never change them in a Fire-only run, but do without the loadouts', () => {
+        let moved = 0
+        for (const profile of [bait.profile])
+            for (let seed = 0; seed < 40; seed++) {
+                const dead = frostSlots(profile)
+                const other = mutateProfile(profile, new Rng(seed + 1000), 0.5)
+                const mutant = mutateProfile(profile, new Rng(seed), 0.5, fireOnly)
+                const child = crossoverProfiles(profile, other, new Rng(seed), fireOnly)
+                for (const { path } of dead) {
+                    expect(getAt(mutant, path), `${profile.name} ${path}`).toBe(getAt(clampProfile(profile), path))
+                    expect(getAt(child, path), `${profile.name} ${path}`).toBe(getAt(profile, path))
+                }
+                const free = mutateProfile(profile, new Rng(seed), 0.5)
+                if (dead.some(({ path }) => getAt(free, path) !== getAt(profile, path))) moved++
+            }
+        expect(moved).toBeGreaterThan(0)
+    })
+
+    it('reads the stream the same whether a slot is skipped or not, so live values match an unfiltered run', () => {
+        const profile = bait.profile
+        const dead = frostSlots(profile).map(slot => slot.path)
+        expect(dead.length).toBeGreaterThan(0)
+        for (let seed = 0; seed < 30; seed++) {
+            // rate 0.5: a mutation is always made, so the retry loop (which depends on the slots) never runs
+            const skipped = new Rng(seed)
+            const full = new Rng(seed)
+            const filtered = mutateProfile(profile, skipped, 0.5, fireOnly)
+            const unfiltered = mutateProfile(profile, full, 0.5)
+            expect(skipped.next(), `mutate ${seed}`).toBe(full.next())
+            for (const { path } of parameterSlots(profile).filter(slot => !dead.includes(slot.path)))
+                expect(getAt(filtered, path), `${seed} ${path}`).toBe(getAt(unfiltered, path))
+
+            const partner = mutateProfile(profile, new Rng(seed + 500), 0.5)
+            const skippedCross = new Rng(seed)
+            const fullCross = new Rng(seed)
+            const crossFiltered = crossoverProfiles(profile, partner, skippedCross, fireOnly)
+            const crossFull = crossoverProfiles(profile, partner, fullCross)
+            expect(skippedCross.next(), `crossover ${seed}`).toBe(fullCross.next())
+            for (const { path } of parameterSlots(profile).filter(slot => !dead.includes(slot.path)))
+                expect(getAt(crossFiltered, path), `${seed} ${path}`).toBe(getAt(crossFull, path))
+        }
+    })
+
+    it('tune() mutates none of them in a Fire-only run', () => {
+        const result = tiny({ generations: 3 })
+        const origins = new Map(archetypes.map(p => [p.name, p]))
+        for (const member of result.population) {
+            const origin = origins.get(member.origin)!
+            for (const { path } of frostSlots(origin))
+                expect(getAt(member.profile, path), `${member.profile.name} ${path}`).toBe(getAt(origin, path))
+        }
     })
 })
 
@@ -346,7 +452,10 @@ describe('tune', () => {
         const result = tiny({ seeds: [bait.profile], population: 3, generations: 1, elite: 0 })
         const members = result.population.map(p => p.profile)
         for (const i of [1, 2]) {
-            const expected = mutateProfile(bait.profile, new Rng(breedSeed(11, 0, i)), MUTATION_RATE)
+            const expected = mutateProfile(bait.profile, new Rng(breedSeed(11, 0, i)), MUTATION_RATE, [
+                METEOR_LOADOUT,
+                OTHER_LOADOUT,
+            ])
             expect(members).toContainEqual({ ...expected, name: `g0-${i}` })
         }
         expect(members).toContainEqual(bait.profile)

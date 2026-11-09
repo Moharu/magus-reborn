@@ -15,9 +15,20 @@ import {
     type GeneralSpell,
     type Profile,
 } from './profile'
+import { REACTION_MIN_SECONDS } from './profile-params'
+import type { Rng } from './prng'
 import type { Action, ArenaView, ControllerFactory, Decision, Entrant, OwnCastView, SpellView } from './types'
 
 const NONE = -1
+
+/**
+ * One sampled Counterspell reaction time, in ticks: uniform in mean +- spread (one `rng` draw when there is a spread,
+ * none otherwise), and never below `REACTION_MIN_SECONDS`. Every single draw is floored, not only the mean (owner, #163).
+ */
+export const reactionTicks = (rng: Rng, meanSeconds: number, spreadSeconds: number) => {
+    const seconds = spreadSeconds > 0 ? meanSeconds + spreadSeconds * (2 * rng.next() - 1) : meanSeconds
+    return secondsToTicks(Math.max(REACTION_MIN_SECONDS, seconds))
+}
 
 /** The debuffs a recast replaces (`unique` in `EFFECT_SOURCES`): Living Bomb, Frost Bomb, Frost Fever. */
 const UNIQUE_DEBUFFS = (Object.keys(EFFECT_SOURCES) as (keyof typeof EFFECT_SOURCES)[]).filter(
@@ -148,10 +159,7 @@ export const profileController =
         }
         const lateWindow = secondsToTicks(cs.lateWindowSeconds)
         const { meanSeconds, spreadSeconds } = cs.reaction
-        const sampleReaction = () => {
-            const seconds = spreadSeconds > 0 ? meanSeconds + spreadSeconds * (2 * rng.next() - 1) : meanSeconds
-            return secondsToTicks(Math.max(0, seconds))
-        }
+        const sampleReaction = () => reactionTicks(rng, meanSeconds, spreadSeconds)
 
         const fake = profile.fakeCast
         const fakeSlot = fake.enabled && fake.maxPerMatch > 0 ? slotOf(fake.spell) : NONE

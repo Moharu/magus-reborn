@@ -613,6 +613,36 @@ describe('Fire faces Frost in the tournament (#150)', () => {
         expect(formatTable(result)).toContain('I01  Glacier, Frost Bomb, Icy Touch, Frost Fever | Counterspell |')
     })
 
+    it('rates each element on its cross-element games only; same-element games are listed apart (#163)', () => {
+        const result = runTournament(planTournament(options), frostWins)
+        const text = formatReport(result, { date: '2026-11-09' })
+        const section = text.slice(text.indexOf('### All games'), text.indexOf('## General pairs'))
+        const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+        // 4 Fire and 4 Frost entrants x 2 games a pair: 32 cross games, and 6 same-element pairs (12 games) in each element.
+        // The same-element games are fixed 0.5 trials: they are left out of the rate and the interval
+        const fire = wilsonInterval(0, 32)
+        const frost = wilsonInterval(32, 32)
+        expect(section).toContain(
+            '| Element | Entrants | Wins | Draws | Games | Win rate | 95% CI | Same-element games |',
+        )
+        expect(section).toContain(`| Fire | 4 | 0 | 0 | 32 | 0.0% | ${pct(fire.low)}-${pct(fire.high)} | 12 |`)
+        expect(section).toContain(`| Frost | 4 | 32 | 0 | 32 | 100.0% | ${pct(frost.low)}-${pct(frost.high)} | 12 |`)
+    })
+
+    it('does not let drawn same-element games into the draws or the interval (#163)', () => {
+        const drawsInside: MatchFn = input => {
+            const sameElement = loadoutElement([...input.a.loadout]) === loadoutElement([...input.b.loadout])
+            const result = frostWins(input)
+            return sameElement ? { ...result, winner: 'draw', reason: 'timeout' } : result
+        }
+        const result = runTournament(planTournament(options), drawsInside)
+        const text = formatReport(result, { date: '2026-11-09' })
+        const section = text.slice(text.indexOf('### All games'), text.indexOf('## General pairs'))
+        const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+        const fire = wilsonInterval(0, 32)
+        expect(section).toContain(`| Fire | 4 | 0 | 0 | 32 | 0.0% | ${pct(fire.low)}-${pct(fire.high)} | 12 |`)
+    })
+
     it('says so when the run is Fire only', () => {
         const result = runTournament(planTournament({ ...options, frostTop: 0 }), frostWins)
         const text = formatReport(result, { date: '2026-11-09' })

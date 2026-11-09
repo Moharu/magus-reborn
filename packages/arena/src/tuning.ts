@@ -312,6 +312,8 @@ export const tune = (options: TuningOptions): TuningResult => {
         tunedProfile: seeds.length === 1 ? seeds[0].name : null,
     }
 
+    // the loadouts being scored: values with no signal on them (Frost entries in a Fire-only run) are not mutated (#163)
+    const playedLoadouts = config.loadouts.map(({ loadout }) => loadout)
     const rngFor = (generation: number, index: number) => new Rng(breedSeed(seed, generation, index))
     const named = (profile: Profile, name: string): Profile => ({ ...profile, name })
 
@@ -319,7 +321,10 @@ export const tune = (options: TuningOptions): TuningResult => {
     let members: { profile: Profile; origin: string }[] = Array.from({ length: population }, (_, i) => {
         const start = starts[i % starts.length]
         if (i < starts.length) return { profile: start, origin: start.name }
-        return { profile: named(mutateProfile(start, rngFor(0, i), MUTATION_RATE), `g0-${i}`), origin: start.name }
+        return {
+            profile: named(mutateProfile(start, rngFor(0, i), MUTATION_RATE, playedLoadouts), `g0-${i}`),
+            origin: start.name,
+        }
     })
 
     const cache = new Map<string, Score>()
@@ -377,9 +382,12 @@ export const tune = (options: TuningOptions): TuningResult => {
         for (let i = elite; i < population; i++) {
             const rng = rngFor(generation, i)
             const a = pick(rng)
-            const child = rng.next() < CROSSOVER_RATE ? crossoverProfiles(a.profile, pick(rng).profile, rng) : a.profile
+            const child =
+                rng.next() < CROSSOVER_RATE
+                    ? crossoverProfiles(a.profile, pick(rng).profile, rng, playedLoadouts)
+                    : a.profile
             next.push({
-                profile: named(mutateProfile(child, rng, MUTATION_RATE), `g${generation}-${i}`),
+                profile: named(mutateProfile(child, rng, MUTATION_RATE, playedLoadouts), `g${generation}-${i}`),
                 origin: a.origin,
             })
         }
