@@ -125,7 +125,7 @@ describe('arena --mode strategy (#137)', () => {
             expect(result.config.fireSets[1]).toMatchObject({
                 element: 'FROST',
                 spells: ['SPELL_FROSTBOLT', 'SPELL_GLACIER', 'SPELL_FROST_BOMB', 'SPELL_ICE_SPEAR'],
-                baseline: { rank: 4 },
+                baseline: { rank: 1 },
             })
             expect(result.games).toBe(12 * 3 * 2 * 2)
             expect(fails(entry, '--mode', 'strategy', '--set', 'frostbolt,glacier,frost-bomb,fireball')).toMatch(
