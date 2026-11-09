@@ -1,4 +1,5 @@
 import { EFFECT_REDUCERS, isSpellId, secondsToTicks, type EffectId, type SpellId } from '@magus/engine'
+import { countAfterRelease } from './effects'
 import type { ArenaView, EffectView } from './types'
 import { fail, isRecord, number, onlyKeys } from './validate'
 
@@ -81,6 +82,11 @@ export interface ConditionInput {
     readonly releases?: readonly OwnRelease[]
     /** Whether the free-cast window is open (`inLockoutWindow`). Default: false. */
     readonly window?: boolean
+    /**
+     * The cast the player released this tick (#143), or null. Its effect is not on the view yet (the view is built
+     * before the tick's actions), so the effect counts (`selfEffectsAtLeast` and the like) add it. Default: none.
+     */
+    readonly released?: SpellId | null
 }
 
 const EFFECT_IDS = Object.keys(EFFECT_REDUCERS) as EffectId[]
@@ -94,6 +100,14 @@ const count = (effects: readonly EffectView[], id: EffectId) => {
     for (let i = 0; i < effects.length; i++) if (effects[i].id === id) n += 1
     return n
 }
+
+/** How many effects with id `id` are on a player, the effect of a cast `released` this tick included (#143). */
+const effectsOn = (
+    effects: readonly EffectView[],
+    id: EffectId,
+    whom: 'self' | 'enemy',
+    released: SpellId | null | undefined,
+) => countAfterRelease(count(effects, id), id, whom, released)
 
 /** Some effect with id `id` ends within `ticks` of `tick`. */
 const endsWithin = (effects: readonly EffectView[], id: EffectId, tick: number, ticks: number) => {
@@ -116,13 +130,13 @@ export const conditionHolds = (condition: Condition, input: ConditionInput): boo
         case 'enemyHpAtLeast':
             return enemy.hp >= condition.hp
         case 'selfEffectsAtLeast':
-            return count(self.effects, condition.effect) >= condition.count
+            return effectsOn(self.effects, condition.effect, 'self', input.released) >= condition.count
         case 'selfEffectsBelow':
-            return count(self.effects, condition.effect) < condition.count
+            return effectsOn(self.effects, condition.effect, 'self', input.released) < condition.count
         case 'enemyEffectsAtLeast':
-            return count(enemy.effects, condition.effect) >= condition.count
+            return effectsOn(enemy.effects, condition.effect, 'enemy', input.released) >= condition.count
         case 'enemyEffectsBelow':
-            return count(enemy.effects, condition.effect) < condition.count
+            return effectsOn(enemy.effects, condition.effect, 'enemy', input.released) < condition.count
         case 'selfCasting':
             return casting
         case 'selfNotCasting':

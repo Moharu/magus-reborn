@@ -11,7 +11,10 @@ export const quietProfile = () => ({
     lockoutWindow: undefined as unknown,
     counterspell: {
         enabled: false,
-        targets: ['SPELL_METEOR'] as SpellId[],
+        // #143: only casts worth 15+ HP: an unseen Meteor (3.6 s x 6 HP/s), not a Fireball, an Ignite or a Combustion
+        minValue: 15,
+        bestShare: 0,
+        unseenValuePerSecond: 6,
         reaction: { meanSeconds: 0.4, spreadSeconds: 0 },
         timing: 'early' as 'early' | 'late',
         lateWindowSeconds: 0,

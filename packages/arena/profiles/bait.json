@@ -86,7 +86,9 @@
         },
         "counterspell": {
             "enabled": true,
-            "targets": ["SPELL_METEOR", "SPELL_COMBUSTION"],
+            "minValue": 12,
+            "bestShare": 0.75,
+            "unseenValuePerSecond": 6,
             "reaction": {
                 "meanSeconds": 0.4,
                 "spreadSeconds": 0.1

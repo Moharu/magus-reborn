@@ -19,6 +19,7 @@ export {
     GIVE_UP_MAX_SECONDS,
     loadProfile,
     parseProfile,
+    RELEASE_HOLD_MAX_SECONDS,
     type CounterspellPolicy,
     type FakeCast,
     type GeneralRule,
@@ -26,8 +27,12 @@ export {
     type LockoutWindow,
     type Patience,
     type Profile,
+    type ReleaseHold,
     type RotationEntry,
 } from './profile'
+export { countAfterRelease, EFFECT_SOURCES } from './effects'
+export { spellValues, type SpellValues } from './threat'
+export { baseHit, ownHits, type OwnHits } from './own-hits'
 export { profileController, profileEntrant } from './profile-controller'
 export { ProfileError } from './validate'
 export {
