@@ -14,6 +14,7 @@ import { hotkeyFor, KEY_CODES } from './hotkeys'
 import {
     battleLayout,
     GROUND_Y,
+    resourceCombatTextOffset,
     HEIGHT,
     SIDE_X,
     sidesFor,
@@ -164,7 +165,7 @@ export class BattleView {
                 stroke: { color: 0x000000, width: 4 },
             }
             text.anchor.set(0.5)
-            text.position.set(SIDE_X[side], GROUND_Y - 190)
+            text.position.set(SIDE_X[side], GROUND_Y - 190 + resourceCombatTextOffset())
             text.alpha = 0
             this.world.addChild(this.auras[side], wizard, bomb, text)
         }
@@ -330,6 +331,7 @@ export class BattleView {
             const factor = compact ? Math.min(0.8, (width - 120) / 728) : 1
             hud.scale.set(factor)
             hud.x = side === 'right' ? width - WIDTH * factor : 0
+            hud.fitResource(width, height)
         }
         this.score.position.set(width / 2, compact ? 8 : 12)
         this.timer.position.set(width / 2, compact ? 38 : 50)
@@ -398,7 +400,10 @@ export class BattleView {
             for (const side of SIDES) {
                 if (Math.abs(this.dots[side]) >= 0.05) {
                     this.vfx.floatText(
-                        this.wizards[side].headPoint,
+                        {
+                            ...this.wizards[side].headPoint,
+                            y: this.wizards[side].headPoint.y + resourceCombatTextOffset(),
+                        },
                         formatAmount(this.dots[side]),
                         this.dots[side] < 0 ? 0xff8f6b : 0x8ce99a,
                         16,
@@ -600,7 +605,7 @@ export class BattleView {
 
         const head = caster.headPoint
         // starts lower than other float text, to stay clear of the "Counter Spell!" label above the head
-        this.vfx.floatText({ x: head.x, y: head.y + 14 }, 'Interrupted!', color, 26)
+        this.vfx.floatText({ x: head.x, y: head.y + 14 + resourceCombatTextOffset() }, 'Interrupted!', color, 26)
         this.vfx.ring(caster.chestPoint, color, 90, 0.5, 5)
         this.vfx.spray(caster.chestPoint, color, { count: 16, speed: 130, size: 0.5, life: 0.5 })
     }
@@ -614,7 +619,12 @@ export class BattleView {
             return
         }
         const damage = event.amount < 0
-        this.vfx.floatText(wizard.headPoint, formatAmount(event.amount), damage ? 0xff6b6b : 0x8ce99a, damage ? 26 : 22)
+        this.vfx.floatText(
+            { ...wizard.headPoint, y: wizard.headPoint.y + resourceCombatTextOffset() },
+            formatAmount(event.amount),
+            damage ? 0xff6b6b : 0x8ce99a,
+            damage ? 26 : 22,
+        )
         if ((event.source === 'SPELL_LIVING_BOMB' || event.source === 'SPELL_FROST_BOMB') && event.kind === 'effect') {
             this.vfx.burst(wizard.chestPoint, SPELL_COLOR[event.source], 2)
             this.vfx.shake = 10

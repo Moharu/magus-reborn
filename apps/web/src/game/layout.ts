@@ -85,7 +85,7 @@ export const battleLayout = (width: number, height: number) => {
         heading: rect(x, 12, 340, 24),
         hp: rect(x, 40, 340, 24),
         cast: rect(x, 76, 340, 26),
-        effects: rect(x, 110, 340, 50),
+        effects: rect(x, 128, 340, 50),
     })
     return {
         left: player(24),
@@ -134,3 +134,46 @@ export const mobileBattleLayout = (width: number, height: number) => {
         log: { x: width / 2, y: bar.y - 28 },
     }
 }
+
+/** Change this one setting to move every class resource, including future polarity UI. */
+export type ResourceMeterPosition = 'below-cast' | 'above-wizard'
+export const RESOURCE_METER_POSITION: ResourceMeterPosition = 'below-cast'
+/** Settable placement seam shared by HUD placement and combat text. */
+export const RESOURCE_METER_PLACEMENT: { position: ResourceMeterPosition } = { position: RESOURCE_METER_POSITION }
+export const RESOURCE_METER = { width: 126, height: 8, gap: 10 } as const
+
+/** HUD-local slot; renderers supply content without owning placement or viewport transforms. */
+export const resourceMeterSlot = (
+    side: Side,
+    width = WIDTH,
+    height = HEIGHT,
+    position: ResourceMeterPosition = RESOURCE_METER_PLACEMENT.position,
+): Rect => {
+    const compact = phoneLandscape(width, height)
+    const factor = compact ? Math.min(0.8, (width - 120) / 728) : 1
+    const hudX = side === 'right' ? width - WIDTH * factor : 0
+    const cast = battleLayout(WIDTH, HEIGHT)[side].cast
+    const world = compact ? mobileWorldTransform(width, height) : { x: 0, y: 0, scale: 1 }
+    const meterScale = position === 'below-cast' ? 1 : Math.min(1, world.scale / factor)
+    // CSS-pixel floors survive the parent HUD scale; keep the narrow alternate lane clear of the log.
+    const meterWidth = Math.max(RESOURCE_METER.width * meterScale, (RESOURCE_METER.width * 10) / (22 * factor))
+    const meterHeight = Math.max(RESOURCE_METER.height * meterScale, 6 / factor)
+    if (position === 'below-cast')
+        return {
+            x: cast.x + (cast.width - meterWidth) / 2,
+            y: cast.y + cast.height + RESOURCE_METER.gap,
+            width: meterWidth,
+            height: meterHeight,
+        }
+    return {
+        x: (world.x + SIDE_X[side] * world.scale - hudX) / factor - meterWidth / 2,
+        // Stay below the effect/lock strip even on short phones.
+        y: Math.max(190, (world.y + 190 * world.scale) / factor),
+        width: meterWidth,
+        height: meterHeight,
+    }
+}
+
+/** The alternate layout reserves the head lane for the meter; combat text floats over the robe. */
+export const resourceCombatTextOffset = (position: ResourceMeterPosition = RESOURCE_METER_PLACEMENT.position) =>
+    position === 'above-wizard' ? 100 : 0

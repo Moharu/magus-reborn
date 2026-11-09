@@ -25,6 +25,9 @@ import {
     WIDTH,
     type Side,
     mobileBattleLayout,
+    resourceMeterSlot,
+    RESOURCE_METER,
+    type ResourceMeterPosition,
 } from './layout'
 import { keybindsVisible, onKeybindVisibilityChange } from './hotkeys'
 import { iconTexture } from './textures'
@@ -57,6 +60,8 @@ export class PlayerHud extends Container {
     private readonly bars = new Graphics()
     private readonly nameText = label(18, '800')
     private readonly hpText = label(12)
+    /** Future resources (e.g. Lightning polarity) render inside this same slot. */
+    readonly resourceSlot = new Container()
     private readonly chillingPips = new Graphics()
     private frostRevealed = false
     private readonly castText = label(13)
@@ -91,7 +96,8 @@ export class PlayerHud extends Container {
         this.nameText.anchor.set(0, 0)
         this.hpText.anchor.set(1, 0)
         this.hpText.position.set(this.x0 + this.w, 12)
-        this.chillingPips.position.set(this.x0, 29)
+        this.resourceSlot.addChild(this.chillingPips)
+        this.fitResource()
         this.chillingPips.accessible = true
         this.chillingPips.accessibleType = 'img'
         this.chillingPips.visible = false
@@ -100,18 +106,25 @@ export class PlayerHud extends Container {
         this.castIcon.width = this.castIcon.height = 22
         this.castIcon.position.set(side === 'left' ? this.x0 + 1 : this.x0 + this.w - 23, 78)
         this.lockText.anchor.set(0.5)
-        this.lockText.position.set(this.x0 + this.w / 2, 162)
-        this.effectIcons.position.set(this.x0, 110)
+        this.lockText.position.set(this.x0 + this.w / 2, 180)
+        this.effectIcons.position.set(this.x0, 128)
         this.addChild(
             this.bars,
             this.nameText,
             this.hpText,
-            this.chillingPips,
+            this.resourceSlot,
             this.castIcon,
             this.castText,
             this.effectIcons,
             this.lockText,
         )
+    }
+
+    /** A shared class-resource slot, independent of the resource's drawing and visibility. */
+    fitResource(width = WIDTH, height = HEIGHT, position?: ResourceMeterPosition) {
+        const slot = resourceMeterSlot(this.side, width, height, position)
+        this.resourceSlot.position.set(slot.x, slot.y)
+        this.resourceSlot.scale.set(slot.width / RESOURCE_METER.width, slot.height / RESOURCE_METER.height)
     }
 
     /** Flashes the cast bar with the spell that was interrupted. */
