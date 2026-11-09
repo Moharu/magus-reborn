@@ -207,7 +207,7 @@ export const spellPicker = (
             const target: Target = { kind: 'slot', index: i }
             return h(
                 'div',
-                { class: 'slot-wrap', style: box(buttonX(i), buttonTop, button, button) },
+                { class: 'slot-wrap', style: box(buttonX(i), buttonTop, button, button) + `;--slot:${i}` },
                 h(
                     'button',
                     {
@@ -234,7 +234,8 @@ export const spellPicker = (
                     'button',
                     {
                         class: `spell${spellSelected(id) ? ' selected' : ''}${equipped !== -1 ? ' equipped' : ''}${lit(target) ? ' target' : ''}`,
-                        style: box(boxes[n].x, boxes[n].y, boxes[n].w, boxes[n].h),
+                        style:
+                            box(boxes[n].x, boxes[n].y, boxes[n].w, boxes[n].h) + `;--row:${Math.floor(n / columns)}`,
                         disabled: locked,
                         'aria-pressed': String(spellSelected(id)),
                         title: advanced ? SPELLS[id].advancedDescription : SPELLS[id].description,

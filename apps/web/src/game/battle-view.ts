@@ -10,7 +10,19 @@ import {
 } from '@magus/engine'
 import { ActionBar, INFINITE_HP, PlayerHud, setText } from './hud'
 import { hotkeyFor, KEY_CODES } from './hotkeys'
-import { battleLayout, GROUND_Y, HEIGHT, SIDE_X, sidesFor, TEXT_FONT, WIDTH, type Side } from './layout'
+import {
+    battleLayout,
+    GROUND_Y,
+    HEIGHT,
+    SIDE_X,
+    sidesFor,
+    TEXT_FONT,
+    WIDTH,
+    type Side,
+    phoneLandscape,
+    mobileBattleLayout,
+    mobileWorldTransform,
+} from './layout'
 import { interruptTells, type InterruptTell } from './interrupt-tell'
 import { backdropTexture, particleTexture } from './textures'
 import { Vfx } from './vfx'
@@ -56,7 +68,10 @@ const formatAmount = (amount: number) => {
 
 export class BattleView {
     private app!: Application
+    private backdrop!: Sprite
+    private top!: Graphics
     private readonly world = new Container()
+    private worldOrigin = { x: 0, y: 0 }
     private readonly vfx = new Vfx()
     private readonly wizards: Record<Side, Wizard> = { left: new Wizard('left'), right: new Wizard('right') }
     private readonly huds: Record<Side, PlayerHud>
@@ -119,7 +134,8 @@ export class BattleView {
         this.container.append(this.app.canvas)
         const stage = this.app.stage
 
-        stage.addChild(new Sprite(backdropTexture()))
+        this.backdrop = new Sprite(backdropTexture())
+        stage.addChild(this.backdrop)
         stage.addChild(this.world)
         for (const side of SIDES) {
             const wizard = this.wizards[side]
@@ -144,7 +160,7 @@ export class BattleView {
         }
         this.world.addChild(this.vfx)
 
-        const top = new Graphics().rect(0, 0, WIDTH, 136).fill(0x130f20)
+        const top = (this.top = new Graphics().rect(0, 0, WIDTH, 136).fill(0x130f20))
         stage.addChild(top, this.huds.left, this.huds.right)
         this.spellLog = new SpellLogView(this.options.me, this.container)
         stage.addChild(this.spellLog)
@@ -281,9 +297,38 @@ export class BattleView {
         if (this.destroyed) return
         const { clientWidth, clientHeight } = this.container
         if (!clientWidth || !clientHeight) return
-        const scale = Math.min(clientWidth / WIDTH, clientHeight / HEIGHT)
-        this.app.renderer.resize(Math.floor(WIDTH * scale), Math.floor(HEIGHT * scale))
+        const compact = phoneLandscape(clientWidth, clientHeight)
+        const scale = compact ? 1 : Math.min(clientWidth / WIDTH, clientHeight / HEIGHT)
+        const width = compact ? clientWidth : WIDTH
+        const height = compact ? clientHeight : HEIGHT
+        this.app.renderer.resize(Math.floor(width * scale), Math.floor(height * scale))
         this.app.stage.scale.set(scale)
+        this.backdrop.width = width
+        this.backdrop.height = height
+        const world = compact ? mobileWorldTransform(width, height) : { scale: 1, x: 0, y: 0 }
+        this.world.scale.set(world.scale)
+        this.worldOrigin = { x: world.x, y: world.y }
+        this.world.position.set(world.x, world.y)
+        this.top
+            .clear()
+            .rect(0, 0, width, compact ? 90 : 136)
+            .fill(0x130f20)
+        for (const side of SIDES) {
+            const hud = this.huds[side]
+            const factor = compact ? Math.min(0.8, (width - 120) / 728) : 1
+            hud.scale.set(factor)
+            hud.x = side === 'right' ? width - WIDTH * factor : 0
+        }
+        this.score.position.set(width / 2, compact ? 8 : 12)
+        this.timer.position.set(width / 2, compact ? 38 : 50)
+        this.score.scale.set(compact ? 0.8 : 1)
+        this.timer.scale.set(compact ? 0.8 : 1)
+        const log = compact ? mobileBattleLayout(width, height).log : { x: 480, y: 434 }
+        this.spellLog.position.set(log.x, log.y)
+        this.actionBar?.fitPhone(width, height, compact)
+        const fit = Math.min(width / WIDTH, height / HEIGHT)
+        this.overlay.scale.set(fit)
+        this.overlay.position.set((width - WIDTH * fit) / 2, (height - HEIGHT * fit) / 2)
     }
 
     private displayTick(snap: SnapshotView) {
@@ -353,7 +398,7 @@ export class BattleView {
 
         this.vfx.update(dt)
         // Split Console keeps the arena stationary, including on heavy hits.
-        this.world.position.set(0, 0)
+        this.world.position.set(this.worldOrigin.x, this.worldOrigin.y)
     }
 
     private persistentEffects(side: Side, player: SnapshotView['player1'], tick: number, dt: number) {
