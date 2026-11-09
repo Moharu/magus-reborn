@@ -10,8 +10,9 @@
     ],
     "profile": {
         "name": "bait",
-        "intent": "Fake-cast Meteor to pull out an early Counterspell, then land real Meteors while it is on cooldown.",
-        "rotation": ["SPELL_METEOR", "SPELL_FIREBALL"],
+        "intent": "Fake-cast Meteor or sacrifice a real Combustion to pull out a Counterspell, then land Meteors while it is on cooldown.",
+        "rotation": ["SPELL_METEOR", "SPELL_FIREBALL", "SPELL_COMBUSTION"],
+        "lockoutWindow": { "rotation": ["SPELL_METEOR", "SPELL_FIREBALL"] },
         "counterspell": {
             "enabled": true,
             "targets": ["SPELL_METEOR", "SPELL_COMBUSTION"],
@@ -26,7 +27,8 @@
             "pauseAfterSeconds": 0.4,
             "minGapSeconds": 12,
             "maxPerMatch": 20,
-            "when": []
+            "when": [],
+            "realBaitShare": 0.5
         },
         "generals": {
             "SPELL_HASTE": {

@@ -26,6 +26,20 @@
             },
             "SPELL_FIREBALL"
         ],
+        "lockoutWindow": {
+            "rotation": [
+                {
+                    "spell": "SPELL_COMBUSTION",
+                    "when": [{ "type": "enemyEffectsAtLeast", "effect": "DEBUFF_IGNITE", "count": 1 }]
+                },
+                {
+                    "spell": "SPELL_LIVING_BOMB",
+                    "when": [{ "type": "enemyEffectsBelow", "effect": "DEBUFF_LIVING_BOMB", "count": 1 }]
+                },
+                "SPELL_IGNITE",
+                "SPELL_FIREBALL"
+            ]
+        },
         "counterspell": {
             "enabled": true,
             "targets": ["SPELL_METEOR", "SPELL_COMBUSTION", "SPELL_LIVING_BOMB", "SPELL_IGNITE"],
@@ -37,7 +51,7 @@
             "enabled": false,
             "spell": "SPELL_FIREBALL",
             "cancelAfterSeconds": 0.3,
-            "pauseAfterSeconds": 0,
+            "pauseAfterSeconds": 0.25,
             "minGapSeconds": 12,
             "maxPerMatch": 0,
             "when": []

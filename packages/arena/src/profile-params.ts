@@ -3,8 +3,8 @@ import type { Rng } from './prng'
 
 /**
  * The tunable parameters of a behaviour profile (#102) and their bounds, for the self-tuner (#104). Only these values
- * are ever changed by mutation or crossover: a profile's structure (its rotation order, the conditions it checks, its
- * Counterspell targets, which general spells it uses) stays as written. Every bound lies inside the range the profile
+ * are ever changed by mutation or crossover: a profile's structure (its rotation and window orders, the conditions it
+ * checks, its Counterspell targets and `enabled`, which general spells it uses) stays as written. Every bound lies inside the range the profile
  * loader accepts, so a profile clamped to these bounds always loads.
  */
 
@@ -34,21 +34,30 @@ const num = (min: number, max: number, precision: number, step: number): NumberP
     step,
 })
 
-/** The profile's own parameters, by path. `counterspell.reaction.spreadSeconds` is also kept at most `meanSeconds`. */
+/** One standard reaction time: the fastest Counterspell reaction, and the shortest fake cast or pause after one. */
+export const REACTION_MIN_SECONDS = 0.25
+
+/**
+ * The profile's own parameters, by path. `counterspell.reaction.spreadSeconds` is also kept at most `meanSeconds`.
+ * `counterspell.enabled` is not one: everyone has Counterspell, so tuning never turns it off (#123).
+ */
 export const PROFILE_PARAMETERS: Readonly<Record<string, Parameter>> = {
-    'counterspell.enabled': { kind: 'choice', options: [true, false] },
-    'counterspell.reaction.meanSeconds': num(0.25, 1.5, 0.01, 0.1),
+    'counterspell.reaction.meanSeconds': num(REACTION_MIN_SECONDS, 1.5, 0.01, 0.1),
     'counterspell.reaction.spreadSeconds': num(0, 0.5, 0.01, 0.05),
     'counterspell.timing': { kind: 'choice', options: ['early', 'late'] },
     'counterspell.lateWindowSeconds': num(0, 3, 0.01, 0.2),
     'fakeCast.enabled': { kind: 'choice', options: [true, false] },
-    'fakeCast.cancelAfterSeconds': num(0.05, 2, 0.01, 0.1),
-    'fakeCast.pauseAfterSeconds': num(0, 2, 0.01, 0.1),
+    'fakeCast.cancelAfterSeconds': num(REACTION_MIN_SECONDS, 2, 0.01, 0.1),
+    'fakeCast.pauseAfterSeconds': num(REACTION_MIN_SECONDS, 2, 0.01, 0.1),
     'fakeCast.minGapSeconds': num(0, 60, 0.01, 3),
     'fakeCast.maxPerMatch': num(0, 50, 1, 3),
+    'fakeCast.realBaitShare': num(0, 1, 0.01, 0.1),
 }
 
-/** The numeric fields of a condition, wherever it appears (`rotation[i].when`, `fakeCast.when`, `generals.<id>.when`). */
+/**
+ * The numeric fields of a condition, wherever it appears (`rotation[i].when`, `lockoutWindow.rotation[i].when`,
+ * `fakeCast.when`, `generals.<id>.when`).
+ */
 export const CONDITION_PARAMETERS: Readonly<Record<'hp' | 'count' | 'seconds', NumberParameter>> = {
     hp: num(0, 100, 1, 10),
     count: num(0, 20, 1, 1),
@@ -96,6 +105,10 @@ export const parameterSlots = (profile: Profile): ParameterSlot[] => {
     }))
     const lists: [string, readonly object[]][] = [
         ...profile.rotation.map((entry, i): [string, readonly object[]] => [`rotation[${i}].when`, entry.when]),
+        ...profile.lockoutWindow.rotation.map((entry, i): [string, readonly object[]] => [
+            `lockoutWindow.rotation[${i}].when`,
+            entry.when,
+        ]),
         ['fakeCast.when', profile.fakeCast.when],
         ...GENERAL_SPELLS.flatMap((id): [string, readonly object[]][] => {
             const rule = profile.generals[id]

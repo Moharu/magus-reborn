@@ -94,12 +94,21 @@ describe('entrants and pairs', () => {
         // bait: no Meteor, Haste or Blur on OTHER_LOADOUT, so Fireball is all that is left of its rotation
         const adapted = adaptProfile(ARCHETYPES.bait.profile, OTHER_LOADOUT)
         expect(adapted.rotation.map(r => r.spell)).toEqual(['SPELL_FIREBALL'])
+        // and of its window list (Meteor, Fireball)
+        expect(adapted.lockoutWindow.rotation.map(r => r.spell)).toEqual(['SPELL_FIREBALL'])
         // its fake cast of Meteor moves to the longest cast on the loadout (Ignite, 1.6 s)
         expect(adapted.fakeCast).toEqual({ ...ARCHETYPES.bait.profile.fakeCast, spell: 'SPELL_IGNITE' })
         expect(() => checkLoadout(adapted, OTHER_LOADOUT)).not.toThrow()
         // nothing of the rotation is left: the loadout's own Fire spells, in slot order
-        const meteorOnly = { ...ARCHETYPES.bait.profile, rotation: [{ spell: 'SPELL_METEOR' as const, when: [] }] }
-        expect(adaptProfile(meteorOnly, OTHER_LOADOUT).rotation.map(r => r.spell)).toEqual(OTHER_LOADOUT.slice(0, 4))
+        const meteorOnly = {
+            ...ARCHETYPES.bait.profile,
+            rotation: [{ spell: 'SPELL_METEOR' as const, when: [] }],
+            lockoutWindow: { rotation: [{ spell: 'SPELL_METEOR' as const, when: [] }] },
+        }
+        const fallback = adaptProfile(meteorOnly, OTHER_LOADOUT)
+        expect(fallback.rotation.map(r => r.spell)).toEqual(OTHER_LOADOUT.slice(0, 4))
+        // nothing of the window list is left either: it plays the adapted rotation
+        expect(fallback.lockoutWindow.rotation).toEqual(fallback.rotation)
     })
 })
 

@@ -14,6 +14,7 @@ export {
     type FakeCast,
     type GeneralRule,
     type GeneralSpell,
+    type LockoutWindow,
     type Profile,
     type RotationEntry,
 } from './profile'
@@ -70,6 +71,7 @@ export {
     parameterChanges,
     parameterSlots,
     PROFILE_PARAMETERS,
+    REACTION_MIN_SECONDS,
     shapeKey,
     type ChoiceParameter,
     type NumberParameter,

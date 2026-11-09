@@ -17,7 +17,10 @@ npm run arena:tune -- --top 2 --general-pairs 1 --population 6 --generations 4 -
 
 - It drives the engine only through `Battle.startCast`, `Battle.stopCast` and `Battle.tick()`. Nothing under `src/`
   imports a spell module or computes damage, cooldowns or cast times: readiness comes from the engine's
-  `cooldownRemaining` and `lockRemaining`, and GCD, Counterspell lock, cast cancelling and death are the engine's.
+  `cooldownRemaining` and `lockRemaining`, and GCD, Counterspell lock, cast cancelling and death are the engine's. The
+  one estimate a profile makes is what a player would: when the opponent's Counterspell is ready again, from the tick
+  it was seen landing plus Counterspell's public cooldown (`SPELLS`), since the view never shows the opponent's
+  cooldowns (see the free-cast window below).
 - Randomness comes only from the seeded PRNG in `src/prng.ts` (mulberry32). `packages/engine` stays deterministic and
   untouched. The same seed and inputs give an identical result and log.
 
@@ -76,8 +79,8 @@ A profile is a plain JSON object of named parameters, so a tuner (#104) can muta
 shape and ranges and returns it in normal form; `loadProfile(raw, loadout)` also checks it against the loadout it will
 play. Both throw a `ProfileError` whose message starts with the offending key's path (`counterspell.reaction.meanSeconds:
 must be in [0, 10], got 11`): unknown keys, missing keys and out-of-range values are rejected. `profileController(profile)`
-is its `ControllerFactory`, `profileEntrant(profile, loadout)` an entrant. Every key except `intent` and a rotation
-entry's `when` is required.
+is its `ControllerFactory`, `profileEntrant(profile, loadout)` an entrant. Every key except `intent`, a rotation
+entry's `when`, `lockoutWindow` (default: a copy of `rotation`) and `fakeCast.realBaitShare` (default 0) is required.
 
 ```jsonc
 {
@@ -92,6 +95,8 @@ entry's `when` is required.
         },
         "SPELL_FIREBALL",
     ],
+    // the free-cast window's list, highest value first, same form as rotation (#123)
+    "lockoutWindow": { "rotation": ["SPELL_COMBUSTION", "SPELL_FIREBALL"] },
     "counterspell": {
         "enabled": true,
         "targets": ["SPELL_METEOR"], // enemy casts it interrupts
@@ -107,6 +112,7 @@ entry's `when` is required.
         "minGapSeconds": 12, // between two fakes
         "maxPerMatch": 20,
         "when": [], // conditions to start a fake
+        "realBaitShare": 0.5, // share of baits that are a real low-priority cast instead of a fake (#123)
     },
     // one rule per general spell: "never" or { "when": [conditions] }; rules for spells not on the loadout are unused
     "generals": {
@@ -125,8 +131,11 @@ profile's own choice this tick (`src/conditions.ts`): `selfHpBelow`/`selfHpAtLea
 (`seconds`, optional `spells`), `enemyLocked` and `nextCastIs` (`spells`: the real cast the profile starts this tick; never a fake).
 
 **Each tick** the controller: (1) cancels its fake cast once `cancelAfterSeconds` has passed, or releases a completed
-cast; (2) lands a committed Counterspell; (3) picks its next cast if it has none in progress and isn't pausing after a
-fake: a fake cast if `fakeCast` allows one, else the first rotation entry that is ready and whose `when` holds; (4)
+cast; (2) lands a committed Counterspell; (3) picks its next cast if it has none in progress, isn't pausing after a
+fake and didn't just press Counterspell (it waits one tick to see on the view whether the lock landed): in the
+free-cast window, the first `lockoutWindow.rotation` entry that is ready, whose `when` holds and that fits, or none;
+else a bait if `fakeCast` allows one (a fake, or a real cast, see below); else the first rotation entry that is ready
+and whose `when` holds; (4)
 uses each general spell that is ready and whose rule holds (an instant used mid-cast cancels the cast, so rules that
 must not do that say `selfNotCasting`); (5) starts the cast from (3), after the general spells so Haste applies to it.
 It never assumes a side.
@@ -144,6 +153,24 @@ cancel costs only the elapsed time (no lock, no damage). It baits a Counterspell
 the cancel and lands after it: against an `early` counterer with reaction `R`, the cancel must come before `R` from
 the first visible tick, and `pauseAfterSeconds` must outlast it, or the Counterspell lands on the next cast. `late`
 counterers decide near the release and are not fooled by short fakes.
+
+**Free-cast window (#123).** While the opponent can't Counterspell, the profile casts from `lockoutWindow.rotation`
+instead of `rotation`, and starts no fake cast or bait (there is nothing to bait). Everything comes from the view: the
+opponent can't Counterspell before `safeUntil`, the later of `enemy.lockedUntil` (our Counterspell landed: 3 s in which
+it can cast nothing) and the tick its Counterspell is ready again, known when one was seen landing on us (the
+`DEBUFF_COUNTERSPELL` on our buff bar starts on that tick) plus Counterspell's 11.7 s cooldown. A cast fits when its
+release tick is before `safeUntil`: on that tick the opponent may act first and interrupt it. So a cast that finishes
+before the lockout ends is always allowed, and one that would finish after it only while the opponent's Counterspell
+is seen on cooldown until after its release. The release tick uses the cast time the view shows, or the un-hasted one
+when the Haste on won't last to the release (it ends first, or this tick's release uses it up). With no entry
+fitting, no cast starts until the window ends (general spells are still used). An opponent Counterspell that hit an
+empty cast bar leaves nothing on the view, so it isn't known and that Counterspell is taken as ready.
+
+**Sacrificial bait (#123).** With `realBaitShare` above 0, that share of baits (drawn per bait from the seeded stream;
+no draw at 0 or 1) is a real cast of the lowest-priority rotation entry that is ready and whose `when` holds, instead
+of a fake. It is not cancelled: if the opponent counters it, its Counterspell shows as on cooldown and the free-cast
+window lets the long casts through (bait: a real Combustion, then Meteors). The same gates as fake casts apply
+(`enabled`, `minGapSeconds`, `maxPerMatch`, `when`), and `maxPerMatch` counts both kinds.
 
 **Archetypes** live in `profiles/<name>.json` as `{ "loadout": [...], "profile": {...} }` and load on import
 (`ARCHETYPES`, `archetypeEntrant(name)`): `aggressive`, `patient-counter`, `bait` and `defensive`, each with its
@@ -175,7 +202,8 @@ the search (15 Fire sets, 6 general pairs each; `npm run arena:baseline -- --top
 to the sets in the table, which `config.top` and stderr report; `config.generalPairs` records `K`.
 
 A profile naming spells the loadout lacks is adapted (`adaptProfile`): rotation entries
-for missing spells are dropped (with none left, the loadout's own Fire spells in slot order), and a fake cast of a spell
+for missing spells are dropped (with none left, the loadout's own Fire spells in slot order), and so are window entries
+(with none left, the window plays the adapted rotation); a fake cast of a spell
 the loadout lacks (bait without Meteor) is retargeted to the loadout's longest cast-time spell (first in slot order on a
 tie), or turned off if it has none. Everything else is kept.
 
@@ -224,19 +252,22 @@ gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouch
   least one value always changes). Every random choice comes from that stream, so the same `S` gives the same run.
 - **What may change.** Only the tunable parameters declared in `src/profile-params.ts`, each with bounds that lie inside
   what the profile loader accepts; out-of-bounds values are clamped (and `spreadSeconds` kept at most `meanSeconds`). The
-  profile's structure (rotation order, its conditions, Counterspell targets, which general spells it uses) never changes.
+  profile's structure (rotation and window orders, their conditions, Counterspell targets, which general spells it
+  uses) never changes, and neither does `counterspell.enabled`: everyone has Counterspell. A fake cast and the pause
+  after it last at least one standard reaction time (0.25 s, the reaction mean's minimum too).
   Crossover takes condition values from the second parent only if both have the same structure.
 
-    | Parameter                                                                    | Bounds                |
-    | ---------------------------------------------------------------------------- | --------------------- |
-    | `counterspell.enabled`, `fakeCast.enabled`                                   | `true` / `false`      |
-    | `counterspell.timing`                                                        | `early` / `late`      |
-    | `counterspell.reaction.meanSeconds`                                          | 0.25 to 1.5 s         |
-    | `counterspell.reaction.spreadSeconds`                                        | 0 to 0.5 s, <= mean   |
-    | `counterspell.lateWindowSeconds`                                             | 0 to 3 s              |
-    | `fakeCast.cancelAfterSeconds` / `pauseAfterSeconds` / `minGapSeconds`        | 0.05-2 / 0-2 / 0-60 s |
-    | `fakeCast.maxPerMatch`                                                       | 0 to 50               |
-    | every condition's `hp` / `count` / `seconds` (rotation, fake cast, generals) | 0-100 / 0-20 / 0-3 s  |
+    | Parameter                                                                            | Bounds                   |
+    | ------------------------------------------------------------------------------------ | ------------------------ |
+    | `fakeCast.enabled`                                                                   | `true` / `false`         |
+    | `counterspell.timing`                                                                | `early` / `late`         |
+    | `counterspell.reaction.meanSeconds`                                                  | 0.25 to 1.5 s            |
+    | `counterspell.reaction.spreadSeconds`                                                | 0 to 0.5 s, <= mean      |
+    | `counterspell.lateWindowSeconds`                                                     | 0 to 3 s                 |
+    | `fakeCast.cancelAfterSeconds` / `pauseAfterSeconds` / `minGapSeconds`                | 0.25-2 / 0.25-2 / 0-60 s |
+    | `fakeCast.maxPerMatch`                                                               | 0 to 50                  |
+    | `fakeCast.realBaitShare`                                                             | 0 to 1                   |
+    | every condition's `hp` / `count` / `seconds` (rotation, window, fake cast, generals) | 0-100 / 0-20 / 0-3 s     |
 
 - **Overfitting guard.** The final best profile is re-scored on a fresh seed set (a tournament seed derived from `S`
   whose match seeds share none with the selection set). Both win rates are printed; a large gap means the search fitted

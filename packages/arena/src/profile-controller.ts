@@ -1,4 +1,4 @@
-import { FIXED_SPELL, secondsToTicks, type SpellId } from '@magus/engine'
+import { FIXED_SPELL, secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
 import { allHold, type Condition, type ConditionInput } from './conditions'
 import { start, stop } from './controllers'
 import { checkLoadout, GENERAL_SPELLS, type GeneralSpell, type Profile } from './profile'
@@ -7,12 +7,21 @@ import type { Action, ArenaView, ControllerFactory, Decision, Entrant } from './
 const NONE = -1
 
 /**
+ * Counterspell's cooldown in ticks, from the public spell data a client shows (not from the opponent's state, which the
+ * view never has). With the tick an enemy Counterspell was seen landing, it gives when that Counterspell is ready again.
+ */
+const COUNTER_COOLDOWN = secondsToTicks(SPELLS[FIXED_SPELL].cooldownSeconds ?? 0)
+
+/**
  * The controller a profile plays. Each tick, from that player's `ArenaView` only (and its own memory and seeded
  * stream), it decides in this order:
  *   1. its own cast: cancel a fake cast once `fakeCast.cancelAfterSeconds` has passed, or release a completed cast;
  *   2. Counterspell: land a committed interrupt (see below);
- *   3. the next cast, if it has none in progress and isn't pausing after a fake: a fake cast when `fakeCast` allows
- *      one, else the first rotation entry whose spell is ready and whose `when` holds;
+ *   3. the next cast, if it has none in progress, isn't pausing after a fake and didn't press Counterspell this tick
+ *      (it waits one tick to see on the view whether the lock landed): in the free-cast window (below), the first
+ *      `lockoutWindow.rotation` entry that is ready, whose `when` holds and that fits the window, or none; else a bait
+ *      when `fakeCast` allows one (a fake, or a real low-priority cast, see `realBaitShare`), else the first rotation
+ *      entry whose spell is ready and whose `when` holds;
  *   4. general spells, in loadout order: each one that is ready and whose rule holds (`nextCastIs` sees step 3);
  *   5. starts the cast chosen in step 3, after the general spells, so Haste applies to it.
  * A general spell used while a cast is in progress cancels that cast, like any instant: rules that must not do that
@@ -25,6 +34,13 @@ const NONE = -1
  * meanwhile, because it can't tell a fake cast from a real one, nor react to the cancel faster than to the cast. A fake cancelled after the commit and before the landing
  * wastes the Counterspell; one cancelled before the commit is seen in time and not interrupted.
  *
+ * Free-cast window (#123), from the view only: the enemy can't Counterspell before tick `safeUntil`, the later of
+ * `enemy.lockedUntil` (our Counterspell landed) and the tick its own Counterspell is ready again, known when it was seen
+ * landing on us (the `DEBUFF_COUNTERSPELL` on our buff bar starts on that tick) plus Counterspell's public cooldown. A
+ * Counterspell that hit an empty cast bar leaves nothing on the view, so it is not known: the enemy's is then taken as
+ * ready. A cast fits when its release tick is before `safeUntil`: on tick `safeUntil` the enemy may act first (as
+ * player1) and interrupt it. The release tick allows for Haste running out first (see `releaseTick`).
+ *
  * Nothing here depends on the side: player1 acting first within a tick is the runner's, and tournaments swap sides.
  */
 export const profileController =
@@ -33,6 +49,10 @@ export const profileController =
         checkLoadout(profile, loadout)
         const slotOf = (id: SpellId) => loadout.indexOf(id)
         const rotation = profile.rotation.map(entry => ({ ...entry, slot: slotOf(entry.spell) }))
+        const windowRotation = profile.lockoutWindow.rotation.map(entry => ({ ...entry, slot: slotOf(entry.spell) }))
+        // each slot's cast time without Haste, read from the view whenever no Haste is on (always so on tick 0); until
+        // then unknown, so a cast whose Haste may run out never fits the window
+        const baseCast = loadout.map(() => Infinity)
         const generals: { slot: number; when: readonly Condition[] }[] = []
         loadout.forEach((id, slot) => {
             const rule = (GENERAL_SPELLS as readonly SpellId[]).includes(id) && profile.generals[id as GeneralSpell]
@@ -53,6 +73,7 @@ export const profileController =
         const cancelAfter = secondsToTicks(fake.cancelAfterSeconds)
         const fakeGap = secondsToTicks(fake.minGapSeconds)
         const fakePause = secondsToTicks(fake.pauseAfterSeconds)
+        const realShare = fake.realBaitShare
 
         // the enemy cast last planned for (its start tick); the plan's sampled reaction (NONE: no plan) and decision tick
         let planFor = NONE
@@ -62,10 +83,12 @@ export const profileController =
         let planCompletesAt = NONE
         // a committed Counterspell: it lands on this tick whatever the enemy does meanwhile
         let pressAt = NONE
-        // fake casts: the start tick of the one in progress, the last one's start, how many so far
+        // baits (fake casts and real ones): the start tick of the fake in progress, the last bait's start, how many so far
         let fakeStart = NONE
         let lastFake = -Infinity
         let fakes = 0
+        // the latest tick an enemy Counterspell was seen landing on this player
+        let enemyCounterAt = -Infinity
         // no cast starts before this tick: the pause after a fake cast's cancel
         let pauseUntil = NONE
 
@@ -77,12 +100,39 @@ export const profileController =
         }
         const holds = (when: readonly Condition[]) => allHold(when, input as ConditionInput)
 
+        // this tick's Haste end on the buff bar (NONE: no Haste), and whether step 1 released a cast
+        let hasteEnds = NONE
+        let released = false
+        /**
+         * The release tick of `slot`'s cast started on `tick`: the cast time the view shows, or the un-hasted one when
+         * the Haste on won't last to the release, because it ends first or this tick's release of the previous cast
+         * uses it up (the engine then restores the longer cast time).
+         */
+        const releaseTick = (self: ArenaView['self'], slot: number, tick: number) => {
+            const castTime = self.spells[slot].castTime
+            const unhasted = hasteEnds !== NONE && (released || hasteEnds <= tick + castTime)
+            return tick + (unhasted ? baseCast[slot] : castTime)
+        }
+
         return (view): Decision => {
             const { tick, self, enemy } = view
             actions.length = 0
             input.view = view
             input.nextCast = null
             let casting = self.casting !== null
+
+            // what the buff bar shows: an enemy Counterspell that landed (its lock), and Haste's end
+            hasteEnds = NONE
+            for (const effect of self.effects) {
+                if (effect.id === 'DEBUFF_COUNTERSPELL' && effect.startingTick > enemyCounterAt)
+                    enemyCounterAt = effect.startingTick
+                else if (effect.id === 'BUFF_HASTE') hasteEnds = effect.expiresAt
+            }
+            if (hasteEnds === NONE) for (let i = 0; i < baseCast.length; i++) baseCast[i] = self.spells[i].castTime
+            // the enemy can't Counterspell before this tick: its lock, or its Counterspell's cooldown
+            const safeUntil = Math.max(enemy.lockedUntil, enemyCounterAt + COUNTER_COOLDOWN)
+            released = false
+            let countered = false
 
             // 1. own cast
             const own = self.casting
@@ -96,6 +146,7 @@ export const profileController =
                 } else if (tick >= own.completesAt) {
                     actions.push(stop(own.slot))
                     casting = false
+                    released = true
                 }
             }
 
@@ -138,6 +189,7 @@ export const profileController =
                     if (self.spells[csSlot].ready) {
                         actions.push(start(csSlot))
                         casting = false
+                        countered = true
                     }
                 }
             }
@@ -146,16 +198,42 @@ export const profileController =
             input.casting = casting
             let next = NONE
             let isFake = false
-            if (!casting && tick >= pauseUntil) {
-                if (
+            let isBait = false
+            if (!casting && tick >= pauseUntil && !countered) {
+                if (tick < safeUntil) {
+                    // the free-cast window: nothing to bait, and only casts released before the enemy can counter
+                    for (const entry of windowRotation) {
+                        if (
+                            self.spells[entry.slot].ready &&
+                            holds(entry.when) &&
+                            releaseTick(self, entry.slot, tick) < safeUntil
+                        ) {
+                            next = entry.slot
+                            break
+                        }
+                    }
+                } else if (
                     fakeSlot !== NONE &&
                     fakes < fake.maxPerMatch &&
                     tick - lastFake >= fakeGap &&
                     self.spells[fakeSlot].ready &&
                     holds(fake.when)
                 ) {
-                    next = fakeSlot
-                    isFake = true
+                    isBait = true
+                    // a real bait: the lowest-priority rotation entry that is ready and whose `when` holds
+                    if (realShare >= 1 || (realShare > 0 && rng.next() < realShare)) {
+                        for (let i = rotation.length - 1; i >= 0; i--) {
+                            const entry = rotation[i]
+                            if (self.spells[entry.slot].ready && holds(entry.when)) {
+                                next = entry.slot
+                                break
+                            }
+                        }
+                    }
+                    if (next === NONE) {
+                        next = fakeSlot
+                        isFake = true
+                    }
                 } else {
                     for (const entry of rotation) {
                         if (self.spells[entry.slot].ready && holds(entry.when)) {
@@ -179,10 +257,11 @@ export const profileController =
             // 5. start the next cast
             if (next !== NONE) {
                 actions.push(start(next))
-                if (isFake) {
-                    fakeStart = lastFake = tick
+                fakeStart = isFake ? tick : NONE
+                if (isBait) {
+                    lastFake = tick
                     fakes += 1
-                } else fakeStart = NONE
+                }
             }
 
             if (actions.length === 0) return null
