@@ -1,23 +1,29 @@
 // Usage:
-//   npm run arena:tournament -- [--top N] [--general-pairs K] [--profiles a,b,...] [--games G] [--seed S] [--max-ticks T]
-//                               [--baseline VERSION] [--jobs J] [--shard i/n] [--out FILE]
-//   npm run arena:tournament -- merge SHARD.json... [--out FILE]
-// Plays a round-robin between entrants (the top N distinct Fire sets, each with its best K general pairs, x the profiles) and prints the ranked table:
+//   npm run arena -- [--top N] [--general-pairs K] [--profiles a,b,...] [--games G] [--seed S] [--max-ticks T]
+//                    [--baseline VERSION] [--jobs J] [--time-budget SECONDS] [--shard i/n] [--out FILE]
+//                    [--report FILE] [--date YYYY-MM-DD] [--commit SHA]
+//   npm run arena -- merge SHARD.json... [--allow-missing] [--out FILE] [--report FILE] [--date YYYY-MM-DD] [--commit SHA]
+// (`npm run arena:tournament` is the same command.) Plays a round-robin between entrants (the top N distinct Fire sets, each with its best K general pairs, x the profiles) and prints the ranked table:
 // win rate only, games per pair even so sides swap equally. --out writes the JSON (the result, or with --shard that
-// shard's pairs, which `merge` combines). --jobs (default: the cores, at most 4) runs that many worker processes and
-// never changes the output. Progress goes to stderr.
+// shard's pairs, which `merge` combines). --jobs (default 4, values above 4 are clamped to 4 with a warning) runs that
+// many worker processes and never changes the output. --time-budget stops the run when that many seconds have passed
+// (each pair is finished first); the result is then partial and its table and report say so. --report writes the
+// Markdown report (#105). Progress goes to stderr.
 import { spawn, type ChildProcess } from 'node:child_process'
-import { availableParallelism } from 'node:os'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { fromInvocation } from './paths'
+import { performance } from 'node:perf_hooks'
 import { ENGINE_VERSION } from '@magus/engine'
 import {
     ARCHETYPE_NAMES,
     ARCHETYPES,
+    clampJobs,
     DEFAULT_GAMES,
     DEFAULT_SEED,
     DEFAULT_GENERAL_PAIRS,
     DEFAULT_TOP,
+    formatReport,
     formatTable,
     mergeShards,
     pairList,
@@ -30,9 +36,8 @@ import {
     type ArchetypeName,
     type PairResult,
     type ShardResult,
+    type TournamentResult,
 } from '../src'
-
-const MAX_JOBS = 4
 
 const args = process.argv.slice(2)
 const flag = (name: string) => {
@@ -55,9 +60,43 @@ const fraction = (name: string, raw: string | undefined) => {
     return { index: Number(match[1]), count: Number(match[2]) }
 }
 
+/** Seconds from `--time-budget`, a positive number; counted from the start of this process. */
+const timeBudget = () => {
+    const raw = flag('time-budget')
+    if (raw === undefined) return undefined
+    const seconds = Number(raw)
+    if (!/^\d+(\.\d+)?$/.test(raw) || !(seconds > 0))
+        throw new Error(`--time-budget must be a positive number of seconds, got ${raw}`)
+    return seconds
+}
+const elapsedSeconds = () => performance.now() / 1000
+/** `stop` for `playPairs`: true once the budget is used up. Undefined without a budget. */
+const stopper = () => {
+    const budget = timeBudget()
+    return budget === undefined ? undefined : () => elapsedSeconds() >= budget
+}
+
+const reportOptions = () => {
+    const date = flag('date') ?? new Date().toISOString().slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`--date must look like YYYY-MM-DD, got ${date}`)
+    const commit = flag('commit')
+    if (commit !== undefined && !/^[0-9a-f]{7,40}$/i.test(commit))
+        throw new Error(`--commit must be a hex commit id, got ${commit}`)
+    return { date, ...(commit === undefined ? {} : { commit }) }
+}
+
+/** Writes `--out` (JSON), prints the table and writes `--report` (Markdown) for a whole tournament result. */
+const publish = (result: TournamentResult) => {
+    const report = flag('report')
+    const options = report === undefined ? undefined : reportOptions()
+    writeOut(result)
+    printTable(formatTable(result))
+    if (report !== undefined && options) writeFileSync(fromInvocation(report), formatReport(result, options))
+}
+
 const readJson = (file: string) => {
     try {
-        return JSON.parse(readFileSync(file, 'utf8')) as unknown
+        return JSON.parse(readFileSync(fromInvocation(file), 'utf8')) as unknown
     } catch (error) {
         throw new Error(`cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`, {
             cause: error,
@@ -70,7 +109,7 @@ const writeOut = (value: unknown) => {
     if (out === undefined) return
     const text = JSON.stringify(value, null, 2) + '\n'
     if (out === '-') process.stdout.write(text)
-    else writeFileSync(out, text)
+    else writeFileSync(fromInvocation(out), text)
 }
 
 /** The table goes to stdout, unless `--out -` puts the JSON there: then it goes to stderr, so stdout stays parseable. */
@@ -116,7 +155,7 @@ const worker = (spec: { index: number; count: number }) => {
     const shard = fraction('shard', flag('shard')) ?? { index: 0, count: 1 }
     const total = pairList(plan().config.entrants.length).length
     const mine = shardPairs(total, shard.index, shard.count).filter((_, i) => i % spec.count === spec.index)
-    process.stdout.write(JSON.stringify(playPairs(plan(), mine)))
+    process.stdout.write(JSON.stringify(playPairs(plan(), mine, undefined, stopper())))
 }
 
 /** Every worker still running: when one fails, the others are killed rather than left burning CPU. */
@@ -129,9 +168,15 @@ const killWorkers = () => {
 const runWorker = (index: number, count: number) =>
     new Promise<PairResult[]>((resolve, reject) => {
         const script = fileURLToPath(import.meta.url)
-        const child = spawn(process.execPath, [...process.execArgv, script, ...args, '--worker', `${index}/${count}`], {
-            stdio: ['ignore', 'pipe', 'inherit'],
-        })
+        // the worker gets what is left of the time budget when it starts
+        const budget = timeBudget()
+        const rest = budget === undefined ? [] : ['--time-budget', String(Math.max(budget - elapsedSeconds(), 0.001))]
+        const forwarded = args.filter((arg, i, all) => arg !== '--time-budget' && all[i - 1] !== '--time-budget')
+        const child = spawn(
+            process.execPath,
+            [...process.execArgv, script, ...forwarded, ...rest, '--worker', `${index}/${count}`],
+            { stdio: ['ignore', 'pipe', 'inherit'] },
+        )
         children.add(child)
         let out = ''
         child.stdout.setEncoding('utf8').on('data', chunk => (out += chunk))
@@ -151,20 +196,33 @@ const runWorker = (index: number, count: number) =>
 
 const main = async () => {
     if (args[0] === 'merge') {
-        const files = args.slice(1).filter((arg, i, all) => !arg.startsWith('--') && all[i - 1] !== '--out')
+        // every flag takes a value, so the files are the arguments that are neither a flag nor its value
+        const files = args
+            .slice(1)
+            .filter(
+                (arg, i, all) =>
+                    !arg.startsWith('--') && (all[i - 1] === '--allow-missing' || !all[i - 1]?.startsWith('--')),
+            )
         if (files.length === 0) throw new Error('merge needs shard files')
-        const result = mergeShards(files.map(file => readJson(file) as ShardResult))
-        writeOut(result)
-        printTable(formatTable(result))
+        publish(
+            mergeShards(
+                files.map(file => readJson(file) as ShardResult),
+                { allowMissing: args.includes('--allow-missing') },
+            ),
+        )
         return
     }
 
     const workerSpec = fraction('worker', flag('worker'))
     if (workerSpec) return worker(workerSpec)
 
-    const jobs = intFlag('jobs', Math.min(availableParallelism(), MAX_JOBS))
-    if (!(jobs >= 1 && jobs <= MAX_JOBS)) throw new Error(`--jobs must be between 1 and ${MAX_JOBS}, got ${jobs}`)
+    const { jobs, warning } = clampJobs(flag('jobs') === undefined ? undefined : intFlag('jobs', 0))
+    if (warning) console.error(`warning: ${warning}`)
+    const stop = stopper()
+    if (flag('report') !== undefined) reportOptions() // a bad --date or --commit fails before the run, not after
     const shard = fraction('shard', flag('shard'))
+    if (shard && flag('report') !== undefined)
+        throw new Error('--report needs a whole run: merge the shards, then report')
     const tournament = plan()
     const { config } = tournament
     if (config.top.used < config.top.requested)
@@ -178,19 +236,25 @@ const main = async () => {
     )
 
     let pairs: PairResult[]
-    if (jobs === 1) pairs = playPairs(tournament, mine)
+    if (jobs === 1) pairs = playPairs(tournament, mine, undefined, stop)
     else pairs = (await Promise.all(Array.from({ length: jobs }, (_, i) => runWorker(i, jobs)))).flat()
     pairs.sort((x, y) => x.pair - y.pair)
+    const partial = pairs.length < mine.length
+    if (partial) console.error(`warning: the time budget ended the run after ${pairs.length} of ${mine.length} pairs`)
 
     if (shard) {
         if (flag('out') === undefined) throw new Error('--shard needs --out FILE for its result')
-        writeOut({ format: SHARD_FORMAT, config, shard, pairs } satisfies ShardResult)
-        console.error(`shard ${shard.index}/${shard.count}: ${pairs.length} pairs`)
+        writeOut({
+            format: SHARD_FORMAT,
+            config,
+            shard,
+            ...(partial ? { partial: true as const } : {}),
+            pairs,
+        } satisfies ShardResult)
+        console.error(`shard ${shard.index}/${shard.count}: ${pairs.length} pairs${partial ? ' (partial)' : ''}`)
         return
     }
-    const result = summarize(config, pairs)
-    writeOut(result)
-    printTable(formatTable(result))
+    publish(summarize(config, pairs, partial))
 }
 
 main().catch(error => {

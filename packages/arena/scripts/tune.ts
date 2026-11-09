@@ -9,6 +9,7 @@
 // Tuned profiles are for the arena only; gameplay never reads them.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { fromInvocation } from './paths'
 import { ENGINE_VERSION } from '@magus/engine'
 import {
     ARCHETYPE_NAMES,
@@ -91,7 +92,7 @@ const main = () => {
             ),
     })
     const out = flag('out')
-    if (out !== undefined) writeFileSync(out, JSON.stringify(tunedProfile(result), null, 4) + '\n')
+    if (out !== undefined) writeFileSync(fromInvocation(out), JSON.stringify(tunedProfile(result), null, 4) + '\n')
     console.log(formatTuning(result))
     if (out !== undefined) console.log(`Best profile written to ${out}${result.partial ? ' (partial run)' : ''}.`)
 }

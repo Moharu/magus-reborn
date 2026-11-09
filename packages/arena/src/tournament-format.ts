@@ -8,6 +8,9 @@ export const spellName = (id: string) =>
         .map(word => word[0] + word.slice(1).toLowerCase())
         .join(' ')
 
+/** Shown instead of a win rate for an entrant that played no games (a partial run stopped before its pairs). */
+export const NO_GAMES = 'no games'
+
 export const percent = (x: number) => `${(x * 100).toFixed(1)}%`
 
 /**
@@ -22,8 +25,8 @@ export const formatTable = (result: TournamentResult) => {
         String(r.wins),
         String(r.draws),
         String(r.games),
-        percent(r.winRate),
-        `${percent(r.ci95.low)}-${percent(r.ci95.high)}`,
+        r.games === 0 ? NO_GAMES : percent(r.winRate),
+        r.games === 0 ? NO_GAMES : `${percent(r.ci95.low)}-${percent(r.ci95.high)}`,
     ])
     const header = ['#', 'loadout', 'profile', 'wins', 'draws', 'games', 'win rate', '95% CI']
     const widths = header.map((h, i) => Math.max(h.length, ...rows.map(row => row[i].length)))
@@ -47,6 +50,11 @@ export const formatTable = (result: TournamentResult) => {
         })
     return [
         `${result.games} matches, ${config.entrants.length} entrants, ${config.games} games per pair, seed ${config.seed}, baseline ${config.baselineVersion}. Only wins score.`,
+        ...(result.partial
+            ? [
+                  `PARTIAL: ${result.partial.missingShards ? `the run played ${result.partial.pairsPlayed} of ${result.partial.pairsTotal} pairs (missing shards ${result.partial.missingShards.join(', ')})` : `the time budget ended the run after ${result.partial.pairsPlayed} of ${result.partial.pairsTotal} pairs`}; these rates cover the played pairs only.`,
+              ]
+            : []),
         line(header),
         ...rows.map(line),
         '',

@@ -2,14 +2,14 @@
 
 Headless AI-vs-AI matches on the real battle engine (`@magus/engine`). One match is best-of-1, 100 HP, to the death,
 with a time cap that counts as a draw. Behaviour profiles (#102), tournaments (#103), self-tuning (#104) and the
-workflow (#105) build on this package.
+workflow and report (#105) build on this package.
 
 ```sh
 npm run arena:match -- --seed 1          # summary of one match between the two built-in example entrants
 npm run arena:match -- --seed 1 --log    # the full match log, then the summary
 npm run arena:match -- --seed 1 --max-ticks 600
 npm run arena:match -- --seed 1 --a bait --b patient-counter   # two archetypes from profiles/
-npm run arena:tournament -- --top 8 --games 2 --seed 1          # round-robin, ranked by win rate (#103)
+npm run arena -- --top 8 --games 2 --seed 1 --report report.md  # round-robin, ranked by win rate; the report (#103, #105)
 npm run arena:tune -- --top 2 --general-pairs 1 --population 6 --generations 4 --seed 1 --out best.json   # self-tuning (#104)
 ```
 
@@ -199,10 +199,12 @@ intent in its file.
 
 ### Tournaments (#103)
 
+`npm run arena` is the tournament command; `npm run arena:tournament` is the same script under its older name.
+
 ```sh
-npm run arena:tournament -- [--top N] [--general-pairs K] [--profiles a,b] [--games G] [--seed S] [--max-ticks T] [--baseline VERSION]
-                            [--jobs J] [--shard i/n] [--out FILE]
-npm run arena:tournament -- merge SHARD.json... [--out FILE]
+npm run arena -- [--top N] [--general-pairs K] [--profiles a,b] [--games G] [--seed S] [--max-ticks T] [--baseline VERSION]
+                 [--jobs J] [--time-budget SECONDS] [--shard i/n] [--out FILE] [--report FILE] [--date D] [--commit SHA]
+npm run arena -- merge SHARD.json... [--allow-missing] [--out FILE] [--report FILE] [--date D] [--commit SHA]
 npm run arena:baseline -- [--top K] --out baselines/<ENGINE_VERSION>.json
 ```
 
@@ -240,12 +242,83 @@ tie), or turned off if it has none. Everything else is kept.
   games `row` won against `column`. The table goes to stdout (stderr with `--out -`, which prints the JSON to stdout, for a run and for `merge`).
 - **Shards.** `--shard i/n` plays the pairs with `pair % n === i` and writes `{ format, config, shard, pairs }` (needs
   `--out`); `merge` of all `n` files, in any order, gives byte-identical JSON to the unsharded run. It refuses missing,
-  repeated or foreign shards (different config).
-- **Jobs.** `--jobs J` (default the cores, at most 4) runs J worker processes over the pairs. The output does not depend on
-  it, nor on the shard split.
+  repeated or foreign shards (different config); `--allow-missing` merges the shards given anyway, as a partial result that
+  names the missing ones (`partial.missingShards`).
+- **Jobs.** `--jobs J` runs J worker processes over the pairs. The default is 4, and a larger value is clamped to 4 with
+  a warning on stderr (`warning: --jobs 9 is above the maximum of 4: using 4`); `clampJobs` is the rule. The output does
+  not depend on it, nor on the shard split.
+- **Time budget (#105).** `--time-budget SECONDS` (a positive number, counted from the start of the process) stops the run
+  when it is reached: each worker finishes its current pair, plays no further one, and the result is marked **partial**
+  (`partial: { pairsPlayed, pairsTotal, played }` in the JSON, a `PARTIAL:` line under the table, `Status: PARTIAL` and a
+  caveat in the report). A shard stopped early writes `partial: true` and `merge` accepts it (a short shard that is not
+  marked partial is still refused). A run that finishes within its budget is complete and byte-identical to one without
+  a budget. An entrant that played no games in a partial run ranks last and shows `no games`. Where a partial run stops depends on the machine's speed, so unlike a complete run it is not reproducible.
 
 From code: `planTournament({ baseline, profiles, top, generalPairs, games, seed })`, then `runTournament(plan)`, or `runShard(plan, i, n)`
-and `mergeShards(shards)`. `profiles` are plain `Profile` objects, so a tuner (#104) can pass its own.
+and `mergeShards(shards)` (`runTournament` and `runShard` take an optional `stop` callback, the time budget's hook). `profiles` are plain `Profile` objects, so a tuner (#104) can pass its own.
+
+### Workflow, local runs and the report (#105)
+
+**In GitHub Actions** (`.github/workflows/arena.yml`, free on this public repo): _Actions > Arena > Run workflow_, or
+`gh workflow run arena.yml -f seed=1 -f top=8 -f games=2 -f generations=0`. It is `workflow_dispatch` only, has
+`permissions: contents: read`, uses no secrets and writes nothing back (no commits, no wiki). Inputs: `seed`, `top`
+(Fire sets), `games` (per pair, even) and `generations` (0, the default, means no tuning).
+
+- A `plan` job checks the inputs (non-negative integers; `generations` is read numerically, so `00` means no tuning) and
+  decides whether `tune` runs.
+- Four `shard` jobs run `--shard i/4 --jobs 4 --time-budget 1200` (a 20 minute budget inside a 30 minute job timeout, so
+  a slow run ends partial and is still merged) and upload `arena-shard-<i>` (14 days).
+- A `merge` job downloads the shards, runs `merge --allow-missing` into `arena-result.json` and `arena-report.md`, writes the
+  report to the run's step summary and uploads both as `arena-report` (30 days). It also runs when a shard job failed: it
+  merges the shards that uploaded, and the report is `PARTIAL` and names the missing shards (the workflow still shows red
+  for the failed shard). The merged result is byte-identical to a local run of the same seed and inputs (checked by
+  `test/arena-cli.test.ts`, which compares a local run with 4 merged shards, the JSON and the report).
+- Files: `npm run arena` runs the script from `packages/arena/` (npm workspaces), so the workflow gives the CLI absolute
+  paths under `$GITHUB_WORKSPACE/arena-out`, and uploads from the same `arena-out/` directory. Locally the CLI resolves a
+  relative `--out`, `--report` or `merge` file against `INIT_CWD` (npm's invocation directory), so those land where you
+  typed the command.
+- With `generations` above 0 a `tune` job (60 minute timeout, `--max-matches 1500000`) runs `arena:tune` (#104) on the same
+  seed, top and games, writes its output to its step summary and uploads `arena-tuning` (the text and the best profile).
+  The tuning is not part of the report.
+- Publishing the report to the wiki is manual: the workflow cannot write there.
+
+**Locally**: `npm run arena -- --top 8 --games 2 --seed 1 --report arena-report.md --out arena-result.json`. Keep local runs
+small while developing (`--top 2 --general-pairs 1 --games 2`, 28 pairs, a second or two); `--jobs` is 4 at most.
+
+**Expected runtime.** The default run is 8 Fire sets x 2 general pairs = 16 loadouts x 4 profiles = 64 entrants, 2016 pairs
+x 2 games = 4032 matches (`games x E(E-1)/2` for `E` entrants). It was not run in full while writing this: it is
+extrapolated from small runs on one core of a WSL2 machine (top 4, 2 general pairs, 32 entrants: 992 matches in 0.8 s,
+1984 in 1.3 s, about 2000 matches per second after 0.3 s of start-up).
+
+| Where                                          | Default run                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| Locally, 1 job                                 | about 2 to 3 s                                               |
+| Locally, `--jobs 4` (the default)              | about 1 to 2 s (start-up of the workers included)            |
+| Actions, whole workflow (4 shards, then merge) | about 2 to 4 minutes, nearly all of it checkout and `npm ci` |
+
+Matches take about the same time whatever the entrants, so a bigger run scales with its match count: `--top 15 --general-pairs 6`
+(the whole baseline, 360 entrants) at 20 games per pair is about 1.3 million matches, roughly 11 minutes on one core,
+3 on four, or about a minute per shard on four Actions shards, if the extrapolation holds. The time budget exists for
+runs that turn out slower. Re-measure with a tiny config and scale by the match count.
+
+**The report** (`--report FILE`, from a whole run or from `merge`; `formatReport(result, { date, commit })` from code) is Markdown
+with these sections, in this order, always present:
+
+1. `# Arena report: <version>` then `## Header`: version (the baseline's engine version), seed, date (UTC), commit (if
+   `--commit` is given; the workflow passes the commit it runs on), status (`complete`, or `PARTIAL: x of y pairs played`),
+   entrants (loadouts x profiles, with the profile names), how the loadouts were chosen, games per pair and the time cap.
+2. `## Dummy baseline`: a table of the loadouts that play (`L<rank>`, Fire set, Counterspell slot, general spells, dummy DPS,
+   DPS under pressure), from `baselines/<version>.json`.
+3. `## Arena win rates`: `### By profile` (entrants, wins, draws, games and win rate over all of a profile's entrants) and
+   `### By entrant` (rank, loadout, profile, wins, draws, games, win rate and 95% interval, best first).
+4. `## Matchup matrix`: profile against profile, the share of games the row profile won against the column profile, with
+   wins/games (the full entrant matrix is `matrix` in the JSON).
+5. `## Caveats`: partial runs, draws, sample size (games per entrant, the widest interval), the first-mover edge and what
+   the numbers mean.
+
+For a given seed and inputs the tables are deterministic: the report is a pure function of the result, the date and the
+commit, so everything but the header's date and commit is identical between runs, and a report from merged shards equals
+one from an unsharded run. The date is the only clock read, in the script, never in the library or the engine.
 
 ### Self-tuning (#104)
 

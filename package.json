@@ -10,6 +10,7 @@
         "dev:web": "npm run dev -w @magus/web",
         "dev:server": "npm run dev -w @magus/server",
         "sim:search": "npm run sim:search -w @magus/engine --",
+        "arena": "npm run arena -w @magus/arena --",
         "arena:match": "npm run match -w @magus/arena --",
         "arena:tournament": "npm run tournament -w @magus/arena --",
         "arena:baseline": "npm run baseline -w @magus/arena --",
