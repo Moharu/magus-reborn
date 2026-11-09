@@ -1227,6 +1227,32 @@ describe('archetypes in play', () => {
 })
 
 describe('profile controller: commit wait and a lock inside the free-cast window (#137)', () => {
+    it('commitGiveUpSeconds: 0 allows an immediate cast: the reaction floor does not touch give-up timers (#163)', () => {
+        const fireball = slotOf(METEOR_LOADOUT, 'SPELL_FIREBALL')
+        const firstCast = (commitGiveUpSeconds: number) => {
+            const waiter = loadProfile(
+                {
+                    ...quietProfile(),
+                    rotation: ['SPELL_FIREBALL'],
+                    patience: { thresholdGiveUpSeconds: null, commitGiveUpSeconds },
+                },
+                METEOR_LOADOUT,
+            )
+            const decide = controllerFor(waiter, METEOR_LOADOUT)
+            for (let tick = 0; tick < 100; tick++)
+                if (
+                    actionsOf(decide(freeView(METEOR_LOADOUT, tick))).some(
+                        a => a.type === 'start' && a.slot === fireball,
+                    )
+                )
+                    return tick
+            return undefined
+        }
+        expect(firstCast(0)).toBe(0)
+        // a real wait still waits its length: 0.25 s is 5 ticks
+        expect(firstCast(0.25)).toBe(5)
+    })
+
     it('a Counterspell lock on the last tick of the window does not push the end of the commit wait', () => {
         const waiter = loadProfile(
             {

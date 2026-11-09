@@ -365,6 +365,31 @@ describe('parameters with no fitness signal (#163)', () => {
         expect(moved).toBeGreaterThan(0)
     })
 
+    it('reads the stream the same whether a slot is skipped or not, so live values match an unfiltered run', () => {
+        const profile = bait.profile
+        const dead = frostSlots(profile).map(slot => slot.path)
+        expect(dead.length).toBeGreaterThan(0)
+        for (let seed = 0; seed < 30; seed++) {
+            // rate 0.5: a mutation is always made, so the retry loop (which depends on the slots) never runs
+            const skipped = new Rng(seed)
+            const full = new Rng(seed)
+            const filtered = mutateProfile(profile, skipped, 0.5, fireOnly)
+            const unfiltered = mutateProfile(profile, full, 0.5)
+            expect(skipped.next(), `mutate ${seed}`).toBe(full.next())
+            for (const { path } of parameterSlots(profile).filter(slot => !dead.includes(slot.path)))
+                expect(getAt(filtered, path), `${seed} ${path}`).toBe(getAt(unfiltered, path))
+
+            const partner = mutateProfile(profile, new Rng(seed + 500), 0.5)
+            const skippedCross = new Rng(seed)
+            const fullCross = new Rng(seed)
+            const crossFiltered = crossoverProfiles(profile, partner, skippedCross, fireOnly)
+            const crossFull = crossoverProfiles(profile, partner, fullCross)
+            expect(skippedCross.next(), `crossover ${seed}`).toBe(fullCross.next())
+            for (const { path } of parameterSlots(profile).filter(slot => !dead.includes(slot.path)))
+                expect(getAt(crossFiltered, path), `${seed} ${path}`).toBe(getAt(crossFull, path))
+        }
+    })
+
     it('tune() mutates none of them in a Fire-only run', () => {
         const result = tiny({ generations: 3 })
         const origins = new Map(archetypes.map(p => [p.name, p]))

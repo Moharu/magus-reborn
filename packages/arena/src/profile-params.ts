@@ -265,7 +265,8 @@ export const behaviourKey = (profile: Profile) => {
  * `precision`, so rounding never undoes the move), a choice switches to another option. Then `clampProfile`. If that
  * leaves the profile's behaviour unchanged, one more value is drawn and changed until it differs, so a mutant always
  * differs from its (clamped) parent. Every draw comes from `rng`. With `loadouts`, values with no fitness signal on them
- * (`tunableSlots`) are left alone.
+ * (`tunableSlots`) are left alone, but their draws are still made and discarded: the stream is read the same whether a
+ * slot is skipped or not, so a run's results stay comparable across loadout coverage.
  */
 export const mutateProfile = (
     profile: Profile,
@@ -274,12 +275,16 @@ export const mutateProfile = (
     loadouts?: readonly (readonly SpellId[])[],
 ): Profile => {
     const out = copy(profile)
-    const slots = tunableSlots(out, loadouts)
+    // a skipped slot is changed on a scratch copy: the same draws are read, and nothing of it reaches the result
+    const scratch = copy(profile)
+    const slots = parameterSlots(out)
+    const live = new Set(tunableSlots(out, loadouts).map(slot => slot.path))
     const change = ({ path, parameter }: ParameterSlot) => {
-        const value = getAt(out, path)
+        const target = live.has(path) ? out : scratch
+        const value = getAt(target, path)
         if (parameter.kind === 'choice') {
             const others = parameter.options.filter(option => option !== value)
-            setAt(out, path, others[rng.int(others.length)])
+            setAt(target, path, others[rng.int(others.length)])
             return
         }
         const old = value as number
@@ -289,7 +294,7 @@ export const mutateProfile = (
         // a move smaller than the precision, or into a bound the value is already on: one precision the other way
         if (next === old) next = clampValue(parameter, old + sign * parameter.precision)
         if (next === old) next = clampValue(parameter, old - sign * parameter.precision)
-        setAt(out, path, next)
+        setAt(target, path, next)
     }
     for (const slot of slots) if (rng.next() < rate) change(slot)
     const parent = behaviourKey(clampProfile(profile))
@@ -305,7 +310,7 @@ export const mutateProfile = (
  * Uniform crossover: `a`'s structure, each tunable value taken from `b` with probability 1/2. Condition fields are only
  * taken when both profiles have the same structure (`shapeKey`), since a path like `rotation[0].when[0].count` means
  * something different in another profile. Then `clampProfile`. With `loadouts`, values with no fitness signal on them
- * (`tunableSlots`) keep `a`'s.
+ * (`tunableSlots`) keep `a`'s; their coin flips are still drawn, so the stream is read the same either way.
  */
 export const crossoverProfiles = (
     a: Profile,
@@ -315,10 +320,12 @@ export const crossoverProfiles = (
 ): Profile => {
     const out = copy(a)
     const sameShape = shapeKey(a) === shapeKey(b)
-    for (const { path, condition } of tunableSlots(out, loadouts)) {
+    const live = new Set(tunableSlots(out, loadouts).map(slot => slot.path))
+    for (const { path, condition } of parameterSlots(out)) {
         const take = rng.next() < 0.5
         // a block `b` lacks (`releaseHold`, #143) has no value to give
-        if (take && (sameShape || !condition) && getAt(b, path) !== undefined) setAt(out, path, getAt(b, path))
+        if (take && live.has(path) && (sameShape || !condition) && getAt(b, path) !== undefined)
+            setAt(out, path, getAt(b, path))
     }
     return clampProfile(out)
 }

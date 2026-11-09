@@ -613,22 +613,23 @@ describe('Fire faces Frost in the tournament (#150)', () => {
         expect(formatTable(result)).toContain('I01  Glacier, Frost Bomb, Icy Touch, Frost Fever | Counterspell |')
     })
 
-    it('counts every game once in the All games table, same-element games included (#163)', () => {
+    it('rates each element on its cross-element games only; same-element games are listed apart (#163)', () => {
         const result = runTournament(planTournament(options), frostWins)
         const text = formatReport(result, { date: '2026-11-09' })
         const section = text.slice(text.indexOf('### All games'), text.indexOf('## General pairs'))
         const pct = (x: number) => `${(x * 100).toFixed(1)}%`
-        // 4 Fire and 4 Frost entrants x 2 games a pair: 32 cross games, and 6 same-element pairs (12 games) in each element
-        // Fire: 32 + 12 = 44 games, 0 + 12 x 1/2 wins; Frost: 44 games, 32 + 6 wins. (Counted per entrant it was 56.)
-        const fire = wilsonInterval(6, 44)
-        const frost = wilsonInterval(38, 44)
-        expect(section).toContain(`| Fire | 4 | 6 | 0 | 44 | ${pct(6 / 44)} | ${pct(fire.low)}-${pct(fire.high)} |`)
+        // 4 Fire and 4 Frost entrants x 2 games a pair: 32 cross games, and 6 same-element pairs (12 games) in each element.
+        // The same-element games are fixed 0.5 trials: they are left out of the rate and the interval
+        const fire = wilsonInterval(0, 32)
+        const frost = wilsonInterval(32, 32)
         expect(section).toContain(
-            `| Frost | 4 | 38 | 0 | 44 | ${pct(38 / 44)} | ${pct(frost.low)}-${pct(frost.high)} |`,
+            '| Element | Entrants | Wins | Draws | Games | Win rate | 95% CI | Same-element games |',
         )
+        expect(section).toContain(`| Fire | 4 | 0 | 0 | 32 | 0.0% | ${pct(fire.low)}-${pct(fire.high)} | 12 |`)
+        expect(section).toContain(`| Frost | 4 | 32 | 0 | 32 | 100.0% | ${pct(frost.low)}-${pct(frost.high)} | 12 |`)
     })
 
-    it('counts a drawn same-element game as one draw in the All games table (#163)', () => {
+    it('does not let drawn same-element games into the draws or the interval (#163)', () => {
         const drawsInside: MatchFn = input => {
             const sameElement = loadoutElement([...input.a.loadout]) === loadoutElement([...input.b.loadout])
             const result = frostWins(input)
@@ -638,9 +639,8 @@ describe('Fire faces Frost in the tournament (#150)', () => {
         const text = formatReport(result, { date: '2026-11-09' })
         const section = text.slice(text.indexOf('### All games'), text.indexOf('## General pairs'))
         const pct = (x: number) => `${(x * 100).toFixed(1)}%`
-        const fire = wilsonInterval(0, 44)
-        expect(section).toContain(`| Fire | 4 | 0 | 12 | 44 | 0.0% | ${pct(fire.low)}-${pct(fire.high)} |`)
-        expect(section).toContain('| Frost | 4 | 32 | 12 | 44 |')
+        const fire = wilsonInterval(0, 32)
+        expect(section).toContain(`| Fire | 4 | 0 | 0 | 32 | 0.0% | ${pct(fire.low)}-${pct(fire.high)} | 12 |`)
     })
 
     it('says so when the run is Fire only', () => {

@@ -44,7 +44,7 @@ const COUNTER_COOLDOWN = secondsToTicks(SPELLS[FIXED_SPELL].cooldownSeconds ?? 0
 /** A give-up timer in ticks, clamped to the loader's range; NONE when it is off (null or absent). */
 const giveUpTicks = (seconds: number | null | undefined) =>
     typeof seconds === 'number' && Number.isFinite(seconds)
-        ? secondsToTicks(Math.min(GIVE_UP_MAX_SECONDS, Math.max(REACTION_MIN_SECONDS, seconds)))
+        ? secondsToTicks(Math.min(GIVE_UP_MAX_SECONDS, Math.max(0, seconds)))
         : NONE
 
 /**
