@@ -1,11 +1,13 @@
 // Usage:
 //   npm run arena:tune -- [--generations G] [--population P] [--elite K] [--seed S] [--top N] [--general-pairs K]
-//                         [--games G] [--max-ticks T] [--max-matches M] [--from a,b] [--field a,b] [--baseline VERSION]
+//                         [--games G] [--max-ticks T] [--max-matches M] [--from a,b | --profile NAME] [--field a,b]
+//                         [--baseline VERSION]
 //                         [--out FILE]
 // Evolutionary self-tuning (#104): scores a population of profiles against a fixed field on the tournament's top loadouts,
 // keeps the best --elite unchanged and breeds the rest, for --generations generations. Prints one row per generation, then
 // the best profile's win rate on the selection seeds and on a fresh holdout seed set. --out writes the best profile as
-// profile JSON (`parseProfile`). --max-matches stops early and says the result is partial. Progress goes to stderr.
+// profile JSON (`parseProfile`). --profile NAME tunes that one archetype only (#156): it seeds and mutates nothing else, the
+// field stays the same, and the output reports the improvement over the untuned archetype on both seed sets. --max-matches stops early and says the result is partial. Progress goes to stderr.
 // Tuned profiles are for the arena only; gameplay never reads them.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -51,6 +53,16 @@ const archetypes = (name: string) => {
     return names.map(n => ARCHETYPES[n as ArchetypeName].profile)
 }
 
+/** `--profile NAME`: the one archetype to tune (instead of `--from`), or undefined. */
+const tunedArchetype = () => {
+    const name = flag('profile')
+    if (name === undefined) return undefined
+    if (!(ARCHETYPE_NAMES as string[]).includes(name))
+        throw new Error(`--profile: unknown profile ${name} (one of ${ARCHETYPE_NAMES.join(', ')})`)
+    if (flag('from') !== undefined) throw new Error('--profile and --from cannot be used together')
+    return ARCHETYPES[name as ArchetypeName].profile
+}
+
 const loadBaseline = () => {
     const version = flag('baseline') ?? ENGINE_VERSION
     if (!/^[\w.-]+$/.test(version))
@@ -73,9 +85,11 @@ const loadBaseline = () => {
 const main = () => {
     const population = intFlag('population', DEFAULT_POPULATION)
     const maxMatches = flag('max-matches') === undefined ? undefined : intFlag('max-matches', 0)
+    const only = tunedArchetype()
     const result = tune({
         baseline: loadBaseline(),
-        seeds: archetypes('from'),
+        seeds: only ? [only] : archetypes('from'),
+        ...(only ? { compareToStart: true } : {}),
         field: archetypes('field'),
         top: intFlag('top', DEFAULT_TOP),
         generalPairs: intFlag('general-pairs', DEFAULT_GENERAL_PAIRS),

@@ -94,6 +94,61 @@ describe('arena:tune CLI', () => {
     )
 
     it(
+        '--profile bait tunes only bait and reports the improvement over the untuned bait',
+        () => {
+            const out = join(dir, 'bait.json')
+            const args = smallWith('from', 'bait') // --from is replaced below: --profile and --from exclude each other
+            args.splice(args.indexOf('--from'), 2)
+            const stdout = cli(...args, '--profile', 'bait', '--out', out)
+            const expected = tune({
+                baseline: parseBaseline(JSON.parse(readFileSync(baselineFile, 'utf8')), ENGINE_VERSION),
+                seeds: [ARCHETYPES.bait.profile],
+                field: [ARCHETYPES.aggressive.profile],
+                top: 1,
+                generalPairs: 1,
+                games: 2,
+                maxTicks: 400,
+                seed: 5,
+                population: 4,
+                generations: 2,
+                elite: 1,
+                compareToStart: true,
+            })
+            expect(stdout).toBe(`${formatTuning(expected)}\nBest profile written to ${out}.\n`)
+            expect(stdout).toContain('Self-tuning of bait only')
+            expect(stdout).toContain('Untuned starting point (bait), same seeds:')
+            expect(stdout).toMatch(/selection seeds: .*, tuned [+-]?\d+\.\d pp/)
+            expect(stdout).toMatch(/fresh seeds \(holdout\): .*, tuned [+-]?\d+\.\d pp/)
+            // only bait-derived candidates: every generation row names bait as the origin, and the field is untouched
+            const rows = stdout.split('\n').filter(l => /^\s*\d+\s+\d/.test(l))
+            expect(rows.length).toBe(2)
+            for (const row of rows) expect(row).toContain('(bait)')
+            expect(stdout).toContain('against aggressive on')
+            expect((JSON.parse(readFileSync(out, 'utf8')) as { name: string }).name).toBe('bait-tuned-s5')
+        },
+        TIMEOUT,
+    )
+
+    it(
+        'without --profile the output has no starting-point comparison',
+        () => {
+            const stdout = cli(...small)
+            expect(stdout).not.toContain('Untuned starting point')
+            expect(stdout).not.toContain('only, seed')
+        },
+        TIMEOUT,
+    )
+
+    it(
+        'rejects an unknown --profile and --profile together with --from',
+        () => {
+            expect(fails(...small, '--profile', 'nope')).toMatch(/--profile: unknown profile nope/)
+            expect(fails(...small, '--profile', 'bait')).toMatch(/--profile and --from cannot be used together/)
+        },
+        TIMEOUT,
+    )
+
+    it(
         'fails clearly on bad options',
         () => {
             expect(fails(...smallWith('elite', '4'))).toMatch(/elite must be an integer in \[0, population\)/)
@@ -154,6 +209,23 @@ describe('arena:tune with the default field (#136)', () => {
         // the tune job's --max-matches covers a selection score and its holdout re-score many times over
         const maxMatches = Number(/--max-matches (\d+)/.exec(workflow)?.[1])
         expect(maxMatches).toBeGreaterThanOrEqual(2 * matches * 10)
+    })
+
+    it('the workflow has a tune_profile input (empty = whole population), validated and passed to the tune job (#156)', () => {
+        expect(workflow).toMatch(/^ {12}tune_profile:$/m)
+        expect(workflow).toContain('ARENA_TUNE_PROFILE: ${{ inputs.tune_profile }}')
+        const plan = workflow.slice(workflow.search(/^ {4}plan:$/m), workflow.search(/^ {4}shard:$/m))
+        expect(plan).toContain('ARENA_TUNE_PROFILE: ${{ inputs.tune_profile }}')
+        expect(plan).toContain("profile_pattern='^[a-z-]{0,30}$'")
+        const tuneJob = workflow.slice(workflow.search(/^ {4}tune:$/m))
+        expect(tuneJob).toContain('ARENA_TUNE_PROFILE: ${{ inputs.tune_profile }}')
+        expect(tuneJob).toContain(
+            'if [[ -n "$ARENA_TUNE_PROFILE" ]]; then profile+=(--profile "$ARENA_TUNE_PROFILE"); fi',
+        )
+        expect(tuneJob).toContain('npm run arena:tune -- "${profile[@]}"')
+        // the paths stay absolute under the workspace
+        expect(tuneJob).toContain('--out "$GITHUB_WORKSPACE/arena-out/arena-tuned-profile.json"')
+        expect(tuneJob).not.toMatch(/--out (?!"\$GITHUB_WORKSPACE\/)/)
     })
 
     it('the workflow merge job plays the bracket after merging the shards', () => {

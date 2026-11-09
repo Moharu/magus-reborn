@@ -411,7 +411,7 @@ and merges the same way (same shard and report files, no bracket, no tuning):
   relative `--out`, `--report` or `merge` file against `INIT_CWD` (npm's invocation directory), so those land where you
   typed the command.
 - With `generations` above 0 a `tune` job (60 minute timeout, `--max-matches 1500000`) runs `arena:tune` (#104) on the same
-  seed, top and games, writes its output to its step summary and uploads `arena-tuning` (the text and the best profile).
+  seed, top and games (and `tune_profile`, when set, as `--profile`), writes its output to its step summary and uploads `arena-tuning` (the text and the best profile).
   The tuning is not part of the report.
 - Publishing the report to the wiki is manual: the workflow cannot write there.
 
@@ -462,7 +462,7 @@ one from an unsharded run. The date is the only clock read, in the script, never
 
 ```sh
 npm run arena:tune -- [--generations G] [--population P] [--elite K] [--seed S] [--max-matches M] [--out FILE]
-                      [--top N] [--general-pairs K] [--games G] [--max-ticks T] [--from a,b] [--field a,b] [--baseline VERSION]
+                      [--top N] [--general-pairs K] [--games G] [--max-ticks T] [--from a,b | --profile NAME] [--field a,b] [--baseline VERSION]
 ```
 
 An evolutionary search over profile parameters across generations, keeping the strongest. It is for the arena only:
@@ -470,6 +470,12 @@ gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouch
 
 - **Population.** Generation 0 is the `--from` profiles (default every archetype), then mutants of them in turn, up to
   `--population P` (default 8). `--generations G` (default 5) counts generation 0.
+- **One archetype (#156).** `--profile NAME` (one of the archetypes; not with `--from`) seeds and mutates only that
+  archetype, so a weak archetype is tuned on its own terms instead of losing the overall ranking to a stronger one. The
+  field, the loadouts, elitism and the holdout re-score are unchanged. The output adds the untuned archetype's win rate
+  on the selection seeds and on the holdout seeds and the tuned profile's change in percentage points on each (the
+  untuned archetype's holdout re-score counts in the matches and in `--max-matches`). In the workflow it is the
+  `tune_profile` input (empty means the whole population).
 - **Score.** Each profile is scored against a fixed **field** (`--field`, default every archetype) on the tournament's
   loadouts (`--top`, `--general-pairs`, `--games`, `--max-ticks` as in `arena:tournament`). The score is the profile's row
   of the #103 round-robin: the tournament of `[profile, ...field]`, restricted to the pairs where one of the profile's
@@ -516,7 +522,7 @@ gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouch
   output, `(partial run)` in the written profile's intent).
 - **Output.** One row per generation: the population's best, median and worst win rate, the best profile (and the
   starting profile it descends from) and its win rate on each loadout (`L<rank>`, legend at the end). Then the best
-  profile's selection and holdout win rates, and the parameters it changed from its starting profile. `--out FILE` writes
+  profile's selection and holdout win rates, with `--profile` the improvement over the untuned archetype, and the parameters it changed from its starting profile. `--out FILE` writes
   the best profile as profile JSON, which `parseProfile` (and `loadProfile` against its starting archetype's loadout)
   accepts, named `<origin>-tuned-s<S>` with both win rates in its `intent`.
 
@@ -535,7 +541,7 @@ Changed parameters:
 
 From code: `tune({ baseline, seeds, field, generations, population, elite, seed, maxMatches, ... })` returns the
 `TuningResult` (`generations`, the final `population`, `best` with its `holdout` score and `changes`, `matches`,
-`partial`); `formatTuning(result)` is the text above and `tunedProfile(result)` the profile `--out` writes.
+`partial`, and with `compareToStart` the untuned `start` with its two scores); `formatTuning(result)` is the text above and `tunedProfile(result)` the profile `--out` writes.
 
 ### Tick order and the end of a match
 
