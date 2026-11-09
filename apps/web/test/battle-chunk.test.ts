@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GAME_TICK_INTERVAL } from '@magus/engine'
+import { GAME_TICK_INTERVAL, type IgniteDebuff } from '@magus/engine'
 import { NEW_VERSION_MESSAGE, type ServerMessage } from '@magus/engine/protocol'
 import {
     BATTLE_COUNTDOWN,
@@ -178,6 +178,7 @@ beforeEach(() => {
     reload = vi.fn()
     sockets = new Map()
     lobby = newLobby()
+    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
     vi.stubGlobal('Node', FakeNode)
     vi.stubGlobal('document', { createElement: (tag: string) => new FakeElement(tag) })
     vi.stubGlobal('location', { origin: 'https://game.example', reload })
@@ -254,6 +255,96 @@ describe('training room', () => {
         return { root: page.root, leave }
     }
 
+    it('delivers every training outcome once and resets offsets on restart', async () => {
+        const { emptySpellLog, mapSpellLog } = await import('../src/game/spell-log')
+        let state = emptySpellLog()
+        let consumed = 0
+        let session: number | undefined
+        const labels: string[] = []
+        let press!: (i: number) => unknown
+        let release!: (i: number) => void
+        const page = await loadPage(async () => ({
+            BattleView: {
+                create: async (_host: HTMLElement, options: { onPress: typeof press; onRelease: typeof release }) => {
+                    press = options.onPress
+                    release = options.onRelease
+                    return {
+                        ...fakeView(),
+                        update: (
+                            _snap: unknown,
+                            entries: Parameters<typeof mapSpellLog>[1],
+                            _events: unknown,
+                            _fresh = true,
+                            from = 0,
+                            round = 0,
+                        ) => {
+                            if (session !== round) {
+                                session = round
+                                consumed = 0
+                                state = emptySpellLog()
+                            }
+                            state = mapSpellLog(state, entries.slice(Math.max(0, consumed - from)), 'player1')
+                            labels.push(...(state as ReturnType<typeof mapSpellLog>).added.map(row => row.label))
+                            consumed = Math.max(consumed, from + entries.length)
+                        },
+                    }
+                },
+            },
+        }))
+        const { Battle } = await import('@magus/engine')
+        const spy = vi.spyOn(Battle.prototype, 'snapshot')
+        const leave = page.openTraining()
+        await settle()
+        const battle = spy.mock.contexts.at(-1) as InstanceType<typeof Battle>
+        const fire = battle.state.player1.spells.findIndex(spell => spell.id === 'SPELL_FIREBALL')
+        const haste = battle.state.player1.spells.findIndex(spell => spell.id === 'SPELL_HASTE')
+        press(fire)
+        release(fire)
+        press(fire)
+        for (let i = 0; i < 100; i++) battle.tick()
+        release(fire)
+        press(haste)
+        expect(labels).toEqual(['YOU: CANCELLED Fireball', 'YOU: Fireball', 'YOU: Haste'])
+        page.root.button('Restart')!.click()
+        press(haste)
+        expect(labels).toEqual(['YOU: CANCELLED Fireball', 'YOU: Fireball', 'YOU: Haste', 'YOU: Haste'])
+        leave()
+        spy.mockRestore()
+    })
+
+    it('sends real finalization state when a training battle ends', async () => {
+        const update = vi.fn()
+        const page = await loadPage(async () => ({
+            BattleView: { create: async () => ({ ...fakeView(), update }) },
+        }))
+        const { Battle, simpleDebuff } = await import('@magus/engine')
+        const spy = vi.spyOn(Battle.prototype, 'snapshot')
+        let frame!: FrameRequestCallback
+        vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+            frame = callback
+            return 1
+        })
+        const leave = page.openTraining()
+        await settle()
+        expect(update.mock.lastCall?.[0].finished).toBe(false)
+        const battle = spy.mock.contexts.at(-1) as InstanceType<typeof Battle>
+        // The normal dummy cannot die; kill the trainee using the real engine instead.
+        simpleDebuff<IgniteDebuff>(battle.state, 'player1', {
+            id: 'DEBUFF_IGNITE',
+            label: 'Ignite',
+            source: 'SPELL_IGNITE',
+            damage: 1000,
+            duration: 10,
+        })
+        frame(performance.now() + GAME_TICK_INTERVAL)
+        expect(update.mock.lastCall?.[0]).toMatchObject({ winner: 'player2', finished: false })
+        frame(performance.now() + 2 * GAME_TICK_INTERVAL)
+        expect(update.mock.lastCall?.[0]).toMatchObject({ winner: 'player2', finished: true })
+        expect(battle.finished).toBe(true)
+        leave()
+        spy.mockRestore()
+    })
+
     it('shows the message and a reload control when the import fails', async () => {
         const { root } = await openTraining(FAILED_CHUNK)
         await settle()
@@ -288,6 +379,33 @@ describe('training room', () => {
 })
 
 describe('online, for a player', () => {
+    it('keeps arena history within a match and clears it for a new match and on leave', async () => {
+        let host!: FakeElement
+        const { leave } = await seatedClient(async () => ({
+            BattleView: {
+                create: async (stage: FakeElement) => {
+                    host = stage
+                    return fakeView()
+                },
+            },
+        }))
+        const history = new FakeElement('div')
+        history.className = 'spell-log-history'
+        history.append('round one')
+        host.append(history)
+        const client = socketOfClient()!
+        deliver(client.connId, { t: 'meta', lobby: { ...lobby.info(), round: 2 } })
+        expect(history.textContent).toBe('round one')
+        deliver(client.connId, { t: 'meta', lobby: { ...lobby.info(), round: 1 } })
+        expect(history.textContent).toBe('')
+        history.append('new match')
+        deliver(client.connId, { t: 'meta', lobby: { ...lobby.info(), matchStarted: false } })
+        expect(history.textContent).toBe('')
+        history.append('last event')
+        leave()
+        expect(host.querySelector('.spell-log-history')).toBeNull()
+    })
+
     it('shows the message and a reload control when the import fails', async () => {
         const { root } = await seatedClient(FAILED_CHUNK)
         expectNewVersionMessage(root)
@@ -552,4 +670,69 @@ describe('errors after BattleView.create succeeds', () => {
             expect(unhandled).toEqual([])
         },
     )
+})
+
+describe('setup saves and final readiness', () => {
+    const enterSetup = async () => {
+        const client = await openLobby(WORKING_CHUNK)
+        lobby.connect('bob', 'bob-id', 'Bob')
+        lobby.message(socketOfClient()!.connId, { t: 'ready' })
+        lobby.message('bob', { t: 'ready' })
+        await seconds(START_COUNTDOWN)
+        expect(lobby.phase).toBe('set_up')
+        return client
+    }
+    const choose = (root: FakeElement, value: string) => root.find(el => el.attrs.get('data-target') === value)!.click()
+
+    it('saves immediately and preserves the latest complete loadout when time expires without Ready', async () => {
+        const { root, leave } = await enterSetup()
+        choose(root, 'spell:SPELL_AFTERBURN')
+        choose(root, 'slot:0')
+        // Start another selection but never commit it.
+        choose(root, 'spell:SPELL_FIREBALL')
+        await seconds(lobby.settings.setupTime)
+        expect(lobby.phase).toBe('battle_countdown')
+        expect(lobby.battle!.state.player1.spells[0].id).toBe('SPELL_AFTERBURN')
+        leave()
+    })
+
+    it('locks immediately on Ready and offers no reopen control', async () => {
+        const { root, leave } = await enterSetup()
+        // Withhold the acknowledgement: local Ready must lock before the server replies.
+        socketOfClient()!.onmessage = () => {}
+        root.button('Ready for round 1')!.click()
+        choose(root, 'spell:SPELL_AFTERBURN')
+        choose(root, 'slot:0')
+        expect(root.textContent).toContain('Ready!')
+        expect(root.textContent).not.toContain('Edit loadout')
+        expect(root.find(el => el.attrs.get('data-target') === 'slot:0')!.attrs.get('aria-label')).toContain('Fireball')
+        leave()
+    })
+    it('at zero retains the loadout and shows ready even before the phase transition arrives', async () => {
+        const { root, leave } = await enterSetup()
+        choose(root, 'spell:SPELL_AFTERBURN')
+        choose(root, 'slot:0')
+        deliver(socketOfClient()!.connId, { t: 'meta', lobby: { ...lobby.info(), countdown: 0 } })
+        choose(root, 'spell:SPELL_FIREBALL')
+        choose(root, 'slot:0')
+        expect(root.textContent).toContain('0:00 remaining')
+        expect(root.textContent).toContain('Ready!')
+        expect(root.find(el => el.attrs.get('data-target') === 'slot:0')!.attrs.get('aria-label')).toContain(
+            'Afterburn',
+        )
+        leave()
+    })
+
+    it('prevents between-round swaps when allowSpellChange is off', async () => {
+        const { root, leave } = await enterSetup()
+        deliver(socketOfClient()!.connId, {
+            t: 'meta',
+            lobby: { ...lobby.info(), round: 2, settings: { ...lobby.settings, allowSpellChange: false } },
+        })
+        choose(root, 'spell:SPELL_AFTERBURN')
+        choose(root, 'slot:0')
+        expect(root.textContent).toContain('Spell changes are off')
+        expect(root.find(el => el.attrs.get('data-target') === 'slot:0')!.attrs.get('aria-label')).toContain('Fireball')
+        leave()
+    })
 })

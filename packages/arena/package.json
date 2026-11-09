@@ -1,0 +1,24 @@
+{
+    "name": "@magus/arena",
+    "version": "0.3.0",
+    "private": true,
+    "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
+    "scripts": {
+        "typecheck": "tsc -p . && tsc -p tsconfig.scripts.json",
+        "match": "tsx scripts/match.ts",
+        "tournament": "tsx scripts/tournament.ts",
+        "arena": "tsx scripts/tournament.ts",
+        "baseline": "tsx scripts/baseline.ts",
+        "tune": "tsx scripts/tune.ts"
+    },
+    "dependencies": {
+        "@magus/engine": "*"
+    },
+    "devDependencies": {
+        "@types/node": "^24.19.2",
+        "tsx": "^4.23.15"
+    }
+}

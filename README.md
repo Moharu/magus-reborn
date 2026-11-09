@@ -30,7 +30,9 @@ The web app connects to `http://localhost:8787` unless `VITE_SERVER_URL` is set 
 `npm run dev:server` runs the `dev` environment from `apps/server/wrangler.toml`, which only allows the client on `http://localhost:5173` and `http://127.0.0.1:5173`. If Vite moves to another port because 5173 is taken, or you use `vite preview`, online features fail with a CORS error in the browser console. Free up port 5173 and use `npm run dev:web`.
 
 ```sh
-npm test             # engine + lobby unit tests, and Worker/Durable Object tests in workerd
+npx playwright install --with-deps chromium # once, for browser regressions
+npm test             # unit, Worker/Durable Object, and training browser regressions
+npm run test:mobile  # localhost-only training layout and rotation checks
 npm run typecheck
 npm run lint         # eslint (typescript-eslint + prettier-compatible)
 npm run format

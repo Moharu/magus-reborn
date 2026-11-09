@@ -1,4 +1,5 @@
 :root {
+    --inset-y: calc(env(safe-area-inset-top) + env(safe-area-inset-bottom));
     --bg: #0b0d1a;
     --bg-2: #13132b;
     --panel: rgba(20, 18, 44, 0.82);
@@ -34,6 +35,8 @@ body {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    /* viewport-fit=cover: keep every screen out of the notch and home indicator, once, here. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 
 h1,
@@ -477,7 +480,7 @@ footer {
     display: grid;
     gap: 10px;
     /* the stage never grows taller than the viewport, so landscape phones fit it */
-    width: min(100%, calc((100dvh - 150px) * 1.6));
+    width: min(100%, calc((100dvh - 150px - var(--inset-y)) * 1.6));
     min-width: min(100%, 480px);
     margin: 0 auto;
     container-type: inline-size;
@@ -576,6 +579,7 @@ footer {
     width: 100%;
     height: 100%;
     display: block;
+    object-fit: contain;
     pointer-events: none;
 }
 
@@ -722,7 +726,7 @@ footer {
     opacity: 0.8;
 }
 
-@media (hover: none) and (pointer: coarse) {
+html.touch-keybinds {
     .slot .key,
     .spell .key,
     .desktop-only {
@@ -962,5 +966,446 @@ footer {
     }
     .lobby-list .meta {
         grid-column: 1;
+    }
+}
+
+/* Retained, full-text event history without adding another visual reading target. */
+.spell-log-history {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* Setup shares the battle viewport and bar coordinates; its header floats over the arena. */
+.panel.setup {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    margin: 0;
+    padding: 12px;
+    border: 0;
+    border-radius: 0;
+    display: grid;
+    place-items: center;
+}
+.setup-viewport {
+    position: relative;
+    width: min(100%, calc((100dvh - 24px - var(--inset-y)) * 1.6));
+}
+.setup .picker {
+    position: relative;
+    display: block;
+    width: 100%;
+    min-width: 0;
+}
+.setup-head {
+    position: absolute;
+    z-index: 2;
+    top: 18px;
+    left: 8%;
+    right: 8%;
+    font-size: clamp(10px, 1.4vw, 16px);
+    border: 0;
+    margin: 0;
+    padding: 0;
+}
+.setup-head h2 {
+    font-size: 1.2em;
+}
+.setup-head .timer {
+    font-size: 1.2em;
+}
+.setup .picker-top {
+    position: absolute;
+    z-index: 1;
+    top: 17%;
+    left: 7%;
+    right: 7%;
+    font-size: clamp(9px, 1.2vw, 14px);
+}
+.setup .details {
+    display: none;
+}
+.setup .hint {
+    position: absolute;
+    top: 32%;
+    left: 7%;
+    right: 7%;
+    font-size: clamp(9px, 1.1vw, 13px);
+}
+.picker .spell img {
+    width: clamp(32px, 5cqw, 48px);
+    height: clamp(32px, 5cqw, 48px);
+}
+.slot-wrap > .name {
+    font-size: 1.042cqw;
+    margin-top: 2px;
+}
+.slot .key {
+    font-size: 1.25cqw;
+}
+.slot.fixed {
+    border-style: solid;
+    border-color: #b6e3ff;
+}
+.slot.target,
+.spell.target {
+    border-style: dashed;
+}
+.picker .teaser {
+    border-style: dashed;
+    border-radius: 9px;
+}
+@media (max-width: 900px) {
+    .setup-head {
+        grid-template-columns: 1fr auto;
+        top: 14px;
+    }
+    .setup-head .actions {
+        grid-column: auto;
+    }
+    .setup-head .btn {
+        padding: 6px;
+        min-height: 44px;
+    }
+    .setup-head .timer {
+        font-size: 1em;
+    }
+    .setup .picker-top {
+        gap: 4px;
+    }
+    .picker .element {
+        gap: 4px;
+    }
+    .picker .chip {
+        padding: 3px;
+        font: inherit;
+    }
+}
+
+.setup-head {
+    grid-template-columns: 1fr auto auto;
+}
+.setup-head .actions {
+    grid-column: auto;
+    flex-wrap: nowrap;
+}
+
+:is(.setup, .training-picker) .details:popover-open {
+    display: grid;
+    position: fixed;
+    inset: 0;
+    width: min(600px, calc(100vw - 32px));
+    height: fit-content;
+    max-height: calc(100dvh - 32px - var(--inset-y));
+    margin: auto;
+    color: var(--text);
+    background: #191426;
+    border: 1px solid #a69ab9;
+    font-size: 14px;
+}
+.details-trigger {
+    color: var(--text);
+    background: #29203f;
+    border: 1px solid #a69ab9;
+    border-radius: 9px;
+    font: inherit;
+    min-height: 44px;
+    padding: 4px;
+}
+
+/* Keep the arena's available height identical before and after setup on landscape phones. */
+.lobby-screen {
+    flex: none;
+    min-height: calc(100dvh - var(--inset-y));
+}
+.lobby-screen:has(.battle-screen),
+.lobby-screen:has(.panel.setup) {
+    height: calc(100dvh - var(--inset-y));
+}
+.lobby-screen .battle-screen,
+.lobby-screen .panel.setup {
+    min-height: 0;
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+    .battle-screen {
+        padding: 0;
+    }
+    .stage {
+        min-width: 0;
+        min-height: 0;
+    }
+    .battle-canvas {
+        border-radius: 0;
+    }
+    .setup-viewport {
+        width: 100%;
+    }
+    .setup .picker-stage {
+        aspect-ratio: auto;
+        height: calc(100dvh - 24px - var(--inset-y));
+    }
+}
+@media (max-width: 500px) and (orientation: portrait) {
+    .stage::before {
+        content: 'Rotate your phone to landscape to duel. Setup remains available.';
+        display: block;
+        padding: 12px;
+        color: var(--text);
+        background: #191426;
+        text-align: center;
+    }
+    .stage {
+        overflow: auto;
+    }
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+    :is(.setup, .training-picker) .picker {
+        --phone-bar: 92cqw;
+        --phone-edge: 4cqw;
+        --phone-gap: 6px;
+        --phone-slot: calc((var(--phone-bar) - 10px - 6 * var(--phone-gap)) / 7);
+    }
+    :is(.setup, .training-picker) .bar-panel {
+        left: var(--phone-edge) !important;
+        top: auto !important;
+        bottom: 6px;
+        width: var(--phone-bar) !important;
+        height: 86px !important;
+    }
+    :is(.setup, .training-picker) .slot-wrap {
+        left: calc(var(--phone-edge) + 5px + var(--slot) * (var(--phone-slot) + var(--phone-gap))) !important;
+        top: auto !important;
+        bottom: 27px;
+        width: var(--phone-slot) !important;
+        height: 60px !important;
+    }
+    :is(.setup, .training-picker) .slot-wrap > .name {
+        font-size: 10px;
+    }
+    :is(.setup, .training-picker) .spell {
+        top: calc(100% - 214px + var(--row) * 58px) !important;
+        height: 54px !important;
+        flex-direction: row;
+        font-size: 10px;
+    }
+    :is(.setup, .training-picker) .book-label {
+        top: calc(100% - 236px) !important;
+    }
+    :is(.setup, .training-picker) .book-divider {
+        top: calc(100% - 236px) !important;
+        height: 134px !important;
+    }
+}
+@media (max-width: 843px) and (orientation: landscape) {
+    :is(.setup, .training-picker) .picker {
+        --phone-bar: 96cqw;
+        --phone-edge: 2cqw;
+        --phone-gap: 4px;
+    }
+}
+
+.training-meter-toggle,
+.training-phone-action {
+    display: none;
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+    .training {
+        flex: none;
+        height: calc(100dvh - var(--inset-y));
+        min-height: 0;
+        overflow: hidden;
+    }
+    .training > .bar {
+        height: 44px;
+        flex-shrink: 0;
+        padding: 0 6px;
+        gap: 8px;
+    }
+    .training > .bar h2 {
+        font-size: 14px;
+    }
+    .training > .bar .muted {
+        display: none;
+    }
+    .training-meter-toggle,
+    .training-phone-action {
+        display: inline-block;
+    }
+    .training-body {
+        position: relative;
+        flex: 1;
+        padding: 0;
+        min-width: 0;
+    }
+    .training .stage {
+        flex: 1;
+        height: 100%;
+        width: 100%;
+    }
+    .training .meter {
+        display: none;
+    }
+    .training .meter.meter-open {
+        display: flex;
+        position: absolute;
+        z-index: 5;
+        right: 0;
+        top: 0;
+        /* mobileBattleLayout: 90px bar + 6px bottom gap; #app already applies safe-area padding. */
+        bottom: 96px;
+        width: min(300px, 100%);
+        background: #191426;
+    }
+    .training-picker {
+        width: 100%;
+        max-width: 100%;
+        max-height: calc(100dvh - var(--inset-y));
+        padding: 6px;
+        overflow: auto;
+    }
+    .training-picker > h2 {
+        display: none;
+    }
+    .training-picker .picker {
+        width: 100%;
+        min-width: 0;
+        gap: 4px;
+    }
+    .training-picker .picker-top {
+        gap: 6px;
+        font-size: 11px;
+        height: 44px;
+    }
+    .training-picker .element {
+        gap: 4px;
+    }
+    .training-picker .chip {
+        padding: 4px;
+    }
+    .training-picker .teaser {
+        max-width: 120px;
+    }
+    .training-picker .toggle {
+        white-space: nowrap;
+    }
+    .training-picker .picker-stage {
+        aspect-ratio: auto;
+        height: calc(100dvh - var(--inset-y) - 124px);
+    }
+    .training-picker .hint {
+        font-size: 10px;
+    }
+    .training-picker > .actions {
+        margin-top: 4px;
+    }
+    .training-picker .bar-panel {
+        height: 90px !important;
+    }
+    .training-picker .details {
+        display: none;
+    }
+    .training-picker .details:popover-open {
+        display: grid;
+    }
+    .training-picker .spell {
+        padding: 3px;
+        gap: 3px;
+    }
+    .training-picker .spell img {
+        width: 26px;
+        height: 26px;
+        flex-shrink: 0;
+    }
+    .training-picker .spell .name {
+        overflow-wrap: normal;
+        min-width: 0;
+    }
+    .training-picker .spell {
+        left: calc(var(--book-start) * 1% + var(--column) * (var(--book-width) * 1% / var(--columns))) !important;
+        width: calc(var(--book-width) * 1% / var(--columns) - 4px) !important;
+    }
+    .training-picker .book-divider {
+        left: 60% !important;
+    }
+    .training-picker .book-label {
+        left: 2% !important;
+        width: 56% !important;
+    }
+    .training-picker .general-book-label {
+        left: 62% !important;
+        width: 36% !important;
+    }
+}
+
+.teaser-compact {
+    display: none;
+}
+@media (max-height: 500px) and (orientation: landscape) {
+    .teaser-desktop {
+        display: none;
+    }
+    .teaser-compact {
+        display: inline;
+    }
+}
+
+/* A reserved header cell keeps phone details clear of both rows and the bar. */
+.header-details {
+    display: none;
+}
+@media (max-height: 500px) and (orientation: landscape) {
+    .picker-top > .details-trigger,
+    .picker-stage > .details {
+        display: none !important;
+    }
+    .picker-top > .header-details {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        align-items: center;
+        gap: 5px;
+        flex: 1;
+        min-width: 0;
+        height: 44px;
+        overflow: hidden;
+        color: var(--text);
+        font-size: 10px;
+        line-height: 11px;
+    }
+    .header-details img {
+        width: 28px;
+        height: 28px;
+        object-fit: contain;
+    }
+    .header-details > div {
+        min-width: 0;
+    }
+    .header-details strong,
+    .header-details .meta {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .header-details p {
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+        margin: 0;
+        line-height: 11px;
+        max-height: 22px;
+    }
+    .picker-top > .element,
+    .picker-top > .toggle {
+        flex-shrink: 0;
     }
 }

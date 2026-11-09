@@ -9,10 +9,13 @@ import {
     type SpellId,
 } from '@magus/engine'
 import { h } from '../dom'
+import '../game/hotkeys'
 import { iconUrl } from '../game/icons'
-import { BAR, buttonX, HEIGHT, WIDTH } from '../game/layout'
+import { BATTLE_BAR, battleButtonX as buttonX, HEIGHT, WIDTH } from '../game/layout'
 import { getAdvancedDescriptions, setAdvancedDescriptions } from '../identity'
 import { canTarget, click, drop, type Selection, type Target } from './loadout-logic'
+
+const BAR = { ...BATTLE_BAR, buttonTop: BATTLE_BAR.top, panelPad: 16 }
 
 const ELEMENT_LABEL: Record<SpellElement, string> = { FIRE: 'Fire' }
 /** Pointer travel in px before a press counts as a drag rather than a tap. */
@@ -28,8 +31,8 @@ const stats = (id: SpellId) => {
         .join(' · ')
 }
 
-/** The spellbook: tall cards so the icons stay readable, ending 10px above the bar panel. */
-export const BOOK = { top: 108, cardHeight: 170, rowGap: 8, height: 170 * 2 + 8 } as const
+/** Two rows of icon cards, ending 14 stage pixels above the battle bar panel. */
+export const BOOK = { top: 240, cardHeight: 100, rowGap: 8, height: 100 * 2 + 8 } as const
 /** The selected-spell strip above the spellbook, in stage pixels. */
 export const DETAILS = { top: 10, height: 76 } as const
 
@@ -52,6 +55,7 @@ const box = (x: number, y: number, w: number, hgt: number) =>
 
 export interface SpellPicker {
     el: HTMLElement
+    setOverlayDetails(value: boolean): void
     setLoadout(loadout: SpellId[]): void
     /** Makes the picker read-only. `reason` replaces the hint line. */
     setLocked(locked: boolean, reason?: string): void
@@ -61,6 +65,8 @@ export interface SpellPickerOptions {
     element?: SpellElement
     /** Between rounds the element is fixed; before the match it is chosen here. */
     elementLocked?: boolean
+    /** Setup headers share the arena; descriptions open on demand without shifting its bar. */
+    overlayDetails?: boolean
 }
 
 const targetData = (target: Target) => (target.kind === 'slot' ? `slot:${target.index}` : `spell:${target.id}`)
@@ -164,7 +170,7 @@ export const spellPicker = (
             suppressClick = true
             setTimeout(() => (suppressClick = false), 0)
             const { target } = ev.type === 'pointerup' ? targetAt(ev.clientX, ev.clientY) : { target: null }
-            if (target) commit(drop(loadout, from, target, element))
+            if (target && !locked) commit(drop(loadout, from, target, element))
             render()
         }
 
@@ -195,6 +201,17 @@ export const spellPicker = (
         const spellSelected = (id: SpellId) => selection?.kind === 'spell' && selection.id === id
         const lit = (target: Target) => canTarget(loadout, selection, target, element)
         const def = SPELLS[detail]
+        const description = advanced ? def.advancedDescription : def.description
+        const detailContent = () => [
+            h('img', { src: iconUrl(detail), alt: '' }),
+            h(
+                'div',
+                null,
+                h('strong', null, def.label),
+                h('p', { title: description, 'aria-label': description }, description),
+                h('span', { class: 'meta' }, stats(detail)),
+            ),
+        ]
         const { button, gap, buttonTop } = BAR
 
         const slots = loadout.map((id, i) => {
@@ -202,7 +219,7 @@ export const spellPicker = (
             const target: Target = { kind: 'slot', index: i }
             return h(
                 'div',
-                { class: 'slot-wrap', style: box(buttonX(i), buttonTop, button, button) },
+                { class: 'slot-wrap', style: box(buttonX(i), buttonTop, button, button) + `;--slot:${i}` },
                 h(
                     'button',
                     {
@@ -229,9 +246,12 @@ export const spellPicker = (
                     'button',
                     {
                         class: `spell${spellSelected(id) ? ' selected' : ''}${equipped !== -1 ? ' equipped' : ''}${lit(target) ? ' target' : ''}`,
-                        style: box(boxes[n].x, boxes[n].y, boxes[n].w, boxes[n].h),
+                        style:
+                            box(boxes[n].x, boxes[n].y, boxes[n].w, boxes[n].h) +
+                            `;--row:${Math.floor(n / columns)};--column:${n % columns};--book-start:${firstSlot === 0 ? 2 : 62};--book-width:${firstSlot === 0 ? 56 : 36};--columns:${columns}`,
                         disabled: locked,
                         'aria-pressed': String(spellSelected(id)),
+                        title: advanced ? SPELLS[id].advancedDescription : SPELLS[id].description,
                         ...draggable(target),
                     },
                     h('img', { src: iconUrl(id), alt: '', draggable: 'false' }),
@@ -260,9 +280,28 @@ export const spellPicker = (
                         'span',
                         { class: `chip active${options.elementLocked ? ' locked' : ''}`, 'aria-disabled': 'true' },
                         ELEMENT_LABEL[element],
-                        options.elementLocked ? ' · locked' : '',
+                        options.elementLocked ? ' · locked for the match' : '',
                     ),
+                    ...(!options.elementLocked
+                        ? ['Frost', 'Lightning'].map(name =>
+                              h(
+                                  'button',
+                                  {
+                                      class: 'chip teaser',
+                                      disabled: true,
+                                      title: `${name} · Locked · coming later`,
+                                      'aria-label': `${name} · Locked · coming later`,
+                                  },
+                                  h('span', { class: 'teaser-desktop' }, `${name} · Locked · coming later`),
+                                  h('span', { class: 'teaser-compact' }, `${name} · Soon`),
+                              ),
+                          )
+                        : []),
                 ),
+                h('div', { class: 'header-details', 'aria-label': 'Spell details' }, ...detailContent()),
+                options.overlayDetails
+                    ? h('button', { class: 'details-trigger', popovertarget: 'picker-details' }, 'Spell details')
+                    : null,
                 h(
                     'label',
                     { class: 'toggle' },
@@ -283,26 +322,24 @@ export const spellPicker = (
                 { class: 'picker-stage' },
                 h(
                     'div',
-                    { class: 'details', style: box(30, DETAILS.top, WIDTH - 60, DETAILS.height) },
-                    h('img', { src: iconUrl(detail), alt: '' }),
-                    h(
-                        'div',
-                        null,
-                        h('strong', null, def.label),
-                        h('p', null, advanced ? def.advancedDescription : def.description),
-                        h('span', { class: 'meta' }, stats(detail)),
-                    ),
+                    {
+                        class: 'details',
+                        id: 'picker-details',
+                        popover: options.overlayDetails ? 'auto' : undefined,
+                        style: options.overlayDetails ? undefined : box(30, DETAILS.top, WIDTH - 60, DETAILS.height),
+                    },
+                    ...detailContent(),
                 ),
                 h(
                     'h3',
                     { class: 'book-label', style: labelBox(fireX, 4 * button + 3 * gap) },
-                    `${ELEMENT_LABEL[element]} spellbook`,
+                    `${ELEMENT_LABEL[element]} spellbook${options.elementLocked ? ' · locked for the match' : ''}`,
                     keys(HOTKEYS.slice(0, 4).join(' ')),
                 ),
                 ...spellCards(book.elementSpells, 0, 3),
                 h(
                     'h3',
-                    { class: 'book-label', style: labelBox(generalX, 2 * button + gap) },
+                    { class: 'book-label general-book-label', style: labelBox(generalX, 2 * button + gap) },
                     'General',
                     keys(HOTKEYS.slice(5).join(' ')),
                 ),
@@ -331,6 +368,11 @@ export const spellPicker = (
     render()
     return {
         el,
+        setOverlayDetails(value: boolean) {
+            if (value === !!options.overlayDetails) return
+            options.overlayDetails = value
+            render()
+        },
         setLoadout(next) {
             if (next.join() === loadout.join()) return
             loadout = [...next]

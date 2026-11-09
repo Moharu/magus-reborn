@@ -10,19 +10,27 @@
         "dev:web": "npm run dev -w @magus/web",
         "dev:server": "npm run dev -w @magus/server",
         "sim:search": "npm run sim:search -w @magus/engine --",
+        "arena": "npm run arena -w @magus/arena --",
+        "arena:match": "npm run match -w @magus/arena --",
+        "arena:tournament": "npm run tournament -w @magus/arena --",
+        "arena:baseline": "npm run baseline -w @magus/arena --",
+        "arena:tune": "npm run tune -w @magus/arena --",
         "build": "npm run build -w @magus/web",
         "deploy:server": "npm run deploy -w @magus/server",
         "test": "vitest run",
+        "test:browser": "playwright test",
         "test:watch": "vitest",
         "typecheck": "npm run typecheck --workspaces --if-present",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "lint": "eslint ."
+        "lint": "eslint .",
+        "test:mobile": "playwright test"
     },
     "engines": {
         "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
     },
     "devDependencies": {
+        "@playwright/test": "^1.65.0",
         "eslint": "^10.14.0",
         "prettier": "^3.9.10",
         "typescript": "^7.0.2",
@@ -46,5 +54,6 @@
             "minimatch": "^11.0.5"
         }
     },
-    "//": "overrides: the minimatch entries patch GHSA-g3hv-75wg-m249 in the lint toolchain; drop them once eslint, @eslint/config-array and @typescript-eslint/typescript-estree depend on minimatch ^11. The ts-api-utils entry keeps it next to TypeScript 6 in packages/eslint-config (see its index.js)."
+    "//": "overrides: the minimatch entries patch GHSA-g3hv-75wg-m249 in the lint toolchain; drop them once eslint, @eslint/config-array and @typescript-eslint/typescript-estree depend on minimatch ^11. The ts-api-utils entry keeps it next to TypeScript 6 in packages/eslint-config (see its index.js).",
+    "version": "0.3.0"
 }

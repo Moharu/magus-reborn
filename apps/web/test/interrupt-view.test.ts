@@ -1,8 +1,16 @@
 import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { Graphics } from 'pixi.js'
-import { Battle, SPELLS, type LogEntry, type PlayerKey, type SpellId } from '@magus/engine'
+import {
+    Battle,
+    SPELLS,
+    simpleDebuff,
+    type IgniteDebuff,
+    type LogEntry,
+    type PlayerKey,
+    type SpellId,
+} from '@magus/engine'
 import { BattleView } from '../src/game/battle-view'
-import type { PlayerHud } from '../src/game/hud'
+import { ActionBar, type PlayerHud } from '../src/game/hud'
 import { GROUND_Y, SIDE_X, type Side } from '../src/game/layout'
 import { iconTexture } from '../src/game/textures'
 import type { Vfx } from '../src/game/vfx'
@@ -34,6 +42,7 @@ const AFTER_LANDING = 0.25
 interface ViewInternals {
     update: BattleView['update']
     frame(dt: number): void
+    displayTick(snap: ReturnType<Battle['snapshot']>): number
     vfx: Vfx
     wizards: Record<Side, Wizard>
     huds: Record<
@@ -383,5 +392,389 @@ describe('BattleView interrupt tell (#39)', () => {
         view.update(fresh.snapshot(), [], [])
         view.frame(FRAME)
         expect(bar.visible).toBe(false)
+    })
+})
+
+describe('training finalization rendering', () => {
+    it('keeps deciding and missing-finished snapshots live, then freezes with win/lose poses', () => {
+        const battle = newBattle()
+        const view = createView('player1')
+        simpleDebuff<IgniteDebuff>(battle.state, 'player1', {
+            id: 'DEBUFF_IGNITE',
+            label: 'Ignite',
+            source: 'SPELL_IGNITE',
+            damage: 1000,
+            duration: 10,
+        })
+        battle.tick()
+        const deciding = battle.snapshot()
+        for (const missing of [false, true]) {
+            const snap = { ...deciding }
+            if (missing) delete snap.finished
+            view.update(snap, [], [])
+            view.frame(FRAME)
+            expect(view.wizards.left.pose).toBe('idle')
+            expect(view.wizards.right.pose).toBe('idle')
+            vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 25)
+            expect(view.displayTick(snap)).toBeGreaterThan(snap.gameTick)
+            vi.mocked(performance.now).mockRestore()
+        }
+        battle.tick()
+        const final = battle.snapshot()
+        view.update(final, [], [])
+        view.frame(FRAME)
+        expect(view.wizards.left.pose).toBe('lose')
+        expect(view.wizards.right.pose).toBe('win')
+        vi.spyOn(performance, 'now').mockReturnValue(performance.now() + 25)
+        expect(view.displayTick(final)).toBe(final.gameTick)
+        vi.mocked(performance.now).mockRestore()
+    })
+})
+
+describe('cast ownership across lobby pauses', () => {
+    const setup = (battle: Battle) => {
+        const release = vi.fn((i: number) => battle.stopCast('player1', i))
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: { me: PlayerKey; onRelease: typeof release },
+        ) => Pick<BattleView, 'update' | 'setFrozen' | 'setOverlay'> & { actionBar: ActionBar; frame(dt: number): void }
+        const view = new Ctor({}, { me: 'player1', onRelease: release })
+        view.actionBar = new ActionBar(i => battle.startCast('player1', i), release)
+        return { view, release }
+    }
+
+    it.each(['live', 'pause', 'reconnect'] as const)(
+        'releases a deciding-tick accessible Fireball for a draw (%s)',
+        mode => {
+            const battle = new Battle(
+                { name: 'Alice', spells: LOADOUTS.player1, hp: 5 },
+                { name: 'Bob', spells: LOADOUTS.player2, hp: 5 },
+            )
+            const { view, release } = setup(battle)
+            view.setOverlay(null)
+            view.update(battle.snapshot(), [], [])
+            view.actionBar.children[1].emit('click', {} as never)
+            view.update(battle.snapshot(), [], [])
+            while (battle.state.gameTick < battle.state.player1.spells[0].castTime - 1) {
+                battle.tick()
+                view.update(battle.snapshot(), [], [])
+            }
+            simpleDebuff<IgniteDebuff>(battle.state, 'player1', {
+                id: 'DEBUFF_IGNITE',
+                label: 'Ignite',
+                source: 'SPELL_IGNITE',
+                damage: 1000,
+                duration: 10,
+            })
+            battle.tick()
+            expect(battle.snapshot()).toMatchObject({ winner: 'player2', finished: false })
+            if (mode !== 'live') {
+                view.setFrozen(true)
+                // A recreated view has no original input ownership.
+                if (mode === 'reconnect') view.actionBar.clearAccessibleCast()
+                view.update(battle.snapshot(), [], [], mode !== 'reconnect')
+                view.setOverlay('Paused')
+                // Both freeze and overlay must retain ownership even with a winner.
+                view.setFrozen(true)
+                view.setFrozen(false)
+                view.setOverlay(null)
+                expect(release).not.toHaveBeenCalled()
+            }
+            view.update(battle.snapshot(), [], [])
+            expect(release).toHaveBeenCalledExactlyOnceWith(0)
+            expect(battle.state.winner).toBe('draw')
+            battle.tick()
+            expect(battle.snapshot()).toMatchObject({ winner: 'draw', finished: true })
+        },
+    )
+
+    it.each([
+        ['keyboard', true],
+        ['keyboard', false],
+        ['pointer', true],
+        ['pointer', false],
+    ] as const)('preserves manual %s hold across pause (released during pause: %s)', (input, releasedDuringPause) => {
+        const battle = newBattle()
+        let paused = false
+        const release = vi.fn((i: number) => {
+            if (!paused) battle.stopCast('player1', i)
+        })
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: { me: PlayerKey; onPress(i: number): boolean; onRelease(i: number): void },
+        ) => Pick<BattleView, 'update' | 'setFrozen' | 'setOverlay'> & {
+            actionBar: ActionBar
+            onKeyDown(event: KeyboardEvent): void
+            onKeyUp(event: KeyboardEvent): void
+            releaseInput(i: number): void
+        }
+        const view = new Ctor(
+            {},
+            {
+                me: 'player1',
+                onPress: i => battle.startCast('player1', i),
+                onRelease: release,
+            },
+        )
+        view.actionBar = new ActionBar(
+            i => battle.startCast('player1', i),
+            i => view.releaseInput(i),
+        )
+        view.update(battle.snapshot(), [], [])
+        view.setOverlay(null)
+        const event = { code: 'KeyQ', preventDefault: vi.fn() } as unknown as KeyboardEvent
+        const button = view.actionBar.children[1]
+        if (input === 'keyboard') view.onKeyDown(event)
+        else button.emit('pointerdown', {} as never)
+        while (battle.state.gameTick < battle.state.player1.spells[0].castTime) battle.tick()
+        view.update(battle.snapshot(), [], [])
+        paused = true
+        view.setFrozen(true)
+        view.setOverlay('Paused')
+        const up = () => {
+            if (input === 'keyboard') view.onKeyUp(event)
+            else button.emit('pointerupoutside', {} as never)
+        }
+        if (releasedDuringPause) up()
+        view.update(battle.snapshot(), [], [])
+        expect(release).not.toHaveBeenCalled()
+        expect(battle.state.player1.cast).toBe(0)
+        paused = false
+        view.setFrozen(false)
+        view.setOverlay(null)
+        view.update(battle.snapshot(), [], [])
+        if (!releasedDuringPause) {
+            expect(release).not.toHaveBeenCalled()
+            expect(battle.state.player1.cast).toBe(0)
+            up()
+        }
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player1.cast).toBeNull()
+        expect(battle.state.player2.hp).toBeLessThan(100)
+    })
+
+    it('preserves an accessible Fireball through opponent pause and releases only after resume', () => {
+        const battle = newBattle()
+        const { view, release } = setup(battle)
+        view.update(battle.snapshot(), [], [])
+        // A DOM accessibility click has no pointerType.
+        view.actionBar.children[1].emit('click', {} as never)
+        view.update(battle.snapshot(), [], [])
+        battle.tick()
+        view.setFrozen(true)
+        view.setOverlay('Paused', 'Opponent disconnected')
+        view.update(battle.snapshot(), [], [])
+        view.frame(FRAME)
+        expect(release).not.toHaveBeenCalled()
+        view.setFrozen(false)
+        view.setOverlay(null)
+        while (battle.state.gameTick < battle.state.player1.spells[0].castTime) {
+            battle.tick()
+            view.update(battle.snapshot(), [], [])
+        }
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player1.cast).toBeNull()
+        expect(battle.state.player2.hp).toBeLessThan(100)
+    })
+
+    it('recovers a manual hold after the player reconnects with a recreated view', () => {
+        const battle = newBattle()
+        const original = setup(battle)
+        original.view.actionBar.children[1].emit('pointerdown', {} as never)
+        original.view.update(battle.snapshot(), [], [])
+        original.view.setFrozen(true)
+        const { view, release } = setup(battle)
+        view.setFrozen(true)
+        view.setOverlay('Paused')
+        view.update(battle.snapshot(), [], [], false)
+        view.setFrozen(false)
+        view.setOverlay(null)
+        while (battle.state.gameTick < battle.state.player1.spells[0].castTime) {
+            battle.tick()
+            view.update(battle.snapshot(), [], [])
+        }
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player2.hp).toBeLessThan(100)
+    })
+
+    it('recovers the unowned cast from an own-reconnect snapshot and waits for resume', () => {
+        const battle = newBattle()
+        press(battle, 'player1', 'SPELL_FIREBALL')
+        battle.tick()
+        const { view, release } = setup(battle)
+        view.setFrozen(true)
+        view.setOverlay('Paused')
+        view.update(battle.snapshot(), [], [], false)
+        // Even a completed snapshot must not release while the lobby is paused.
+        while (battle.state.gameTick < battle.state.player1.spells[0].castTime) battle.tick()
+        view.update(battle.snapshot(), [], [])
+        view.frame(FRAME)
+        expect(release).not.toHaveBeenCalled()
+        view.setFrozen(false)
+        view.setOverlay(null)
+        view.frame(FRAME)
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player1.cast).toBeNull()
+        expect(battle.state.player2.hp).toBeLessThan(100)
+    })
+})
+
+describe('releases made during a pause before the cast reached a snapshot (#112)', () => {
+    type Input = 'keyboard' | 'pointer'
+    const KEY_Q = { code: 'KeyQ', preventDefault: () => {} } as unknown as KeyboardEvent
+
+    /** A lobby client whose start_cast reaches the server (`accept`) after the last broadcast it saw. */
+    const setup = (battle: Battle, accept = true) => {
+        let paused = false
+        const server = { accept }
+        const release = vi.fn((i: number) => {
+            if (!paused) battle.stopCast('player1', i)
+        })
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: { me: PlayerKey; onPress(i: number): void; onRelease(i: number): void },
+        ) => Pick<BattleView, 'update' | 'setFrozen' | 'setOverlay'> & {
+            actionBar: ActionBar
+            unseenReleases: Map<number, number>
+            onKeyDown(event: KeyboardEvent): void
+            onKeyUp(event: KeyboardEvent): void
+            pressInput(i: number): void
+            releaseInput(i: number): void
+        }
+        const view = new Ctor(
+            {},
+            {
+                me: 'player1',
+                onPress: i => {
+                    if (server.accept && !paused) battle.startCast('player1', i)
+                },
+                onRelease: release,
+            },
+        )
+        view.actionBar = new ActionBar(
+            i => view.pressInput(i),
+            i => view.releaseInput(i),
+        )
+        view.update(battle.snapshot(), [], [])
+        view.setOverlay(null)
+        const button = view.actionBar.children[1]
+        const down = (input: Input) =>
+            input === 'keyboard' ? view.onKeyDown(KEY_Q) : button.emit('pointerdown', {} as never)
+        const up = (input: Input) =>
+            input === 'keyboard' ? view.onKeyUp(KEY_Q) : button.emit('pointerupoutside', {} as never)
+        const pause = () => {
+            paused = true
+            view.setFrozen(true)
+            view.setOverlay('Paused', 'Opponent disconnected')
+        }
+        const resume = () => {
+            paused = false
+            view.setFrozen(false)
+            view.setOverlay(null)
+        }
+        const step = () => {
+            battle.tick()
+            view.update(battle.snapshot(), [], [])
+        }
+        return { view, release, down, up, pause, resume, step, server }
+    }
+
+    it.each<Input>(['keyboard', 'pointer'])('fires a %s Fireball accepted just before the pause', input => {
+        const battle = newBattle()
+        for (let i = 0; i < 10; i++) battle.tick()
+        const { view, release, down, up, pause, resume, step } = setup(battle)
+        down(input)
+        // Accepted by the server, but the pause arrives before the next broadcast shows it.
+        expect(battle.state.player1.cast).toBe(0)
+        const completion = battle.state.gameTick + battle.state.player1.spells[0].castTime
+        pause()
+        up(input)
+        view.update(battle.snapshot(), [], [])
+        expect(release).not.toHaveBeenCalled()
+        resume()
+        expect(release).not.toHaveBeenCalled()
+        while (battle.state.gameTick < completion) {
+            expect(release).not.toHaveBeenCalled()
+            step()
+        }
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player1.cast).toBeNull()
+        expect(battle.state.player2.hp).toBeLessThan(100)
+        step()
+        expect(release).toHaveBeenCalledTimes(1)
+        expect(view.unseenReleases.size).toBe(0)
+    })
+
+    it.each(['rejected', 'interrupted', 'replaced'] as const)(
+        'drops the release when the cast is %s server-side and never fires a later Fireball',
+        outcome => {
+            const battle = newBattle()
+            for (let i = 0; i < 10; i++) battle.tick()
+            const { view, release, down, up, pause, resume, step } = setup(battle, outcome !== 'rejected')
+            down('keyboard')
+            pause()
+            up('keyboard')
+            resume()
+            expect(view.unseenReleases.size).toBe(1)
+            if (outcome === 'interrupted') press(battle, 'player2', 'SPELL_COUNTERSPELL')
+            if (outcome === 'replaced') press(battle, 'player1', 'SPELL_METEOR')
+            step()
+            expect(view.unseenReleases.size).toBe(0)
+            expect(battle.state.player1.cast).toBe(outcome === 'replaced' ? 1 : null)
+            // A Fireball that no input of this view started is not owned by the old release.
+            while (battle.state.gameTick < battle.state.player1.lockedUntil) step()
+            if (outcome === 'replaced') battle.stopCast('player1', 1)
+            press(battle, 'player1', 'SPELL_FIREBALL')
+            for (let i = 0; i <= battle.state.player1.spells[0].castTime; i++) step()
+            expect(release).not.toHaveBeenCalled()
+            expect(battle.state.player1.cast).toBe(0)
+        },
+    )
+
+    it('drops the release when the pause ends with the round decided', () => {
+        const battle = newBattle()
+        for (let i = 0; i < 10; i++) battle.tick()
+        const { view, release, down, up, pause, resume, step } = setup(battle)
+        battle.state.player2.hp = 1
+        simpleDebuff<IgniteDebuff>(battle.state, 'player2', {
+            id: 'DEBUFF_IGNITE',
+            label: 'Ignite',
+            source: 'SPELL_IGNITE',
+            damage: 1000,
+            duration: 10,
+        })
+        step()
+        expect(battle.snapshot()).toMatchObject({ winner: 'player1', finished: false })
+        // Deciding-tick input still counts, but its cast can never complete.
+        down('keyboard')
+        expect(battle.state.player1.cast).toBe(0)
+        pause()
+        up('keyboard')
+        resume()
+        step()
+        expect(battle.snapshot()).toMatchObject({ winner: 'player1', finished: true })
+        expect(view.unseenReleases.size).toBe(0)
+        expect((view.actionBar as unknown as { accessibleCast: unknown }).accessibleCast).toBeNull()
+        expect(release).not.toHaveBeenCalled()
+    })
+
+    it.each([true, false])('lets a new press after resume own its release (first press accepted: %s)', accepted => {
+        const battle = newBattle()
+        for (let i = 0; i < 10; i++) battle.tick()
+        const { view, release, down, up, pause, resume, step, server } = setup(battle, accepted)
+        down('keyboard')
+        pause()
+        up('keyboard')
+        resume()
+        server.accept = true
+        // Pressed again before any post-resume snapshot arrives, and held.
+        down('keyboard')
+        expect(view.unseenReleases.size).toBe(0)
+        for (let i = 0; i <= battle.state.player1.spells[0].castTime; i++) step()
+        expect(release).not.toHaveBeenCalled()
+        expect(battle.state.player1.cast).toBe(0)
+        up('keyboard')
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player2.hp).toBeLessThan(100)
     })
 })

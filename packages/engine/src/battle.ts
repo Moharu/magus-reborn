@@ -209,7 +209,7 @@ export class Battle {
 
     snapshot(): BattleSnapshot {
         const { log: _log, ...rest } = this.state
-        return JSON.parse(JSON.stringify(rest)) as BattleSnapshot
+        return JSON.parse(JSON.stringify({ ...rest, finished: this.finished })) as BattleSnapshot
     }
 
     private castSpell(caster: PlayerKey, spellIndex: number) {

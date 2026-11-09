@@ -21,6 +21,15 @@ npm run format:check   # prettier
 npm run build          # web client
 ```
 
+Optional Playwright browser checks run separately from Vitest and the required CI job:
+
+```sh
+npx playwright install chromium # one-time browser installation
+npm run test:browser
+```
+
+The independent `browser` CI job is non-required and does not block `ci`.
+
 CI (`ci`) and the secret scan (`gitleaks`) must both pass on PRs into `dev`.
 
 ## Code Review Rules

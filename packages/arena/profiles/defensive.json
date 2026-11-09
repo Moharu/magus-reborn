@@ -1,0 +1,75 @@
+{
+    "loadout": [
+        "SPELL_FIREBALL",
+        "SPELL_IGNITE",
+        "SPELL_COMBUSTION",
+        "SPELL_LIVING_BOMB",
+        "SPELL_COUNTERSPELL",
+        "SPELL_TEMPORAL_SHIELD",
+        "SPELL_MAGIC_EATER"
+    ],
+    "profile": {
+        "name": "defensive",
+        "intent": "Survive first: Temporal Shield before big hits, Magic Eater over its damage over time, and counter any long cast early.",
+        "rotation": [
+            {
+                "spell": "SPELL_LIVING_BOMB",
+                "when": [{ "type": "enemyEffectsBelow", "effect": "DEBUFF_LIVING_BOMB", "count": 1 }]
+            },
+            {
+                "spell": "SPELL_COMBUSTION",
+                "when": [{ "type": "enemyEffectsAtLeast", "effect": "DEBUFF_IGNITE", "count": 3 }]
+            },
+            {
+                "spell": "SPELL_IGNITE",
+                "when": [{ "type": "enemyEffectsBelow", "effect": "DEBUFF_IGNITE", "count": 3 }]
+            },
+            "SPELL_FIREBALL"
+        ],
+        "lockoutWindow": {
+            "rotation": [
+                {
+                    "spell": "SPELL_COMBUSTION",
+                    "when": [{ "type": "enemyEffectsAtLeast", "effect": "DEBUFF_IGNITE", "count": 1 }]
+                },
+                {
+                    "spell": "SPELL_LIVING_BOMB",
+                    "when": [{ "type": "enemyEffectsBelow", "effect": "DEBUFF_LIVING_BOMB", "count": 1 }]
+                },
+                "SPELL_IGNITE",
+                "SPELL_FIREBALL"
+            ]
+        },
+        "counterspell": {
+            "enabled": true,
+            "targets": ["SPELL_METEOR", "SPELL_COMBUSTION", "SPELL_LIVING_BOMB", "SPELL_IGNITE"],
+            "reaction": { "meanSeconds": 0.5, "spreadSeconds": 0.2 },
+            "timing": "early",
+            "lateWindowSeconds": 0
+        },
+        "fakeCast": {
+            "enabled": false,
+            "spell": "SPELL_FIREBALL",
+            "cancelAfterSeconds": 0.3,
+            "pauseAfterSeconds": 0.25,
+            "minGapSeconds": 12,
+            "maxPerMatch": 0,
+            "when": []
+        },
+        "generals": {
+            "SPELL_HASTE": "never",
+            "SPELL_TEMPORAL_SHIELD": {
+                "when": [
+                    { "type": "enemyCastEndsWithin", "seconds": 0.3, "spells": ["SPELL_METEOR", "SPELL_COMBUSTION"] }
+                ]
+            },
+            "SPELL_MAGIC_EATER": {
+                "when": [
+                    { "type": "selfNotCasting" },
+                    { "type": "enemyEffectsAtLeast", "effect": "DEBUFF_IGNITE", "count": 2 }
+                ]
+            },
+            "SPELL_BLUR": "never"
+        }
+    }
+}

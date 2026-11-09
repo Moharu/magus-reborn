@@ -49,3 +49,88 @@ export const buttonX = (i: number) => {
     }
     throw new RangeError(`no spell button ${i}`)
 }
+
+/** Battle-only geometry; setup/swap keep their existing coordinates until #108. */
+export const BATTLE_BAR = { button: 96, gap: 12, groupGap: 18, top: 474, panelTop: 462, panelHeight: 124 }
+export const BATTLE_BAR_WIDTH = BATTLE_BAR.button * 7 + BATTLE_BAR.gap * 4 + BATTLE_BAR.groupGap * 2
+export const battleButtonX = (i: number) => {
+    if (!Number.isInteger(i) || i < 0 || i >= 7) throw new RangeError(`no spell button ${i}`)
+    const extraGap = BATTLE_BAR.groupGap - BATTLE_BAR.gap
+    return (
+        (WIDTH - BATTLE_BAR_WIDTH) / 2 +
+        i * (BATTLE_BAR.button + BATTLE_BAR.gap) +
+        (i >= 4 ? extraGap : 0) +
+        (i >= 5 ? extraGap : 0)
+    )
+}
+
+export interface Rect {
+    x: number
+    y: number
+    width: number
+    height: number
+}
+
+/** Desktop composition in canvas pixels. The reserved centre is the seam for #107. */
+export const battleLayout = (width: number, height: number) => {
+    const sx = width / WIDTH
+    const sy = height / HEIGHT
+    const rect = (x: number, y: number, w: number, h: number): Rect => ({
+        x: x * sx,
+        y: y * sy,
+        width: w * sx,
+        height: h * sy,
+    })
+    const player = (x: number) => ({
+        heading: rect(x, 12, 340, 24),
+        hp: rect(x, 40, 340, 24),
+        cast: rect(x, 76, 340, 26),
+        effects: rect(x, 110, 340, 50),
+    })
+    return {
+        left: player(24),
+        right: player(596),
+        score: rect(388, 12, 184, 32),
+        timer: rect(388, 50, 184, 24),
+        fighters: { left: rect(170, 282, 100, 158), right: rect(680, 282, 100, 158) },
+        centre: rect(388, 170, 184, 280),
+        bar: rect(
+            (WIDTH - BATTLE_BAR_WIDTH) / 2 - 16,
+            BATTLE_BAR.panelTop,
+            BATTLE_BAR_WIDTH + 32,
+            BATTLE_BAR.panelHeight,
+        ),
+        slots: Array.from({ length: 7 }, (_, i) =>
+            rect(battleButtonX(i), BATTLE_BAR.top, BATTLE_BAR.button, BATTLE_BAR.button + 14),
+        ),
+    }
+}
+
+/** Phone presentation only; all values are CSS pixels in the safe-area content box. */
+export const PHONE_MAX_HEIGHT = 500
+/** Landscape phones, including 932x430 Pro Max class; keyed on height so wide phones are not missed. */
+export const phoneLandscape = (width: number, height: number) => height <= PHONE_MAX_HEIGHT && width > height
+
+/** Uniform world transform for phones: never stretches fighters or VFX; the backdrop fills the rest. */
+export const mobileWorldTransform = (width: number, height: number) => {
+    const scale = Math.min(width / WIDTH, (height - 100) / GROUND_Y)
+    return { scale, x: (width - WIDTH * scale) / 2, y: height - 100 - GROUND_Y * scale }
+}
+
+export const mobileBattleLayout = (width: number, height: number) => {
+    const gap = width < 844 ? 4 : 6
+    const panelWidth = width * (width < 844 ? 0.96 : 0.92)
+    const left = (width - panelWidth) / 2
+    const button = (panelWidth - 10 - gap * 6) / 7
+    const bar = { x: left, y: height - 96, width: panelWidth, height: 90 }
+    return {
+        bar,
+        slots: Array.from({ length: 7 }, (_, i) => ({
+            x: left + 5 + i * (button + gap),
+            y: bar.y + 5,
+            width: button,
+            height: 60,
+        })),
+        log: { x: width / 2, y: bar.y - 28 },
+    }
+}
