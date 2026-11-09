@@ -1,6 +1,6 @@
 {
     "name": "@magus/arena",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "private": true,
     "type": "module",
     "exports": {
@@ -10,7 +10,8 @@
         "typecheck": "tsc -p . && tsc -p tsconfig.scripts.json",
         "match": "tsx scripts/match.ts",
         "tournament": "tsx scripts/tournament.ts",
-        "arena": "tsx scripts/tournament.ts",
+        "arena": "tsx scripts/arena.ts",
+        "arena:strategy": "tsx scripts/strategy.ts",
         "baseline": "tsx scripts/baseline.ts",
         "tune": "tsx scripts/tune.ts"
     },

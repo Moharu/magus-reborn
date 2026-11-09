@@ -53,10 +53,15 @@ export interface SelfView {
     readonly effects: readonly EffectView[]
     /** The player's own loadout, in slot order. */
     readonly spells: readonly SpellView[]
+    /**
+     * The player's own spell log so far, oldest first (#136), as the client's spell log shows it: what the engine did
+     * with its casts (released, interrupted, ...), up to the last tick. Same form and growth as `enemy.log`.
+     */
+    readonly log: readonly EnemyLogEntry[]
 }
 
 /**
- * One entry of the opponent's spell log (#126), as the client's spell log shows it: what the opponent started,
+ * One entry of a player's spell log (#126; the opponent's in `enemy.log`, the player's own in `self.log`), as the client's spell log shows it: what the opponent started,
  * stopped, released or had cancelled, and its casts we interrupted. Only the spell id and the tick, the same as the
  * engine log the server streams to both clients; never a loadout slot.
  */

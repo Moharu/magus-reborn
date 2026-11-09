@@ -2,6 +2,32 @@
 
 All notable changes to Magus Reborn are listed here. Versions follow [semantic versioning](https://semver.org/). Each release is tagged `vX.Y.Z` on `dev` and then merged into `main`, which deploys it.
 
+## [0.3.1] - 2026-11-09
+
+The "Arena strategy" release. This release is Arena-only: it changes the AI-vs-AI testing tools and nothing a player sees, so there is no gameplay change. It includes [#138](https://github.com/Moharu/magus-reborn/pull/138) and [#139](https://github.com/Moharu/magus-reborn/pull/139).
+
+**Engine version:** `ENGINE_VERSION` is unchanged at `reborn-0.3.0`. Nothing in `packages/engine` changed since v0.3.0, so clients are not asked to refresh.
+
+### Arena
+
+#### Added
+
+- **Strategy tournament** on fixed mirror setups: `--mode strategy`, `npm run arena:strategy`, and a `mode` input on the `arena.yml` workflow. ([#139](https://github.com/Moharu/magus-reborn/pull/139))
+- **Top-8 double-elimination bracket.** ([#138](https://github.com/Moharu/magus-reborn/pull/138))
+- **General-pairs report section.** ([#138](https://github.com/Moharu/magus-reborn/pull/138))
+
+#### Changed
+
+- **Loadout-aware AI rotations** with give-up timers, so the AI no longer deadlocks waiting on a spell it cannot cast. ([#138](https://github.com/Moharu/magus-reborn/pull/138))
+- **Creative use of general spells** by the AI. ([#138](https://github.com/Moharu/magus-reborn/pull/138))
+- **All 6 general pairs** are entered (192 entrants). ([#138](https://github.com/Moharu/magus-reborn/pull/138), [#139](https://github.com/Moharu/magus-reborn/pull/139))
+
+### Known issues
+
+- HUD HP rounding is still open ([#23](https://github.com/Moharu/magus-reborn/issues/23)).
+- [#133](https://github.com/Moharu/magus-reborn/issues/133) is a test-only follow-up with no user impact.
+- Arena workflow input checks per mode could be tighter ([#140](https://github.com/Moharu/magus-reborn/issues/140)).
+
 ## [0.3.0] - 2026-11-09
 
 The "Arena + UX" release. The battle screen moves to the Split Console layout and works on mobile landscape, and a new arena package runs AI-vs-AI matches to test balance. This release includes every pull request merged into `dev` since v0.2.0: [#110](https://github.com/Moharu/magus-reborn/pull/110) to [#132](https://github.com/Moharu/magus-reborn/pull/132).

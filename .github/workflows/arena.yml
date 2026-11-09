@@ -1,29 +1,50 @@
 name: Arena
 
 # The AI-vs-AI tournament (#103) on the real engine, run for free on this public repo: sharded across jobs, capped in
-# time, with the raw results and the Markdown report uploaded as artifacts and shown in the run's summary.
+# time, with the raw results and the Markdown report uploaded as artifacts and shown in the run's summary. The `mode`
+# input picks which one runs: `tournament` (the round-robin of loadouts x profiles, with the bracket and the optional
+# tuning) or `strategy` (#137, mirror setups where only the profile varies). Both shard and merge the same way.
 # The only trigger is a manual dispatch. It uses no secrets and writes nothing back (no commits, no wiki): publishing a
 # report to the wiki is a separate, manual step.
 
 on:
     workflow_dispatch:
         inputs:
+            mode:
+                description: tournament (loadouts x profiles) or strategy (mirror setups, only the profile varies)
+                type: choice
+                options:
+                    - tournament
+                    - strategy
+                default: tournament
             seed:
                 description: Master seed (integer)
                 type: string
                 default: '1'
             top:
-                description: Top N distinct Fire sets (each plays its best 2 general pairs)
+                description: Tournament mode - top N distinct Fire sets (each plays all 6 general pairs)
                 type: string
                 default: '8'
             games:
-                description: Games per pair (even)
+                description: Tournament mode - games per pair (even)
                 type: string
                 default: '2'
             generations:
-                description: Self-tuning generations (0 = no tuning)
+                description: Tournament mode - self-tuning generations (0 = no tuning)
                 type: string
                 default: '0'
+            strategy_seeds:
+                description: Strategy mode - derived seeds per cell
+                type: string
+                default: '30'
+            strategy_games:
+                description: Strategy mode - games per derived seed (even); 30 x 36 = 1080 games per cell, about +/-3%
+                type: string
+                default: '36'
+            fire_sets:
+                description: 'Strategy mode - Fire sets, ";" between sets and "," between its 4 spells (empty = the baseline best), e.g. fireball,ignite,combustion,meteor'
+                type: string
+                default: ''
 
 permissions:
     contents: read
@@ -48,19 +69,33 @@ jobs:
         steps:
             - id: check
               env:
+                  ARENA_MODE: ${{ inputs.mode }}
                   ARENA_SEED: ${{ inputs.seed }}
                   ARENA_TOP: ${{ inputs.top }}
                   ARENA_GAMES: ${{ inputs.games }}
                   ARENA_GENERATIONS: ${{ inputs.generations }}
+                  ARENA_STRATEGY_SEEDS: ${{ inputs.strategy_seeds }}
+                  ARENA_STRATEGY_GAMES: ${{ inputs.strategy_games }}
+                  ARENA_FIRE_SETS: ${{ inputs.fire_sets }}
               run: |
-                  for name in ARENA_SEED ARENA_TOP ARENA_GAMES ARENA_GENERATIONS; do
+                  if [[ "$ARENA_MODE" != "tournament" && "$ARENA_MODE" != "strategy" ]]; then
+                      echo "::error::mode must be tournament or strategy, got '$ARENA_MODE'"
+                      exit 1
+                  fi
+                  for name in ARENA_SEED ARENA_TOP ARENA_GAMES ARENA_GENERATIONS ARENA_STRATEGY_SEEDS ARENA_STRATEGY_GAMES; do
                       if [[ ! "${!name}" =~ ^[0-9]{1,10}$ ]]; then
                           echo "::error::$name must be a non-negative integer, got '${!name}'"
                           exit 1
                       fi
                   done
-                  # 10# so '00' and '007' are read as decimal numbers
-                  if ((10#$ARENA_GENERATIONS > 0)); then echo "tune=true" >> "$GITHUB_OUTPUT"; else echo "tune=false" >> "$GITHUB_OUTPUT"; fi
+                  # spell names only: the CLI checks them against the spell list
+                  fire_pattern='^[A-Za-z_,; -]{0,400}$'
+                  if [[ ! "$ARENA_FIRE_SETS" =~ $fire_pattern ]]; then
+                      echo "::error::fire_sets must be spell names separated by , and ;"
+                      exit 1
+                  fi
+                  # 10# so '00' and '007' are read as decimal numbers; the tuning belongs to the tournament mode
+                  if [[ "$ARENA_MODE" == "tournament" ]] && ((10#$ARENA_GENERATIONS > 0)); then echo "tune=true" >> "$GITHUB_OUTPUT"; else echo "tune=false" >> "$GITHUB_OUTPUT"; fi
 
     shard:
         name: shard ${{ matrix.shard }}
@@ -81,7 +116,8 @@ jobs:
                   cache: npm
             - run: npm ci
             # Inputs go through env, never into the script text. The CLI rejects anything that is not an integer.
-            - name: Play this shard
+            - name: Play this shard (tournament)
+              if: ${{ inputs.mode == 'tournament' }}
               env:
                   ARENA_SEED: ${{ inputs.seed }}
                   ARENA_TOP: ${{ inputs.top }}
@@ -93,6 +129,26 @@ jobs:
                       --seed "$ARENA_SEED" --top "$ARENA_TOP" --games "$ARENA_GAMES" \
                       --jobs 4 --time-budget "$TIME_BUDGET_SECONDS" \
                       --shard "$ARENA_SHARD/$SHARD_COUNT" --out "$GITHUB_WORKSPACE/arena-out/arena-shard-$ARENA_SHARD.json"
+            # the strategy tournament (#137): the same shard file name, so the upload and the merge are the same
+            - name: Play this shard (strategy)
+              if: ${{ inputs.mode == 'strategy' }}
+              env:
+                  ARENA_SEED: ${{ inputs.seed }}
+                  ARENA_STRATEGY_SEEDS: ${{ inputs.strategy_seeds }}
+                  ARENA_STRATEGY_GAMES: ${{ inputs.strategy_games }}
+                  ARENA_FIRE_SETS: ${{ inputs.fire_sets }}
+                  ARENA_SHARD: ${{ matrix.shard }}
+              run: |
+                  mkdir -p "$GITHUB_WORKSPACE/arena-out"
+                  fire=()
+                  IFS=';' read -ra sets <<< "$ARENA_FIRE_SETS"
+                  for set in "${sets[@]}"; do
+                      if [[ -n "${set// /}" ]]; then fire+=(--fire-set "$set"); fi
+                  done
+                  npm run arena -- --mode strategy "${fire[@]}" \
+                      --seed "$ARENA_SEED" --seeds "$ARENA_STRATEGY_SEEDS" --games "$ARENA_STRATEGY_GAMES" \
+                      --jobs 4 --time-budget "$TIME_BUDGET_SECONDS" \
+                      --shard "$ARENA_SHARD/$SHARD_COUNT" --out "$GITHUB_WORKSPACE/arena-out/arena-shard-$ARENA_SHARD.json"
             - uses: actions/upload-artifact@v7
               with:
                   name: arena-shard-${{ matrix.shard }}
@@ -101,7 +157,9 @@ jobs:
                   if-no-files-found: error
 
     # Runs when some shards failed too: it merges the ones that uploaded, and the report is marked PARTIAL, naming the
-    # missing shards. (It does not run when the inputs were rejected or the run was cancelled.)
+    # missing shards. (It does not run when the inputs were rejected or the run was cancelled.) After the merge it plays
+    # the top-8 double-elimination bracket (#136, best-of-5 sets, a few dozen games), recorded in the result JSON and the
+    # report's Bracket section.
     merge:
         name: merge
         needs: [plan, shard]
@@ -122,10 +180,20 @@ jobs:
                   pattern: arena-shard-*
                   path: arena-in
                   merge-multiple: true
-            - name: Merge the shards into one result and one report
+            - name: Merge the shards, play the top-8 bracket, write one result and one report (tournament)
+              if: ${{ inputs.mode == 'tournament' }}
               run: |
                   mkdir -p "$GITHUB_WORKSPACE/arena-out"
                   npm run arena -- merge "$GITHUB_WORKSPACE"/arena-in/arena-shard-*.json --allow-missing \
+                      --bracket-best-of 5 \
+                      --out "$GITHUB_WORKSPACE/arena-out/arena-result.json" \
+                      --report "$GITHUB_WORKSPACE/arena-out/arena-report.md" --commit "$GITHUB_SHA" > /dev/null
+                  cat arena-out/arena-report.md >> "$GITHUB_STEP_SUMMARY"
+            - name: Merge the shards, write one result and one report (strategy)
+              if: ${{ inputs.mode == 'strategy' }}
+              run: |
+                  mkdir -p "$GITHUB_WORKSPACE/arena-out"
+                  npm run arena -- --mode strategy merge "$GITHUB_WORKSPACE"/arena-in/arena-shard-*.json --allow-missing \
                       --out "$GITHUB_WORKSPACE/arena-out/arena-result.json" \
                       --report "$GITHUB_WORKSPACE/arena-out/arena-report.md" --commit "$GITHUB_SHA" > /dev/null
                   cat arena-out/arena-report.md >> "$GITHUB_STEP_SUMMARY"

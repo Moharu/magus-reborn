@@ -4,11 +4,19 @@ export { DEFAULT_MAX_TICKS, runMatch, type MatchOptions } from './runner'
 export { idle, priority, start, stop, type PriorityOptions } from './controllers'
 export { formatEvent, formatLog, formatSummary } from './format'
 export { EXAMPLE_ENTRANTS } from './examples'
-export { conditionHolds, parseCondition, type Condition, type ConditionInput, type ConditionType } from './conditions'
+export {
+    conditionHolds,
+    parseCondition,
+    type Condition,
+    type ConditionInput,
+    type ConditionType,
+    type OwnRelease,
+} from './conditions'
 export {
     checkLoadout,
     EDGE_GREED_MAX_SECONDS,
     GENERAL_SPELLS,
+    GIVE_UP_MAX_SECONDS,
     loadProfile,
     parseProfile,
     type CounterspellPolicy,
@@ -16,6 +24,7 @@ export {
     type GeneralRule,
     type GeneralSpell,
     type LockoutWindow,
+    type Patience,
     type Profile,
     type RotationEntry,
 } from './profile'
@@ -37,6 +46,7 @@ export {
     DEFAULT_SEED,
     DEFAULT_GENERAL_PAIRS,
     DEFAULT_TOP,
+    entrantMakers,
     mergeShards,
     pairList,
     planTournament,
@@ -60,7 +70,22 @@ export {
     type TournamentPlan,
     type TournamentResult,
 } from './tournament'
-export { formatTable } from './tournament-format'
+export {
+    BRACKET_SIZE,
+    BRACKET_TAG,
+    bracketSeeds,
+    DEFAULT_BEST_OF,
+    DEFAULT_DRAW_CAP,
+    PLACES,
+    runBracket,
+    withBracket,
+    type BracketOptions,
+    type BracketResult,
+    type BracketSeed,
+    type BracketSet,
+    type Place,
+} from './bracket'
+export { formatBracket, formatTable } from './tournament-format'
 export { clampJobs, DEFAULT_JOBS, MAX_JOBS } from './jobs'
 export { formatReport, REPORT_SECTIONS, type ReportOptions } from './report'
 export { percent, spellName } from './tournament-format'
@@ -102,3 +127,35 @@ export {
     type TuningResult,
 } from './tuning'
 export { formatTuning } from './tuning-format'
+export {
+    DEFAULT_STRATEGY_GAMES,
+    DEFAULT_STRATEGY_SEEDS,
+    derivedSeed,
+    jobAt,
+    jobCount,
+    matchupList,
+    mergeStrategyShards,
+    pairName,
+    parseFireSet,
+    planStrategy,
+    playJobs,
+    runStrategy,
+    runStrategyShard,
+    STRATEGY_FORMAT,
+    STRATEGY_GENERAL_PAIRS,
+    STRATEGY_SHARD_FORMAT,
+    summarizeStrategy,
+    type PairSummary,
+    type RankedProfile,
+    type StrategyCell,
+    type StrategyConfig,
+    type StrategyFireSet,
+    type StrategyJobResult,
+    type StrategyOptions,
+    type StrategyPartial,
+    type StrategyPlan,
+    type StrategyResult,
+    type StrategySetup,
+    type StrategyShardResult,
+} from './strategy'
+export { formatStrategyReport, formatStrategyTable, STRATEGY_REPORT_SECTIONS } from './strategy-report'

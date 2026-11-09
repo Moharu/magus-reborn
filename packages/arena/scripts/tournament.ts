@@ -1,137 +1,91 @@
 // Usage:
 //   npm run arena -- [--top N] [--general-pairs K] [--profiles a,b,...] [--games G] [--seed S] [--max-ticks T]
 //                    [--baseline VERSION] [--jobs J] [--time-budget SECONDS] [--shard i/n] [--out FILE]
-//                    [--report FILE] [--date YYYY-MM-DD] [--commit SHA]
+//                    [--report FILE] [--date YYYY-MM-DD] [--commit SHA] [--bracket-best-of N] [--no-bracket]
 //   npm run arena -- merge SHARD.json... [--allow-missing] [--out FILE] [--report FILE] [--date YYYY-MM-DD] [--commit SHA]
-// (`npm run arena:tournament` is the same command.) Plays a round-robin between entrants (the top N distinct Fire sets, each with its best K general pairs, x the profiles) and prints the ranked table:
+//                    [--bracket-best-of N] [--no-bracket]
+// (`npm run arena:tournament` is the same command.) Plays a round-robin between entrants (the top N distinct Fire sets, each with its best K general pairs, default all 6, x the profiles) and prints the ranked table:
 // win rate only, games per pair even so sides swap equally. --out writes the JSON (the result, or with --shard that
 // shard's pairs, which `merge` combines). --jobs (default 4, values above 4 are clamped to 4 with a warning) runs that
 // many worker processes and never changes the output. --time-budget stops the run when that many seconds have passed
 // (each pair is finished first); the result is then partial and its table and report say so. --report writes the
-// Markdown report (#105). Progress goes to stderr.
-import { spawn, type ChildProcess } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+// Markdown report (#105). A whole run (not a --shard) and `merge` then play the top-8 double-elimination bracket (#136)
+// with best-of-N sets (--bracket-best-of, default 5), recorded in the JSON and the report; --no-bracket skips it.
+// Progress goes to stderr.
+import { writeFileSync } from 'node:fs'
 import { fromInvocation } from './paths'
-import { performance } from 'node:perf_hooks'
-import { ENGINE_VERSION } from '@magus/engine'
 import {
     ARCHETYPE_NAMES,
     ARCHETYPES,
     clampJobs,
+    DEFAULT_BEST_OF,
     DEFAULT_GAMES,
     DEFAULT_SEED,
     DEFAULT_GENERAL_PAIRS,
     DEFAULT_TOP,
+    formatBracket,
     formatReport,
     formatTable,
     mergeShards,
     pairList,
-    parseBaseline,
     planTournament,
     playPairs,
     shardPairs,
     SHARD_FORMAT,
     summarize,
+    withBracket,
     type ArchetypeName,
     type PairResult,
     type ShardResult,
     type TournamentResult,
 } from '../src'
+import {
+    args,
+    flag,
+    fraction,
+    intFlag,
+    killWorkers,
+    loadBaseline,
+    printTable,
+    readJson,
+    reportOptions,
+    runWorker,
+    stopper,
+    writeOut,
+} from './cli-common'
 
-const args = process.argv.slice(2)
-const flag = (name: string) => {
-    const i = args.indexOf(`--${name}`)
-    if (i === -1) return undefined
-    const value = args[i + 1]
-    if (value === undefined || value.startsWith('--')) throw new Error(`--${name} needs a value`)
-    return value
-}
-const intFlag = (name: string, fallback: number) => {
-    const raw = flag(name)
-    if (raw === undefined) return fallback
-    if (!/^\d+$/.test(raw)) throw new Error(`--${name} must be a non-negative integer, got ${raw}`)
-    return Number(raw)
-}
-const fraction = (name: string, raw: string | undefined) => {
-    if (raw === undefined) return undefined
-    const match = /^(\d+)\/(\d+)$/.exec(raw)
-    if (!match) throw new Error(`--${name} must look like i/n, got ${raw}`)
-    return { index: Number(match[1]), count: Number(match[2]) }
-}
+/** The flags that take no value. */
+const SWITCHES = ['--allow-missing', '--no-bracket']
 
-/** Seconds from `--time-budget`, a positive number; counted from the start of this process. */
-const timeBudget = () => {
-    const raw = flag('time-budget')
-    if (raw === undefined) return undefined
-    const seconds = Number(raw)
-    if (!/^\d+(\.\d+)?$/.test(raw) || !(seconds > 0))
-        throw new Error(`--time-budget must be a positive number of seconds, got ${raw}`)
-    return seconds
-}
-const elapsedSeconds = () => performance.now() / 1000
-/** `stop` for `playPairs`: true once the budget is used up. Undefined without a budget. */
-const stopper = () => {
-    const budget = timeBudget()
-    return budget === undefined ? undefined : () => elapsedSeconds() >= budget
+/** `--bracket-best-of`: odd and at least 1. */
+const bracketBestOf = () => {
+    const bestOf = intFlag('bracket-best-of', DEFAULT_BEST_OF)
+    if (!(bestOf >= 1 && bestOf % 2 === 1))
+        throw new Error(`--bracket-best-of must be an odd positive integer, got ${bestOf}`)
+    return bestOf
 }
 
-const reportOptions = () => {
-    const date = flag('date') ?? new Date().toISOString().slice(0, 10)
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`--date must look like YYYY-MM-DD, got ${date}`)
-    const commit = flag('commit')
-    if (commit !== undefined && !/^[0-9a-f]{7,40}$/i.test(commit))
-        throw new Error(`--commit must be a hex commit id, got ${commit}`)
-    return { date, ...(commit === undefined ? {} : { commit }) }
-}
-
-/** Writes `--out` (JSON), prints the table and writes `--report` (Markdown) for a whole tournament result. */
-const publish = (result: TournamentResult) => {
+/**
+ * Plays the bracket (unless --no-bracket), writes `--out` (JSON), prints the table and writes `--report` (Markdown)
+ * for a whole tournament result.
+ */
+const publish = (whole: TournamentResult) => {
     const report = flag('report')
     const options = report === undefined ? undefined : reportOptions()
+    let result = whole
+    let skipped: string | undefined = '--no-bracket was given'
+    if (!args.includes('--no-bracket')) {
+        console.error('playing the top-8 double-elimination bracket')
+        ;({ result, skipped } = withBracket(whole, { bestOf: bracketBestOf() }))
+        if (skipped) console.error(`warning: no bracket: ${skipped}`)
+    }
     writeOut(result)
-    printTable(formatTable(result))
-    if (report !== undefined && options) writeFileSync(fromInvocation(report), formatReport(result, options))
-}
-
-const readJson = (file: string) => {
-    try {
-        return JSON.parse(readFileSync(fromInvocation(file), 'utf8')) as unknown
-    } catch (error) {
-        throw new Error(`cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`, {
-            cause: error,
-        })
-    }
-}
-
-const writeOut = (value: unknown) => {
-    const out = flag('out')
-    if (out === undefined) return
-    const text = JSON.stringify(value, null, 2) + '\n'
-    if (out === '-') process.stdout.write(text)
-    else writeFileSync(fromInvocation(out), text)
-}
-
-/** The table goes to stdout, unless `--out -` puts the JSON there: then it goes to stderr, so stdout stays parseable. */
-const printTable = (table: string) => (flag('out') === '-' ? console.error(table) : console.log(table))
-
-const loadBaseline = () => {
-    const version = flag('baseline') ?? ENGINE_VERSION
-    if (!/^[\w.-]+$/.test(version))
-        throw new Error(`--baseline must be a version like ${ENGINE_VERSION}, got ${version}`)
-    const file = fileURLToPath(new URL(`../baselines/${version}.json`, import.meta.url))
-    let raw: unknown
-    try {
-        raw = JSON.parse(readFileSync(file, 'utf8'))
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-            throw new Error(
-                `no dummy-DPS baseline for version ${version}: expected packages/arena/baselines/${version}.json (npm run arena:baseline)`,
-                { cause: error },
-            )
-        throw error
-    }
-    return parseBaseline(raw, version)
+    printTable(formatTable(result) + (result.bracket ? `\n\n${formatBracket(result.bracket)}` : ''))
+    if (report !== undefined && options)
+        writeFileSync(
+            fromInvocation(report),
+            formatReport(result, { ...options, ...(skipped === undefined ? {} : { bracketSkipped: skipped }) }),
+        )
 }
 
 const plan = () => {
@@ -158,50 +112,14 @@ const worker = (spec: { index: number; count: number }) => {
     process.stdout.write(JSON.stringify(playPairs(plan(), mine, undefined, stopper())))
 }
 
-/** Every worker still running: when one fails, the others are killed rather than left burning CPU. */
-const children = new Set<ChildProcess>()
-const killWorkers = () => {
-    for (const child of children) child.kill()
-    children.clear()
-}
-
-const runWorker = (index: number, count: number) =>
-    new Promise<PairResult[]>((resolve, reject) => {
-        const script = fileURLToPath(import.meta.url)
-        // the worker gets what is left of the time budget when it starts
-        const budget = timeBudget()
-        const rest = budget === undefined ? [] : ['--time-budget', String(Math.max(budget - elapsedSeconds(), 0.001))]
-        const forwarded = args.filter((arg, i, all) => arg !== '--time-budget' && all[i - 1] !== '--time-budget')
-        const child = spawn(
-            process.execPath,
-            [...process.execArgv, script, ...forwarded, ...rest, '--worker', `${index}/${count}`],
-            { stdio: ['ignore', 'pipe', 'inherit'] },
-        )
-        children.add(child)
-        let out = ''
-        child.stdout.setEncoding('utf8').on('data', chunk => (out += chunk))
-        child.on('error', error => {
-            killWorkers()
-            reject(error)
-        })
-        child.on('close', code => {
-            children.delete(child)
-            if (code === 0) resolve(JSON.parse(out) as PairResult[])
-            else {
-                killWorkers()
-                reject(new Error(`worker ${index} exited with ${code}`))
-            }
-        })
-    })
-
 const main = async () => {
     if (args[0] === 'merge') {
-        // every flag takes a value, so the files are the arguments that are neither a flag nor its value
+        // every flag but the switches takes a value, so the files are the arguments that are neither a flag nor its value
         const files = args
             .slice(1)
             .filter(
                 (arg, i, all) =>
-                    !arg.startsWith('--') && (all[i - 1] === '--allow-missing' || !all[i - 1]?.startsWith('--')),
+                    !arg.startsWith('--') && (SWITCHES.includes(all[i - 1]) || !all[i - 1]?.startsWith('--')),
             )
         if (files.length === 0) throw new Error('merge needs shard files')
         publish(
@@ -220,6 +138,7 @@ const main = async () => {
     if (warning) console.error(`warning: ${warning}`)
     const stop = stopper()
     if (flag('report') !== undefined) reportOptions() // a bad --date or --commit fails before the run, not after
+    if (!args.includes('--no-bracket')) bracketBestOf() // the same for a bad --bracket-best-of
     const shard = fraction('shard', flag('shard'))
     if (shard && flag('report') !== undefined)
         throw new Error('--report needs a whole run: merge the shards, then report')
@@ -237,7 +156,10 @@ const main = async () => {
 
     let pairs: PairResult[]
     if (jobs === 1) pairs = playPairs(tournament, mine, undefined, stop)
-    else pairs = (await Promise.all(Array.from({ length: jobs }, (_, i) => runWorker(i, jobs)))).flat()
+    else
+        pairs = (
+            await Promise.all(Array.from({ length: jobs }, (_, i) => runWorker<PairResult[]>(import.meta.url, i, jobs)))
+        ).flat()
     pairs.sort((x, y) => x.pair - y.pair)
     const partial = pairs.length < mine.length
     if (partial) console.error(`warning: the time budget ended the run after ${pairs.length} of ${mine.length} pairs`)

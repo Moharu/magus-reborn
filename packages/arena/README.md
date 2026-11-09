@@ -9,6 +9,7 @@ npm run arena:match -- --seed 1          # summary of one match between the two 
 npm run arena:match -- --seed 1 --log    # the full match log, then the summary
 npm run arena:match -- --seed 1 --max-ticks 600
 npm run arena:match -- --seed 1 --a bait --b patient-counter   # two archetypes from profiles/
+npm run arena -- --mode strategy --seed 1 --report report.md  # strategy tournament on mirror setups (#137)
 npm run arena -- --top 8 --games 2 --seed 1 --report report.md  # round-robin, ranked by win rate; the report (#103, #105)
 npm run arena:tune -- --top 2 --general-pairs 1 --population 6 --generations 4 --seed 1 --out best.json   # self-tuning (#104)
 ```
@@ -57,8 +58,9 @@ one early (a fake cast). Use the shared `start(slot)`/`stop(slot)` helpers to av
 
 - `tick`
 - `self`: `hp`, `casting` (`slot`, `spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `gcdUntil`,
-  `lockedUntil`, `effects`, and `spells`, the player's own loadout with `castTime`, `cooldownRemaining`,
-  `lockRemaining` and `ready` per slot.
+  `lockedUntil`, `effects`, `spells`, the player's own loadout with `castTime`, `cooldownRemaining`,
+  `lockRemaining` and `ready` per slot, and `log` (#136), the player's own spell log in the same form as `enemy.log`
+  (its own casts released, cancelled or interrupted by the opponent), as the client's spell log shows it too.
 - `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil`, `effects` and
   `log`. Never the opponent's loadout, cooldowns or GCD.
 - `enemy.log` (#126) is the opponent's spell log, what the game client's spell log shows: one `{ tick, type, spellId }`
@@ -84,19 +86,26 @@ seeded `releaseJitterTicks`), else starts the first ready spell in `order`. `EXA
 ### Behaviour profiles (#102)
 
 A profile is a plain JSON object of named parameters, so a tuner (#104) can mutate it. `parseProfile(raw)` checks the
-shape and ranges and returns it in normal form; `loadProfile(raw, loadout)` also checks it against the loadout it will
-play. Both throw a `ProfileError` whose message starts with the offending key's path (`counterspell.reaction.meanSeconds:
+shape and ranges and returns it in normal form; `loadProfile(raw, loadout)` also checks it against one loadout (every
+rotation spell on it). Both throw a `ProfileError` whose message starts with the offending key's path (`counterspell.reaction.meanSeconds:
 must be in [0, 10], got 11`): unknown keys, missing keys and out-of-range values are rejected. `profileController(profile)`
-is its `ControllerFactory`, `profileEntrant(profile, loadout)` an entrant. Every key except `intent`, a rotation
-entry's `when`, `lockoutWindow` (default: a copy of `rotation`), `lockoutWindow.edgeGreedSeconds` (default 0) and
-`fakeCast.realBaitShare` (default 0) is required.
+is its `ControllerFactory`, `profileEntrant(profile, loadout)` an entrant; both play the profile built for the loadout
+(`adaptProfile`, below). Every key except `intent`, a rotation entry's `when`, `lockoutWindow` (default: a copy of
+`rotation`), `lockoutWindow.edgeGreedSeconds` (default 0), `fakeCast.realBaitShare` (default 0),
+`counterspell.giveUpSeconds` and `patience` (default: no give-up timers) is required.
+
+**Built from the loadout (#136).** `rotation` and `lockoutWindow.rotation` are priority lists over the Fire spells, and
+`adaptProfile(profile, loadout)` keeps the entries a loadout can play, in order: an entry is dropped when its spell is
+not on the loadout, or when its `when` waits on a spell the loadout lacks (Combustion at 3+ Ignites with no Ignite,
+Afterburn after Fireballs with no Fireball), so a rotation never relies on a missing spell. With nothing left, the
+rotation is the loadout's Fire spells in slot order. A profile may leave out spells it judges weak for its style.
 
 ```jsonc
 {
     "name": "bait",
-    "intent": "one line",
-    // ordered spell ids, or { "spell", "when": [conditions] }; every spell must be on the loadout (rejected at load
-    // time); Counterspell and the general spells are decided by their own blocks, not here
+    "intent": "one line: the plan, general spells included",
+    // ordered spell ids, or { "spell", "when": [conditions] }; built for each loadout (above); Counterspell and the
+    // general spells are decided by their own blocks, not here
     "rotation": [
         {
             "spell": "SPELL_COMBUSTION",
@@ -113,6 +122,7 @@ entry's `when`, `lockoutWindow` (default: a copy of `rotation`), `lockoutWindow.
         "reaction": { "meanSeconds": 0.4, "spreadSeconds": 0.1 }, // uniform in mean ± spread (spread ≤ mean), per cast
         "timing": "early", // or "late"
         "lateWindowSeconds": 0, // late: decide once the cast is within this long of its release
+        "giveUpSeconds": 8, // #136: held unused this long, interrupt the next cast whatever it is (null: never)
     },
     "fakeCast": {
         "enabled": true,
@@ -124,12 +134,19 @@ entry's `when`, `lockoutWindow` (default: a copy of `rotation`), `lockoutWindow.
         "when": [], // conditions to start a fake
         "realBaitShare": 0.5, // share of baits that are a real low-priority cast instead of a fake (#123)
     },
+    // give-up timers (#136), seconds or null (off)
+    "patience": {
+        "thresholdGiveUpSeconds": 2, // idle this long on rotation `when`s: cast the first ready entry anyway
+        "commitGiveUpSeconds": null, // set: wait this long for the opponent to commit before casting (see below)
+    },
     // one rule per general spell: "never" or { "when": [conditions] }; rules for spells not on the loadout are unused
     "generals": {
-        "SPELL_HASTE": { "when": [{ "type": "nextCastIs", "spells": ["SPELL_METEOR"] }] },
-        "SPELL_TEMPORAL_SHIELD": "never",
-        "SPELL_MAGIC_EATER": "never",
-        "SPELL_BLUR": "never",
+        "SPELL_HASTE": { "when": [{ "type": "selfNotCasting" }, { "type": "nextCastIsLongest" }] },
+        "SPELL_TEMPORAL_SHIELD": {
+            "when": [{ "type": "enemyCastEndsWithin", "seconds": 0.25, "spells": ["SPELL_METEOR"] }],
+        },
+        "SPELL_MAGIC_EATER": { "when": [{ "type": "selfNotCasting" }, { "type": "inLockoutWindow" }] },
+        "SPELL_BLUR": { "when": [{ "type": "enemyCastEndsWithin", "seconds": 0.3, "spells": ["SPELL_LIVING_BOMB"] }] },
     },
 }
 ```
@@ -139,13 +156,20 @@ profile's own choice this tick (`src/conditions.ts`): `selfHpBelow`/`selfHpAtLea
 (`hp`), `selfEffectsAtLeast`/`selfEffectsBelow`/`enemyEffectsAtLeast`/`enemyEffectsBelow` (`effect`, `count`),
 `selfCasting`, `selfNotCasting`, `enemyCasting` (optional `spells`), `enemyNotCasting`, `enemyCastEndsWithin`
 (`seconds`, optional `spells`), `enemyLocked` and `nextCastIs` (`spells`: the real cast the profile starts this tick; never a fake).
+From #136: `nextCastIsLongest` (that cast is the loadout's longest by base cast time), `selfEffectEndsWithin` /
+`enemyEffectEndsWithin` (`effect`, `seconds`: an effect ends within that long, e.g. a Living Bomb about to explode),
+`selfCastsAtLeast` (`spell`, `count`, `withinSeconds`: the player's own releases, e.g. Fireballs before Afterburn),
+`inLockoutWindow` (the free-cast window below is open) and `anyOf` (`of`: a list of condition lists, at least one of
+which holds; no `anyOf` inside one).
 
 **Each tick** the controller: (1) cancels its fake cast once `cancelAfterSeconds` has passed, or releases a completed
 cast; (2) lands a committed Counterspell; (3) picks its next cast if it has none in progress, isn't pausing after a
 fake and didn't just press Counterspell (it waits one tick to see on the view whether the lock landed): in the
 free-cast window, the first `lockoutWindow.rotation` entry that is ready, whose `when` holds and that fits (or, with edge greed, fits the greedy bound), or none;
-else a bait if `fakeCast` allows one (a fake, or a real cast, see below); else the first rotation entry that is ready
-and whose `when` holds; (4)
+else nothing while it waits for the opponent to commit; else a bait if `fakeCast` allows one (a fake, or a real cast,
+see below); else the first rotation entry that is ready and whose `when` holds, and with none, once it has been idle
+for `patience.thresholdGiveUpSeconds` (outside the window), the first rotation entry that is ready whatever its
+`when`; (4)
 uses each general spell that is ready and whose rule holds (an instant used mid-cast cancels the cast, so rules that
 must not do that say `selfNotCasting`); (5) starts the cast from (3), after the general spells so Haste applies to it.
 It never assumes a side.
@@ -157,6 +181,15 @@ mid-cast). From then on, while the cast is still on the bar, it commits as soon 
 Counterspell will be ready one reaction later, and the Counterspell lands one reaction after the commit whatever the
 enemy does meanwhile: the enemy can't tell a fake cast from a real one, nor react to the cancel faster than to the
 cast. A `late` window shorter than the reaction lands after the release.
+
+**Give-up timers (#136).** No wait lasts forever. `patience.thresholdGiveUpSeconds`: idle that long (no cast in
+progress or started) with no rotation `when` holding, the profile casts its first ready entry anyway.
+`patience.commitGiveUpSeconds`: when set, the profile starts no cast (nor a bait) while the opponent may Counterspell,
+waiting for it to commit (its Counterspell used, or ours landed: the free-cast window), for at most that long from the
+match start or from the end of the last window; then it plays its rotation until the next window. Two such profiles
+facing each other both start casting when the timer ends. `counterspell.giveUpSeconds`: once its Counterspell has been
+off cooldown that long unused, the next enemy cast is interrupted whatever its spell. Ticks under an enemy Counterspell
+lock count toward none of them. Each is a tunable parameter.
 
 **Fake casts (#43).** Start `fakeCast.spell`, then cancel it with `Battle.stopCast` after `cancelAfterSeconds`; the
 cancel costs only the elapsed time (no lock, no damage). It baits a Counterspell when the enemy has committed before
@@ -195,7 +228,10 @@ window lets the long casts through (bait: a real Combustion, then Meteors). The 
 
 **Archetypes** live in `profiles/<name>.json` as `{ "loadout": [...], "profile": {...} }` and load on import
 (`ARCHETYPES`, `archetypeEntrant(name)`): `aggressive`, `patient-counter`, `bait` and `defensive`, each with its
-intent in its file.
+intent in its file. The file's loadout is the one it shows off; the profile is built for every loadout it plays. Every
+archetype has a rule for each general spell (none is `"never"`) and its intent explains the plan: Haste on its longest
+cast or in the free-cast window, Magic Eater around its own damage, Temporal Shield to rewind an enemy burst, a Living
+Bomb explosion or Ignite build-up, Blur as an enemy Living Bomb or Ignite lands.
 
 ### Tournaments (#103)
 
@@ -204,7 +240,9 @@ intent in its file.
 ```sh
 npm run arena -- [--top N] [--general-pairs K] [--profiles a,b] [--games G] [--seed S] [--max-ticks T] [--baseline VERSION]
                  [--jobs J] [--time-budget SECONDS] [--shard i/n] [--out FILE] [--report FILE] [--date D] [--commit SHA]
+                 [--bracket-best-of N] [--no-bracket]
 npm run arena -- merge SHARD.json... [--allow-missing] [--out FILE] [--report FILE] [--date D] [--commit SHA]
+                 [--bracket-best-of N] [--no-bracket]
 npm run arena:baseline -- [--top K] --out baselines/<ENGINE_VERSION>.json
 ```
 
@@ -213,7 +251,8 @@ An **entrant** is a (loadout, profile) pair. The loadouts (`selectLoadouts`) com
 
 1. Take the top `N` **distinct Fire sets** (`--top`, default 8): the 4 element spells as a set, whatever their slot order.
    A set ranks where its best loadout does, so near-duplicates of one set never crowd out the others.
-2. For each set, take its top `K` **general pairs** (`--general-pairs`, default 2) as separate loadouts, best first.
+2. For each set, take its top `K` **general pairs** (`--general-pairs`, default 6: all of them, #136) as separate
+   loadouts, best first: the 3 pairs with Haste and the 3 without.
 3. A full loadout is never repeated: a table row that only reorders the Fire slots or swaps the two general slots of one
    already taken is skipped. A set with fewer than `K` pairs in the table gives all it has.
 
@@ -254,21 +293,68 @@ tie), or turned off if it has none. Everything else is kept.
   marked partial is still refused). A run that finishes within its budget is complete and byte-identical to one without
   a budget. An entrant that played no games in a partial run ranks last and shows `no games`. Where a partial run stops depends on the machine's speed, so unlike a complete run it is not reproducible.
 
+**Top-8 bracket (#136).** A whole run (not a `--shard`) and `merge` then play a double-elimination bracket on the
+round-robin's top 8 (entrants with no games left out), seeded by rank: upper round 1 is 1v8, 4v5, 2v7, 3v6; the losers
+drop to the lower bracket (lower round 2 crosses them with the upper semifinal losers, so no early rematch); the grand
+final has a bracket reset (a second set when the lower-bracket winner takes the first). Every set is a best-of-5
+(`--bracket-best-of N`, odd), the better seed `player1` in the set's even games and the other in its odd ones (draws
+included). A draw counts for nobody and is replayed, up to 5 draws a set; one more ends the set, to the entrant with more
+wins, or the better seed on equal wins. Game `g` of set `s` is seeded `deriveSeed(seed, BRACKET_TAG, s, g)` from the
+master seed, so the bracket is deterministic. Placements: 1st, 2nd, 3rd, 4th, 5th-6th, 7th-8th. It is `bracket` in the
+result JSON, a section of the report and a few lines under the table; `--no-bracket` skips it, and with fewer than 8
+entrants it is skipped with a warning. From code: `runBracket(result, { bestOf, drawCap })` or `withBracket(result)`.
+It is 14 or 15 sets, a few dozen games.
+
 From code: `planTournament({ baseline, profiles, top, generalPairs, games, seed })`, then `runTournament(plan)`, or `runShard(plan, i, n)`
 and `mergeShards(shards)` (`runTournament` and `runShard` take an optional `stop` callback, the time budget's hook). `profiles` are plain `Profile` objects, so a tuner (#104) can pass its own.
+
+### Strategy tournament (#137)
+
+The round-robin above changes the loadout and the profile together, so a win rate mixes loadout strength and strategy.
+`--mode strategy` (or `npm run arena:strategy`, the same command) plays every game as a **mirror**: both players get the
+same loadout, so only the profile varies.
+
+```sh
+npm run arena -- --mode strategy --seed 1 --out result.json --report report.md
+npm run arena -- --mode strategy --fire-set fireball,ignite,combustion,meteor --fire-set fireball,living-bomb,ignite,afterburn
+```
+
+- **Setups.** One Fire set with each of the 6 pairs of the four non-Counterspell general spells (Haste+Blur, Haste+Magic
+  Eater, Haste+Temporal Shield, Blur+Magic Eater, Blur+Temporal Shield, Magic Eater+Temporal Shield), Counterspell always
+  in: `F<n>/<pair>`. The Fire set defaults to the best set of the dummy baseline (that of its rank 1). `--fire-set`
+  (four distinct Fire spells, ids or short names) replaces it and may be repeated to run several Fire sets.
+- **Matchups.** On every setup each profile plays every profile, itself included. A cell is `--seeds` derived seeds
+  (default 30, `deriveSeed(seed, setup, matchup, k)`) x `--games` games each (even, default 36), sides alternating game
+  by game: 1080 games a cell, so the widest 95% Wilson interval (at 50%) is about +/-3%. A full default run is 64,800
+  games on one Fire set, about 2 minutes on one machine. `--profiles`, `--seed`, `--max-ticks`, `--baseline`, `--jobs`,
+  `--time-budget`, `--shard i/n`, `--out`, `--report`, `--date`, `--commit` and `merge` work as in the tournament.
+- **Result and report.** The JSON holds the raw counts per cell (`cells`: wins of each side, draws, first-mover wins),
+  the profile ranking of each setup and the best profile per general pair. The report has a profile-against-profile
+  win-rate matrix per setup, each profile's rank on each setup, and a table of which profile does best with each
+  general pair (pooled over the Fire sets, with whether its interval is clear of the runner-up's). All rates are 95%
+  Wilson intervals and draws are non-wins. The diagonal of a matrix is the share of games won by whoever moved first.
+- **Ranking** is a profile's win rate over its games against the _other_ profiles: mirror games say nothing about which
+  profile is better, so they are in the diagonal cells only.
+- **Work units** are jobs (one setup, matchup and derived seed, `--games` games), sharded by `job % n`; merging all
+  shards equals the unsharded run. From code: `planStrategy`, `runStrategy`, `runStrategyShard`, `mergeStrategyShards`,
+  `formatStrategyReport`.
 
 ### Workflow, local runs and the report (#105)
 
 **In GitHub Actions** (`.github/workflows/arena.yml`, free on this public repo): _Actions > Arena > Run workflow_, or
 `gh workflow run arena.yml -f seed=1 -f top=8 -f games=2 -f generations=0`. It is `workflow_dispatch` only, has
-`permissions: contents: read`, uses no secrets and writes nothing back (no commits, no wiki). Inputs: `seed`, `top`
-(Fire sets), `games` (per pair, even) and `generations` (0, the default, means no tuning).
+`permissions: contents: read`, uses no secrets and writes nothing back (no commits, no wiki). Inputs: `mode`
+(`tournament`, the default, or `strategy`, #137), `seed`, and for the tournament `top` (Fire sets), `games` (per pair,
+even) and `generations` (0, the default, means no tuning); for the strategy mode `strategy_seeds` (30), `strategy_games`
+(36) and `fire_sets` (`;` between sets, `,` between spells; empty means the baseline's best). The strategy mode shards
+and merges the same way (same shard and report files, no bracket, no tuning):
+`gh workflow run arena.yml -f mode=strategy -f seed=1`.
 
 - A `plan` job checks the inputs (non-negative integers; `generations` is read numerically, so `00` means no tuning) and
   decides whether `tune` runs.
 - Four `shard` jobs run `--shard i/4 --jobs 4 --time-budget 1200` (a 20 minute budget inside a 30 minute job timeout, so
   a slow run ends partial and is still merged) and upload `arena-shard-<i>` (14 days).
-- A `merge` job downloads the shards, runs `merge --allow-missing` into `arena-result.json` and `arena-report.md`, writes the
+- A `merge` job downloads the shards, runs `merge --allow-missing --bracket-best-of 5` (which also plays the top-8 bracket) into `arena-result.json` and `arena-report.md`, writes the
   report to the run's step summary and uploads both as `arena-report` (30 days). It also runs when a shard job failed: it
   merges the shards that uploaded, and the report is `PARTIAL` and names the missing shards (the workflow still shows red
   for the failed shard). The merged result is byte-identical to a local run of the same seed and inputs (checked by
@@ -285,16 +371,16 @@ and `mergeShards(shards)` (`runTournament` and `runShard` take an optional `stop
 **Locally**: `npm run arena -- --top 8 --games 2 --seed 1 --report arena-report.md --out arena-result.json`. Keep local runs
 small while developing (`--top 2 --general-pairs 1 --games 2`, 28 pairs, a second or two); `--jobs` is 4 at most.
 
-**Expected runtime.** The default run is 8 Fire sets x 2 general pairs = 16 loadouts x 4 profiles = 64 entrants, 2016 pairs
-x 2 games = 4032 matches (`games x E(E-1)/2` for `E` entrants). It was not run in full while writing this: it is
-extrapolated from small runs on one core of a WSL2 machine (top 4, 2 general pairs, 32 entrants: 992 matches in 0.8 s,
-1984 in 1.3 s, about 2000 matches per second after 0.3 s of start-up).
+**Expected runtime.** The default run is 8 Fire sets x 6 general pairs = 48 loadouts x 4 profiles = 192 entrants (#136),
+18336 pairs x 2 games = 36672 matches (`games x E(E-1)/2` for `E` entrants), then the bracket's few dozen. It was not run in
+full while writing this: it is extrapolated from a `--top 2` run (48 entrants, 2256 matches) that took 1.3 s with
+`--jobs 2` on a WSL2 machine, start-up and bracket included. The v0.3.0 run's shards (64 entrants) took about 20 s each.
 
-| Where                                          | Default run                                                  |
-| ---------------------------------------------- | ------------------------------------------------------------ |
-| Locally, 1 job                                 | about 2 to 3 s                                               |
-| Locally, `--jobs 4` (the default)              | about 1 to 2 s (start-up of the workers included)            |
-| Actions, whole workflow (4 shards, then merge) | about 2 to 4 minutes, nearly all of it checkout and `npm ci` |
+| Where                                          | Default run                                            |
+| ---------------------------------------------- | ------------------------------------------------------ |
+| Locally, 1 job                                 | about 1 to 2 minutes                                   |
+| Locally, `--jobs 4` (the default)              | about 20 to 40 s (start-up of the workers included)    |
+| Actions, whole workflow (4 shards, then merge) | about 3 to 5 minutes, most of it checkout and `npm ci` |
 
 Matches take about the same time whatever the entrants, so a bigger run scales with its match count: `--top 15 --general-pairs 6`
 (the whole baseline, 360 entrants) at 20 games per pair is about 1.3 million matches, roughly 11 minutes on one core,
@@ -311,10 +397,15 @@ with these sections, in this order, always present:
    DPS under pressure), from `baselines/<version>.json`.
 3. `## Arena win rates`: `### By profile` (entrants, wins, draws, games and win rate over all of a profile's entrants) and
    `### By entrant` (rank, loadout, profile, wins, draws, games, win rate and 95% interval, best first).
-4. `## Matchup matrix`: profile against profile, the share of games the row profile won against the column profile, with
+4. `## General pairs` (#136): win rate by general pair (the six, Haste pairs first) and with Haste against without it,
+   pooled over every entrant with it, with the 95% Wilson interval: `### All profiles`, then `### Per profile` (one
+   column per profile).
+5. `## Matchup matrix`: profile against profile, the share of games the row profile won against the column profile, with
    wins/games (the full entrant matrix is `matrix` in the JSON).
-5. `## Caveats`: partial runs, draws, sample size (games per entrant, the widest interval), the first-mover edge and what
-   the numbers mean.
+6. `## Bracket` (#136): the seeds, every set with its score, draws and winner, and the final placements; or why it was
+   not run.
+7. `## Caveats`: partial runs, draws, sample size (games per entrant, the widest interval), the first-mover edge, the
+   bracket's small sample and what the numbers mean.
 
 For a given seed and inputs the tables are deterministic: the report is a pure function of the result, the date and the
 commit, so everything but the header's date and commit is identical between runs, and a report from merged shards equals
@@ -336,8 +427,9 @@ gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouch
   loadouts (`--top`, `--general-pairs`, `--games`, `--max-ticks` as in `arena:tournament`). The score is the profile's row
   of the #103 round-robin: the tournament of `[profile, ...field]`, restricted to the pairs where one of the profile's
   entrants meets a field entrant, played with the tournament's own pairing, side swap and `deriveSeed(seed, pair, game)`.
-  That is `L * (L * F) * games` matches per profile for `L` loadouts and `F` field profiles (16 x 64 x 2 = 2048 with the
-  defaults, so start small). Win rate only, as in #103. The pairs and seeds are the same for every profile in every
+  That is `L * (L * F) * games` matches per profile for `L` loadouts and `F` field profiles (48 x 192 x 2 = 18432 with the
+  defaults since #136, tens of seconds a profile on one core, so start small; the workflow's `--max-matches 1500000` bounds a
+  run whatever the field: about 80 profile scores, while the default 5 generations of 8 need at most 41). Win rate only, as in #103. The pairs and seeds are the same for every profile in every
   generation, so a profile's score depends on nothing but the profile, and identical profiles are only played once.
 - **Next generation.** The best `--elite K` (default 2, `0 <= K < P`) pass unchanged, so with `K >= 1` the best score
   never drops. Each other member `i` of generation `g` is bred from the ranking (ties keep population order) with its
@@ -362,7 +454,10 @@ gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouch
     | `fakeCast.maxPerMatch`                                                               | 0 to 50                  |
     | `fakeCast.realBaitShare`                                                             | 0 to 1                   |
     | `lockoutWindow.edgeGreedSeconds` (#126)                                              | 0 to 1.5 s               |
+    | `counterspell.giveUpSeconds` (#136, when set)                                        | 1 to 30 s                |
+    | `patience.thresholdGiveUpSeconds` / `commitGiveUpSeconds` (#136, when set)           | 0.25-10 / 0.25-15 s      |
     | every condition's `hp` / `count` / `seconds` (rotation, window, fake cast, generals) | 0-100 / 0-20 / 0-3 s     |
+    | every `selfCastsAtLeast`'s `withinSeconds` (#136), `anyOf` lists included            | 0 to 15 s                |
 
 - **Overfitting guard.** The final best profile is re-scored on a fresh seed set (a tournament seed derived from `S`
   whose match seeds share none with the selection set). Both win rates are printed; a large gap means the search fitted

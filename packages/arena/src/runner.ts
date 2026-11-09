@@ -54,6 +54,7 @@ interface ViewState {
             lockedUntil: number
             effects: EffectSlot[]
             spells: SpellSlot[]
+            log: EnemyLogEntry[]
         }
         enemy: { hp: number; casting: Cast | null; lockedUntil: number; effects: EffectSlot[]; log: EnemyLogEntry[] }
     }
@@ -101,6 +102,7 @@ const createView = (loadout: readonly SpellId[]): ViewState => ({
             lockedUntil: 0,
             effects: [],
             spells: loadout.map(id => ({ id, castTime: 0, cooldownRemaining: 0, lockRemaining: 0, ready: false })),
+            log: [],
         },
         enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [], log: [] },
     },
@@ -172,9 +174,9 @@ const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: 
 }
 
 /**
- * Reads the engine log the server streams to both clients (#126) into each player's `enemy.log`, from entry `from` on,
- * and returns where it stopped. An entry goes to the view of the player it is not about: the caster's opponent, or for
- * INTERRUPTED the interrupter (the interrupted player's opponent). It keeps only what the client's spell log shows,
+ * Reads the engine log the server streams to both clients (#126) into each player's `enemy.log` and `self.log`, from
+ * entry `from` on, and returns where it stopped. An entry goes to the `enemy.log` of the player it is not about (the
+ * caster's opponent, or for INTERRUPTED the interrupter) and to the `self.log` of the player it is about (#136). It keeps only what the client's spell log shows,
  * the type, the tick and the spell id, never the loadout slot. A STOP_CAST names the cast it stopped, the one its
  * caster last started, as the client does. `lastStarted` holds each player's latest START_CAST spell.
  */
@@ -194,11 +196,10 @@ const readEnemyLogs = (
             if (entry.type === 'START_CAST') lastStarted[player] = spellId
         }
         if (spellId === undefined) continue
-        views[player === 'player1' ? 'player2' : 'player1'].view.enemy.log.push({
-            tick: entry.tick,
-            type: entry.type,
-            spellId,
-        })
+        const shown = { tick: entry.tick, type: entry.type, spellId }
+        // one copy per log: a controller that edits an entry of its own view must not change the opponent's
+        views[player === 'player1' ? 'player2' : 'player1'].view.enemy.log.push({ ...shown })
+        views[player].view.self.log.push({ ...shown })
     }
     return entries.length
 }

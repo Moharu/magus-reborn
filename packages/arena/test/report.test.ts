@@ -17,6 +17,8 @@ import {
     type MatchFn,
     type MatchResult,
     type PairResult,
+    percent,
+    wilsonInterval,
 } from '../src'
 import { METEOR_LOADOUT, OTHER_LOADOUT } from './helpers'
 
@@ -126,6 +128,43 @@ describe('formatReport', () => {
         // aggressive against bait: 2 x 2 entrant pairs x 2 games
         expect(matrix).toMatch(/\| aggressive \| - \| \d+\.\d% \(\d+\/8\) \|/)
         expect(matrix).toMatch(/\| bait \| \d+\.\d% \(\d+\/8\) \| - \|/)
+    })
+
+    it('shows the win rate by general pair and with vs without Haste, over all profiles and per profile (#136)', () => {
+        const text = formatReport(result, options)
+        const section = text.split('## General pairs')[1].split('## Matchup matrix')[0]
+        // METEOR_LOADOUT holds Haste + Blur, OTHER_LOADOUT Magic Eater + Temporal Shield
+        const pooled = (has: (loadout: readonly string[]) => boolean, profile?: string) => {
+            const own = result.ranking.filter(r => has(r.loadout) && (!profile || r.profile === profile))
+            const wins = own.reduce((sum, r) => sum + r.wins, 0)
+            const draws = own.reduce((sum, r) => sum + r.draws, 0)
+            const games = own.reduce((sum, r) => sum + r.games, 0)
+            return { entrants: own.length, wins, draws, games, ci: wilsonInterval(wins, games) }
+        }
+        const haste = (l: readonly string[]) => l.includes('SPELL_HASTE')
+        const rows = [
+            ['Haste + Blur', haste],
+            ['Magic Eater + Temporal Shield', (l: readonly string[]) => !haste(l)],
+            ['With Haste', haste],
+            ['Without Haste', (l: readonly string[]) => !haste(l)],
+        ] as const
+        for (const [name, has] of rows) {
+            const p = pooled(has)
+            expect(section).toContain(
+                `| ${name} | ${p.entrants} | ${p.wins} | ${p.draws} | ${p.games} | ${percent(p.wins / p.games)} | ${percent(p.ci.low)}-${percent(p.ci.high)} |`,
+            )
+        }
+        // per profile: each cell is that profile's pooled rate with its interval
+        const cell = (p: ReturnType<typeof pooled>) =>
+            `${percent(p.wins / p.games)} (${percent(p.ci.low)}-${percent(p.ci.high)})`
+        expect(section).toContain(
+            `| Haste + Blur | ${cell(pooled(haste, 'aggressive'))} | ${cell(pooled(haste, 'bait'))} |`,
+        )
+        expect(section).toContain(
+            `| Without Haste | ${cell(pooled(l => !haste(l), 'aggressive'))} | ${cell(pooled(l => !haste(l), 'bait'))} |`,
+        )
+        // the six pairs are listed Haste pairs first, whatever order the loadouts come in
+        expect(section.indexOf('| Haste + Blur |')).toBeLessThan(section.indexOf('| Magic Eater + Temporal Shield |'))
     })
 
     it('depends on the date and commit only in the header: the same result gives the same tables', () => {
