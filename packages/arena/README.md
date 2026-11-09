@@ -60,7 +60,11 @@ one early (a fake cast). Use the shared `start(slot)`/`stop(slot)` helpers to av
 - `self`: `hp`, `casting` (`slot`, `spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `gcdUntil`,
   `lockedUntil`, `effects`, `spells`, the player's own loadout with `castTime`, `cooldownRemaining`,
   `lockRemaining` and `ready` per slot, and `log` (#136), the player's own spell log in the same form as `enemy.log`
-  (its own casts released, cancelled or interrupted by the opponent), as the client's spell log shows it too.
+  (its own casts released, cancelled or interrupted by the opponent), as the client's spell log shows it too. And
+  `hpLog` (#146), its floating combat text: one `{ tick, amount, spellId, kind }` per HP change on the player, oldest
+  first, from the engine's attributed HP events, which the server streams to both clients (`events` of each `battle`
+  message). `spellId` is the spell the change came from, `kind` is `spell` (a release) or `effect` (a tick, a burst, a
+  heal). Same timing as the logs: a change on tick `t` shows from tick `t + 1`.
 - `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil`, `effects` and
   `log`. Never the opponent's loadout, cooldowns or GCD.
 - `enemy.log` (#126) is the opponent's spell log, what the game client's spell log shows: one `{ tick, type, spellId }`
@@ -190,10 +194,10 @@ It never assumes a side.
 
 **Counterspell targets (#143).** No fixed list: the profile learns what each opponent spell is worth from what a
 client shows (`spellValues`, `src/threat.ts`), so it works for any spell set, future elements included. A spell's value
-is the damage its casts have dealt to the player, per cast: the HP lost on the tick after the opponent released it
-(`enemy.log`), beyond the damage over time already running; the HP lost when one of its debuffs runs out at its
-`expiresAt` (a Living Bomb's explosion; a cleansed debuff gives nothing); and each tick's running damage over time,
-shared by the opponent's debuffs on the buff bar. A debuff's spell is the opponent release on its `startingTick`.
+is the damage it has dealt to the player per cast released: every damage entry of the player's floating combat text
+(`self.hpLog`) whose `spellId` is that spell (hits, damage over time, a Living Bomb's explosion), over the opponent's
+releases of it (`enemy.log`). The combat text names the spell exactly, so nothing is inferred from HP drops (an
+inference split a hit with a same-tick release or effect expiry, #146 review).
 Until a spell has been seen to deal damage, its value is its public base cast time times
 `counterspell.unseenValuePerSecond`. A visible enemy cast is a target when its spell's value is at least
 `counterspell.minValue` and at least `counterspell.bestShare` times the highest value among the spells the opponent

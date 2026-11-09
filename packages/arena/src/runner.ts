@@ -19,6 +19,7 @@ import type {
     Decision,
     EnemyLogEntry,
     Entrant,
+    HpLogEntry,
     MatchEndReason,
     MatchEvent,
     MatchResult,
@@ -55,6 +56,7 @@ interface ViewState {
             effects: EffectSlot[]
             spells: SpellSlot[]
             log: EnemyLogEntry[]
+            hpLog: HpLogEntry[]
         }
         enemy: { hp: number; casting: Cast | null; lockedUntil: number; effects: EffectSlot[]; log: EnemyLogEntry[] }
     }
@@ -103,6 +105,7 @@ const createView = (loadout: readonly SpellId[]): ViewState => ({
             effects: [],
             spells: loadout.map(id => ({ id, castTime: 0, cooldownRemaining: 0, lockRemaining: 0, ready: false })),
             log: [],
+            hpLog: [],
         },
         enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [], log: [] },
     },
@@ -250,7 +253,23 @@ const validate = ({ seed, a, b, maxTicks }: MatchOptions & { maxTicks: number })
 }
 
 /** Per-side stats and the side-keyed log, from the engine's log and HP events. */
-const summarize = (battle: Battle, withLog: boolean) => {
+/**
+ * Moves the engine's attributed HP events (the `events` the server streams to both clients, #146) into the `hpLog` of
+ * the player each one is about, and adds the damage to `taken` (centi-HP), for the stats.
+ */
+const readHpEvents = (battle: Battle, views: Record<PlayerKey, ViewState>, taken: Record<Side, number>) => {
+    for (const event of battle.drainEvents()) {
+        views[event.player].view.self.hpLog.push({
+            tick: event.tick,
+            amount: event.amount,
+            spellId: event.source,
+            kind: event.kind,
+        })
+        if (event.amount < 0) taken[SIDE_OF[event.player]] += toCenti(-event.amount)
+    }
+}
+
+const summarize = (battle: Battle, withLog: boolean, taken: Record<Side, number>) => {
     const stats: Record<Side, SideStats> = { a: emptyStats(), b: emptyStats() }
     const log: MatchEvent[] = []
     const entries = battle.state.log
@@ -296,10 +315,6 @@ const summarize = (battle: Battle, withLog: boolean) => {
             log.push({ tick: entry.tick, side, type: entry.type, spellId: entry.spellId, source: entry.source })
         else log.push({ tick: entry.tick, side, type: entry.type, spellId: entry.spellId })
     }
-    const taken: Record<Side, number> = { a: 0, b: 0 }
-    for (const event of battle.drainEvents()) {
-        if (event.amount < 0) taken[SIDE_OF[event.player]] += toCenti(-event.amount)
-    }
     stats.a.damageTaken = fromCenti(taken.a)
     stats.b.damageTaken = fromCenti(taken.b)
     return { stats, log }
@@ -332,11 +347,14 @@ export const runMatch = (options: MatchOptions): MatchResult => {
     const views: Record<PlayerKey, ViewState> = { player1: viewA, player2: viewB }
     const lastStarted: Record<PlayerKey, SpellId | undefined> = { player1: undefined, player2: undefined }
     let logRead = 0
+    // damage taken per side, in centi-HP, from the HP events
+    const taken: Record<Side, number> = { a: 0, b: 0 }
 
     let timeout = false
     while (!battle.finished) {
         // what the clients' spell logs have received by now: every entry logged on earlier ticks
         logRead = readEnemyLogs(state.log, logRead, views, lastStarted)
+        readHpEvents(battle, views, taken)
         refresh(viewA, state.player1, state.player2, state.gameTick)
         refresh(viewB, state.player2, state.player1, state.gameTick)
         const decisionA = decideA(viewA.view)
@@ -353,7 +371,8 @@ export const runMatch = (options: MatchOptions): MatchResult => {
 
     const winner: Side | 'draw' = timeout || state.winner === 'draw' ? 'draw' : SIDE_OF[state.winner!]
     const reason: MatchEndReason = timeout ? 'timeout' : state.winner === 'draw' ? 'mutual' : 'death'
-    const summary = summarize(battle, log)
+    readHpEvents(battle, views, taken)
+    const summary = summarize(battle, log, taken)
     summary.stats.a.rejected = rejectedA
     summary.stats.b.rejected = rejectedB
     return {

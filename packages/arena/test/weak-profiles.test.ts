@@ -279,36 +279,86 @@ describe('Counterspell targets from what the opponent is seen to cast (#143)', (
         expect(values.best()).toBe(0)
     })
 
-    it('values a hit from the HP lost after the release, and a Living Bomb from its ticks and its explosion', () => {
+    /** Plays `script` for side b against an idle side a, and returns a's views, one copy per tick. */
+    const watch = (loadout: SpellId[], script: Record<number, Action[]>, maxTicks: number) => {
+        const seen: ArenaView[] = []
+        const result = runMatch({
+            seed: 1,
+            a: entrant('watcher', recording(idle(), seen), loadout),
+            b: entrant('caster', scripted(script), loadout),
+            maxTicks,
+        })
         const values = spellValues(6)
-        const view = (tick: number, hp: number, log: ArenaView['enemy']['log'], effects: EffectView[] = []) =>
-            ({
-                tick,
-                self: { hp, casting: null, gcdUntil: 0, lockedUntil: 0, effects, spells: [], log: [] },
-                enemy: { hp: 100, casting: null, lockedUntil: 0, effects: [], log },
-            }) as ArenaView
-        const log: ArenaView['enemy']['log'][number][] = []
-        values.observe(view(0, 100, log))
-        log.push({ tick: 0, type: 'START_CAST', spellId: 'SPELL_LIVING_BOMB' })
-        values.observe(view(29, 100, log))
-        // a Living Bomb released on 30, ticking 1 HP per tick until 33, exploding for 20 on 33
-        values.observe(view(30, 100, log))
-        // the log shows a release from the next tick on, like the buff bar
-        log.push({ tick: 30, type: 'SPELL_RELEASE', spellId: 'SPELL_LIVING_BOMB' })
-        const bomb: EffectView = { id: 'DEBUFF_LIVING_BOMB', type: 'negative', startingTick: 30, expiresAt: 33 }
-        values.observe(view(31, 99, log, [bomb]))
-        values.observe(view(32, 98, log, [bomb]))
-        values.observe(view(33, 77, log))
-        expect(values.valueOf('SPELL_LIVING_BOMB')).toBeCloseTo(23)
-        // a Meteor released on 40 hits for 28; it is the best seen once it has been seen cast
-        log.push({ tick: 38, type: 'START_CAST', spellId: 'SPELL_METEOR' })
-        values.observe(view(40, 77, log))
-        log.push({ tick: 40, type: 'SPELL_RELEASE', spellId: 'SPELL_METEOR' })
-        values.observe(view(41, 49, log))
+        for (const view of seen) values.observe(view)
+        return { result, values, seen }
+    }
+
+    it('values each spell from the floating combat text: a hit, and a Living Bomb from its ticks and its explosion', () => {
+        const bomb = slotOf(HASTE_BLUR, 'SPELL_LIVING_BOMB')
+        const meteor = slotOf(HASTE_BLUR, 'SPELL_METEOR')
+        const METEOR = ticksOf('SPELL_METEOR')
+        const BOMB_DURATION = secondsToTicks(11)
+        const { values, seen } = watch(
+            HASTE_BLUR,
+            {
+                0: [start(bomb)],
+                [LIVING_BOMB]: [stop(bomb), start(meteor)],
+                [LIVING_BOMB + METEOR]: [stop(meteor)],
+            },
+            LIVING_BOMB + BOMB_DURATION + 2,
+        )
+        // the combat text names every source: Living Bomb's ticks and explosion, the Meteor's hit
+        const sources = new Set(seen.at(-1)!.self.hpLog!.map(e => e.spellId))
+        expect([...sources].sort()).toEqual(['SPELL_LIVING_BOMB', 'SPELL_METEOR'])
+        // 7 over 11 s, then 21 when it runs out; 28 for the Meteor, now the best seen
+        expect(values.valueOf('SPELL_LIVING_BOMB')).toBeCloseTo(28)
         expect(values.valueOf('SPELL_METEOR')).toBeCloseTo(28)
         expect(values.best()).toBeCloseTo(28)
         // an unseen spell keeps its cast-time prior
         expect(values.valueOf('SPELL_FIREBALL')).toBeCloseTo(1.3 * 6)
+    })
+
+    it('an Ignite running out on the tick after an Afterburn hit takes none of it (Codex P2)', () => {
+        const loadout: SpellId[] = [
+            'SPELL_FIREBALL',
+            'SPELL_IGNITE',
+            'SPELL_AFTERBURN',
+            'SPELL_METEOR',
+            'SPELL_COUNTERSPELL',
+            'SPELL_HASTE',
+            'SPELL_BLUR',
+        ]
+        const slot = (id: SpellId) => slotOf(loadout, id)
+        const [IGNITE, FB, AB] = [ticksOf('SPELL_IGNITE'), ticksOf('SPELL_FIREBALL'), ticksOf('SPELL_AFTERBURN')]
+        // the Ignite released on IGNITE runs out 10 s later; the Afterburn is released on the tick before
+        const igniteEnds = IGNITE + secondsToTicks(10)
+        const afterburnAt = igniteEnds - 1
+        const fireballsFrom = afterburnAt - AB - 3 * FB
+        const script: Record<number, Action[]> = {}
+        const at = (tick: number, ...actions: Action[]) => (script[tick] = [...(script[tick] ?? []), ...actions])
+        at(0, start(slot('SPELL_IGNITE')))
+        at(IGNITE, stop(slot('SPELL_IGNITE')))
+        for (let i = 0; i < 3; i++) {
+            at(fireballsFrom + i * FB, start(slot('SPELL_FIREBALL')))
+            at(fireballsFrom + (i + 1) * FB, stop(slot('SPELL_FIREBALL')))
+        }
+        at(afterburnAt - AB, start(slot('SPELL_AFTERBURN')))
+        at(afterburnAt, stop(slot('SPELL_AFTERBURN')))
+        const { result, values, seen } = watch(loadout, script, igniteEnds + 2)
+        expect(events(result.log, 'b', 'SPELL_RELEASE').map(e => [e.tick, e.spellId])).toEqual([
+            [IGNITE, 'SPELL_IGNITE'],
+            [fireballsFrom + FB, 'SPELL_FIREBALL'],
+            [fireballsFrom + 2 * FB, 'SPELL_FIREBALL'],
+            [fireballsFrom + 3 * FB, 'SPELL_FIREBALL'],
+            [afterburnAt, 'SPELL_AFTERBURN'],
+        ])
+        // the view on the Ignite's last tick shows the Afterburn hit and the Ignite gone from the buff bar at once
+        const last = seen.find(view => view.tick === igniteEnds)!
+        expect(last.self.effects.some(e => e.id === 'DEBUFF_IGNITE')).toBe(false)
+        // 2.1 + 3.5 x 3 Fireballs, all Afterburn's (an HP-drop inference gave it 6.305); the Ignite's 13.3 its own
+        expect(values.valueOf('SPELL_AFTERBURN')).toBeCloseTo(12.6)
+        expect(values.valueOf('SPELL_IGNITE')).toBeCloseTo(13.3)
+        expect(values.valueOf('SPELL_FIREBALL')).toBeCloseTo(5.6)
     })
 
     it('patient-counter holds out for a target worth its Counterspell, then its give-up timer breaks the wait', () => {

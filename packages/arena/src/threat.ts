@@ -1,23 +1,21 @@
-import { SPELLS, type EffectId, type SpellId } from '@magus/engine'
+import { SPELLS, type SpellId } from '@magus/engine'
 import type { ArenaView } from './types'
 
 /**
- * What each opponent spell is worth to counter (#143), learned only from what a client shows: the player's own HP,
- * its own buff bar and the opponent's spell log (`enemy.log`). Never the opponent's loadout, cooldowns or any effect's
+ * What each opponent spell is worth to counter (#143), from what a client shows: the player's floating combat text
+ * (`self.hpLog`, #146: every HP change on the player with the spell it came from, as the server streams it to both
+ * clients) and the opponent's spell log (`enemy.log`). Never the opponent's loadout, cooldowns or any effect's
  * internals, and no spell module: it works for any spell set, future elements included.
  *
- * The value of a spell is the damage it has done to the player per cast, as seen:
- *   - a hit: the HP lost on the tick after the opponent released it (the view on tick `t + 1` shows a release on `t`),
- *     beyond the damage over time already running (the last tick's loss with nothing new happening);
- *   - a burst when one of its effects runs out (a Living Bomb's explosion): the HP lost beyond that running damage on
- *     the tick the effect leaves the buff bar at its `expiresAt` (cleansed early, it gives nothing);
- *   - damage over time: each tick's running loss, shared evenly by the opponent's debuffs on the player.
- * An effect's spell is the opponent release on the effect's `startingTick` (an element spell, then a cast-time one
- * first); a hit is shared only by the tick's releases that may deal damage (`damaging`). Heals and rewinds
- * are not damage: a tick whose HP went up credits nothing.
+ * The value of a spell is the damage it has dealt to the player per cast released: every damage entry of the combat
+ * text whose source is that spell (its hits, its effects' ticks and bursts, a Living Bomb's explosion or any later
+ * one) over the opponent's releases of it. The combat text names the spell exactly, so nothing is inferred from HP
+ * drops (#146 review: same-tick releases and expiries made such inference split damage wrongly). In a 1v1 the damage
+ * on a player comes from the opponent's spells; a damage entry from one of the player's own spells (a Temporal Shield
+ * rewind after a heal) is credited to that spell id, which is a general instant and never a Counterspell target.
  *
- * A spell the opponent has not yet released (or whose casts have dealt nothing yet) is valued from its public base
- * cast time, the one number a client shows for every spell: `unseenValuePerSecond` HP per second of cast.
+ * A spell the opponent has not yet been seen to deal damage with is valued from its public base cast time, the one
+ * number a client shows for every spell: `unseenValuePerSecond` HP per second of cast.
  */
 export interface SpellValues {
     /** Reads one view. Call it once per tick, on every view, before asking for values. */
@@ -28,101 +26,29 @@ export interface SpellValues {
     best(also?: SpellId): number
 }
 
-/** The spells whose effect a debuff on the player comes from, the opponent's Counterspell lock aside. */
-const TRACKED = (id: EffectId) => id !== 'DEBUFF_COUNTERSPELL'
-
-/**
- * The releases of one tick that may have dealt its damage (#146 review): the element spells among them, those built to
- * deal damage, when there are any. A general spell (Haste, Blur, Counterspell, ...) released on the same tick as a
- * damaging cast, as when a player releases a cast and prepares the next with Haste, takes no share of that hit. Only
- * when every release of the tick is a general spell is the damage theirs. The school is public spell data, shown in
- * every client's spellbook.
- */
-const damaging = (spells: readonly SpellId[]): readonly SpellId[] => {
-    const element = spells.filter(id => SPELLS[id].school !== 'GENERAL')
-    return element.length > 0 ? element : spells
-}
-
-interface Tracked {
-    readonly id: EffectId
-    readonly startingTick: number
-    readonly expiresAt: number
-    readonly source: SpellId | null
-}
-
 export const spellValues = (unseenValuePerSecond: number): SpellValues => {
     const damage = new Map<SpellId, number>()
     const casts = new Map<SpellId, number>()
     // cast-time spells the opponent has been seen starting
     const seenCasting = new Set<SpellId>()
-    // opponent releases by tick, for the effects' sources
-    const releasedOn = new Map<number, SpellId[]>()
     let logRead = 0
-    let lastHp = NaN
-    let lastTick = NaN
-    // the HP lost per tick to damage over time, from the last tick with nothing new
-    let running = 0
-    let debuffs: Tracked[] = []
-
-    const credit = (spell: SpellId | null, hp: number) => {
-        if (spell && hp > 0) damage.set(spell, (damage.get(spell) ?? 0) + hp)
-    }
-    const sourceOf = (startingTick: number): SpellId | null => {
-        const spells = damaging(releasedOn.get(startingTick) ?? [])
-        return spells.find(id => (SPELLS[id].castSeconds ?? 0) > 0) ?? spells[0] ?? null
-    }
+    let hpRead = 0
     const prior = (spell: SpellId) => Math.max(0, unseenValuePerSecond) * (SPELLS[spell].castSeconds ?? 0)
 
     return {
         observe(view) {
-            const { tick, self, enemy } = view
+            const { self, enemy } = view
             for (; logRead < enemy.log.length; logRead++) {
                 const entry = enemy.log[logRead]
                 if (entry.type === 'START_CAST') seenCasting.add(entry.spellId)
-                if (entry.type !== 'SPELL_RELEASE') continue
-                const list = releasedOn.get(entry.tick)
-                if (list) list.push(entry.spellId)
-                else releasedOn.set(entry.tick, [entry.spellId])
-                casts.set(entry.spellId, (casts.get(entry.spellId) ?? 0) + 1)
+                else if (entry.type === 'SPELL_RELEASE') casts.set(entry.spellId, (casts.get(entry.spellId) ?? 0) + 1)
             }
             if (enemy.casting) seenCasting.add(enemy.casting.spellId)
-            // the releases of the last tick show in this tick's HP
-            const hits = damaging(releasedOn.get(tick - 1) ?? [])
-
-            // the opponent's debuffs on the buff bar now, and the ones that ran out on this tick
-            const now: Tracked[] = []
-            for (const effect of self.effects)
-                if (effect.type === 'negative' && TRACKED(effect.id))
-                    now.push({
-                        id: effect.id,
-                        startingTick: effect.startingTick,
-                        expiresAt: effect.expiresAt,
-                        source: sourceOf(effect.startingTick),
-                    })
-            const bursts = debuffs.filter(
-                old => old.expiresAt === tick && !now.some(e => e.id === old.id && e.startingTick === old.startingTick),
-            )
-
-            if (lastTick === tick - 1) {
-                const lost = lastHp - self.hp
-                if (lost > 0) {
-                    const events = hits.length + bursts.length
-                    if (events === 0) running = lost
-                    const dot = Math.min(lost, running)
-                    // damage over time, shared by the debuffs that were running
-                    const ticking = debuffs.filter(d => d.expiresAt >= tick)
-                    for (const d of ticking) credit(d.source, dot / ticking.length)
-                    // the rest: the hits and bursts of this tick, shared evenly
-                    const extra = lost - (ticking.length > 0 ? dot : 0)
-                    if (events > 0) {
-                        for (const spell of hits) credit(spell, extra / events)
-                        for (const d of bursts) credit(d.source, extra / events)
-                    }
-                } else if (hits.length + bursts.length === 0) running = 0
+            const hpLog = self.hpLog ?? []
+            for (; hpRead < hpLog.length; hpRead++) {
+                const { amount, spellId } = hpLog[hpRead]
+                if (amount < 0) damage.set(spellId, (damage.get(spellId) ?? 0) - amount)
             }
-            debuffs = now
-            lastHp = self.hp
-            lastTick = tick
         },
         valueOf(spell) {
             const total = damage.get(spell) ?? 0

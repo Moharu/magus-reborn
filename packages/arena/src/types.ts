@@ -54,10 +54,33 @@ export interface SelfView {
     /** The player's own loadout, in slot order. */
     readonly spells: readonly SpellView[]
     /**
+     * Every HP change on the player so far, oldest first (#146): what the client's floating combat text shows. The
+     * server streams the engine's attributed HP events (`events` of each `battle` message) to both clients, so each
+     * entry names the spell the change came from. Same timing as the logs: a change on tick `t` shows from the view
+     * on tick `t + 1` on (a release's hit on `t`, an effect's tick or burst on `t + 1` once `Battle.tick()` ran). The
+     * array only grows. The runner always sets it; hand-built views may leave it out.
+     */
+    readonly hpLog?: readonly HpLogEntry[]
+    /**
      * The player's own spell log so far, oldest first (#136), as the client's spell log shows it: what the engine did
      * with its casts (released, interrupted, ...), up to the last tick. Same form and growth as `enemy.log`.
      */
     readonly log: readonly EnemyLogEntry[]
+}
+
+/** One HP change on the player, as its floating combat text shows it (#146). */
+export interface HpLogEntry {
+    /** The engine tick the change happened on. */
+    readonly tick: number
+    /** Negative for damage, positive for healing (a Temporal Shield rewind may be either). */
+    readonly amount: number
+    /**
+     * The spell it came from (the engine event's `source`): the cast that hit, or the one whose effect ticked, burst
+     * or healed. Named like the spell logs' entries; never an effect's internal fields.
+     */
+    readonly spellId: SpellId
+    /** `spell` for a release, `effect` for an effect's tick or expiry. */
+    readonly kind: 'spell' | 'effect'
 }
 
 /**
