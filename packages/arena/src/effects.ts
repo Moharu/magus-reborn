@@ -11,6 +11,8 @@ export const EFFECT_SOURCES: Readonly<
 > = {
     DEBUFF_IGNITE: { spell: 'SPELL_IGNITE', on: 'target' },
     DEBUFF_LIVING_BOMB: { spell: 'SPELL_LIVING_BOMB', on: 'target', unique: true },
+    DEBUFF_FROST_FEVER: { spell: 'SPELL_FROST_FEVER', on: 'target', unique: true },
+    DEBUFF_FROST_BOMB: { spell: 'SPELL_FROST_BOMB', on: 'target', unique: true },
     DEBUFF_COUNTERSPELL: { spell: FIXED_SPELL, on: 'target' },
     BUFF_HASTE: { spell: 'SPELL_HASTE', on: 'caster' },
     BUFF_BLUR: { spell: 'SPELL_BLUR', on: 'caster' },

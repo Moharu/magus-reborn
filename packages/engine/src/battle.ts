@@ -46,6 +46,7 @@ const createPlayer = ({ name, spells, hp = MAX_HP }: PlayerInit): PlayerState =>
     castStartingTick: null,
     gcdUntil: 0,
     lockedUntil: 0,
+    chilling: 0,
     spells: spells.map(createSpellState),
 })
 
@@ -149,6 +150,8 @@ export class Battle {
         // checked before cancelling: a spell rejected by the GCD leaves the current cast alone
         if (lockRemaining(player, spell, state.gameTick) > 0) return false
         if (cooldownRemaining(spell, state.gameTick) > 0) return false
+        // like the GCD: an instant without the Chilling it needs is rejected and leaves the current cast alone
+        if (player.chilling < (SPELLS[spell.id].chillingCost ?? 0)) return false
 
         if (!spell.castTime) {
             if (player.cast !== null && !SPELLS[spell.id].usableWhileCasting) {
@@ -221,6 +224,7 @@ export class Battle {
         if (spell.globalCooldown)
             state[caster].gcdUntil = Math.max(state[caster].gcdUntil, state.gameTick + spell.globalCooldown)
         const def = SPELLS[spell.id]
+        if (def.chillingCost) state[caster].chilling -= def.chillingCost
         this.measure(spell.id, 'spell', () => def.reducer(state, { caster, target: enemyOf(caster) }))
         this.resolveDeaths()
     }

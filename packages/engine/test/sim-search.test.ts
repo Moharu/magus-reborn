@@ -51,10 +51,14 @@ describe('enumerateLoadouts', () => {
             ['SPELL_FIREBALL', 'SPELL_METEOR'],
             ['SPELL_IGNITE', 'SPELL_METEOR'],
         ])
-        // C(7, k)
-        expect([0, 1, 2, 3, 4, 5, 6, 7].map(k => enumerateLoadouts(DAMAGE_POOL, k).length)).toEqual([
+        // C(7, k), over the Fire part of the pool and Haste
+        const seven = DAMAGE_POOL.filter(id => SPELLS[id].school !== 'FROST')
+        expect(seven).toHaveLength(7)
+        expect([0, 1, 2, 3, 4, 5, 6, 7].map(k => enumerateLoadouts(seven, k).length)).toEqual([
             1, 7, 21, 35, 35, 21, 7, 1,
         ])
+        // C(13, 4): the whole pool, Fire, Frost and Haste
+        expect(enumerateLoadouts(DAMAGE_POOL, 4)).toHaveLength(715)
         expect(enumerateLoadouts(POOL, 4)).toEqual([])
         expect(() => enumerateLoadouts(POOL, -1)).toThrow(/size/)
         expect(() => enumerateLoadouts(['SPELL_FIREBALL', 'SPELL_FIREBALL'], 1)).toThrow(/duplicate/)

@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_SPELLS, FIXED_SLOT, LOADOUT_SIZE, parseClientMessage } from '../src'
 import type { ClientMessage } from '../src/protocol'
 
+const FROST_LOADOUT = [
+    'SPELL_ICY_TOUCH',
+    'SPELL_FROSTBOLT',
+    'SPELL_ICE_SPEAR',
+    'SPELL_FROST_FEVER',
+    'SPELL_COUNTERSPELL',
+    'SPELL_BLUR',
+    'SPELL_HASTE',
+]
+
 describe('parseClientMessage', () => {
     it.each<[ClientMessage]>([
         [{ t: 'ready' }],
@@ -87,8 +97,21 @@ describe('parseClientMessage', () => {
         ['Counterspell out of its slot', swapped(0, FIXED_SLOT)],
         ['a general spell in a Fire slot', swapped(0, LOADOUT_SIZE - 1)],
         ['5 Fire spells and 1 general spell', [...DEFAULT_SPELLS.slice(0, -1), 'SPELL_METEOR']],
+        ['3 Fire spells and 1 Frost spell', ['SPELL_ICY_TOUCH', ...rest]],
+        [
+            '3 Frost spells and 1 Fire spell',
+            [...FROST_LOADOUT.slice(0, 3), 'SPELL_FIREBALL', ...FROST_LOADOUT.slice(4)],
+        ],
+        ['5 Frost spells and 1 general spell', [...FROST_LOADOUT.slice(0, -1), 'SPELL_GLACIER']],
     ])('rejects set_spells with %s', (_, spells) => {
         expect(parseClientMessage({ t: 'set_spells', spells })).toBeNull()
+    })
+
+    it('accepts a Frost loadout: 4 Frost spells, Counterspell, 2 general spells (#147)', () => {
+        expect(parseClientMessage({ t: 'set_spells', spells: FROST_LOADOUT })).toEqual({
+            t: 'set_spells',
+            spells: FROST_LOADOUT,
+        })
     })
 
     describe.each(['start_cast', 'stop_cast'] as const)('%s', t => {

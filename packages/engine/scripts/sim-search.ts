@@ -1,9 +1,10 @@
 // Usage:
-//   npm run sim:search -- [--top K] [--jobs J] [--fire fireball,ignite,...] [--general haste,blur,...]
+//   npm run sim:search -- [--element fire|frost] [--top K] [--jobs J] [--fire fireball,ignite,...]
+//                         [--frost frostbolt,glacier,...] [--general haste,blur,...]
 //                         [--duration 60] [--reaction 0.4] [--cap C] [--no-dedupe]
-// Runs every 0.2 loadout (4 Fire spells, Counterspell, 2 general spells; --fire and --general narrow the
-// pools) times every policy (see searchCandidates) through the real engine and prints the top K by
-// dpsUnderPressure as JSON. The output does not depend on --jobs (default: the cores, at most 4).
+// Runs every loadout of one element (4 of its spells, Counterspell, 2 general spells; --fire or --frost and
+// --general narrow the pools) times every policy (see searchCandidates) through the real engine and prints
+// the top K by dpsUnderPressure as JSON. The element defaults to Fire; --frost implies Frost. The output does not depend on --jobs (default: the cores, at most 4).
 // Progress and timing go to stderr.
 import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
@@ -11,11 +12,13 @@ import { fileURLToPath } from 'node:url'
 import {
     DEFAULT_ELEMENT,
     DEFAULT_REACTION_SECONDS,
+    ELEMENTS,
     enumerateShapeLoadouts,
     rankResults,
     search,
     type SearchOptions,
     type SearchResult,
+    type SpellElement,
     type SpellId,
 } from '../src'
 
@@ -70,11 +73,22 @@ const main = async () => {
     for (const removed of ['size', 'pool'])
         if (args.includes(`--${removed}`))
             throw new Error(
-                `--${removed} was removed: the search covers the 0.2 loadouts; narrow them with --fire/--general`,
+                `--${removed} was removed: the search covers the 0.2 loadouts; narrow them with --fire/--frost/--general`,
             )
-    const elementSpells = listFlag('fire')
+    const fire = listFlag('fire')
+    const frost = listFlag('frost')
+    if (fire && frost) throw new Error('--fire and --frost narrow different elements: give one of them')
+    const listed: SpellElement | undefined = fire ? 'FIRE' : frost ? 'FROST' : undefined
+    const elementFlag = flag('element')?.toUpperCase()
+    if (elementFlag !== undefined && !(ELEMENTS as string[]).includes(elementFlag))
+        throw new Error(`--element must be one of: ${ELEMENTS.map(e => e.toLowerCase()).join(', ')}`)
+    if (elementFlag !== undefined && listed !== undefined && elementFlag !== listed)
+        throw new Error(`--${listed.toLowerCase()} lists spells of another element than --element`)
+    const element = (elementFlag as SpellElement | undefined) ?? listed ?? DEFAULT_ELEMENT
+    const elementSpells = fire ?? frost
     const generalSpells = listFlag('general')
     const options: SearchOptions = {
+        element,
         top: intFlag('top', 10),
         ...(elementSpells ? { elementSpells } : {}),
         ...(generalSpells ? { generalSpells } : {}),
@@ -92,7 +106,7 @@ const main = async () => {
         return
     }
 
-    const loadouts = enumerateShapeLoadouts(options).length // validates --fire/--general before forking
+    const loadouts = enumerateShapeLoadouts(options).length // validates --fire/--frost/--general before forking
     const jobs = intFlag('jobs', Math.min(availableParallelism(), MAX_DEFAULT_JOBS))
     const started = performance.now()
     let evaluated: number
@@ -117,8 +131,9 @@ const main = async () => {
     const { top, durationSeconds = 60, dedupe } = options
     const reactionSeconds = options.pressure?.reactionSeconds ?? DEFAULT_REACTION_SECONDS
     const header = {
-        element: DEFAULT_ELEMENT,
-        fire: elementSpells ?? null,
+        element,
+        fire: fire ?? null,
+        frost: frost ?? null,
         general: generalSpells ?? null,
         loadouts,
         top,

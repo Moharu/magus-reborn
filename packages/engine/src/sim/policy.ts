@@ -5,7 +5,7 @@ import type { BattleState, EffectId, PlayerKey, SpellId } from '../types'
 
 /**
  * A condition a rule needs before its spell is started. Conditions only read engine state (effects on
- * the target, the caster's release log, the enemy's spell cooldowns); they never compute damage.
+ * the target, the caster's release log and Chilling, the enemy's spell cooldowns); they never compute damage.
  */
 export type PolicyCondition =
     /** Fewer than `count` effects with id `effect` on the target, e.g. Living Bomb "only if not active" (count 1). */
@@ -16,6 +16,8 @@ export type PolicyCondition =
     | { type: 'recentReleasesAtLeast'; spell: SpellId; count: number; seconds: number }
     /** The enemy has no Counterspell ready: it is on cooldown (or not equipped). Holds long casts for the safe window. */
     | { type: 'enemyCounterspellOnCooldown' }
+    /** The caster holds at least `count` Chilling stacks, e.g. Ice Spear only at 5. */
+    | { type: 'casterChillingAtLeast'; count: number }
 
 /** Start `spell` if every condition in `when` holds (and the engine accepts it). */
 export interface PolicyRule {
@@ -50,6 +52,9 @@ export const parseCondition = (raw: unknown): PolicyCondition => {
             return { type: c.type, spell: c.spell, count: c.count, seconds: c.seconds }
         case 'enemyCounterspellOnCooldown':
             return { type: c.type }
+        case 'casterChillingAtLeast':
+            if (!isCount(c.count)) throw new Error('casterChillingAtLeast: "count" must be a non-negative integer')
+            return { type: c.type, count: c.count }
         default:
             throw new Error(`unknown condition type: ${String(c.type)}`)
     }
@@ -97,6 +102,8 @@ export const conditionHolds = (state: BattleState, caster: PlayerKey, target: Pl
             return !state[target].spells.some(
                 s => s.id === 'SPELL_COUNTERSPELL' && cooldownRemaining(s, state.gameTick) === 0,
             )
+        case 'casterChillingAtLeast':
+            return state[caster].chilling >= c.count
     }
 }
 
@@ -121,6 +128,8 @@ const describeCondition = (c: PolicyCondition) => {
             return `${short(c.spell)} x${c.count} in ${c.seconds}s`
         case 'enemyCounterspellOnCooldown':
             return 'enemy counterspell on cooldown'
+        case 'casterChillingAtLeast':
+            return `chilling >= ${c.count}`
     }
 }
 

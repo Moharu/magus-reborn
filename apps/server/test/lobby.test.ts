@@ -1236,3 +1236,60 @@ describe('keeping a loadout from the opponent (#86)', () => {
         expect(transport.to('c2b').some(m => holdsLoadout(m, LOADOUT))).toBe(false)
     })
 })
+
+describe('Frost loadouts (#147)', () => {
+    const FROST_LOADOUT: SpellId[] = [
+        'SPELL_FROSTBOLT',
+        'SPELL_GLACIER',
+        'SPELL_ICE_SPEAR',
+        'SPELL_ICY_TOUCH',
+        'SPELL_COUNTERSPELL',
+        'SPELL_HASTE',
+        'SPELL_BLUR',
+    ]
+
+    it('accepts a Frost loadout and battles with it, one element per player', () => {
+        const { lobby, transport } = startMatch()
+        lobby.message('c1', { t: 'set_spells', spells: FROST_LOADOUT })
+        lobby.message('c2', { t: 'set_spells', spells: LOADOUT })
+        expect(transport.to('c1').at(-1)).toEqual({ t: 'loadout', spells: FROST_LOADOUT })
+        toBattle(lobby)
+        expect(lobby.battle!.state.player1.spells.map(s => s.id)).toEqual(FROST_LOADOUT)
+        expect(lobby.battle!.state.player2.spells.map(s => s.id)).toEqual(LOADOUT)
+    })
+
+    it.each<[string, unknown]>([
+        ['3 Frost spells and 1 Fire spell', ['SPELL_FIREBALL', ...FROST_LOADOUT.slice(1)]],
+        ['3 Fire spells and 1 Frost spell', ['SPELL_GLACIER', ...LOADOUT.slice(1)]],
+        ['5 Frost spells', [...FROST_LOADOUT.slice(0, 6), 'SPELL_FROST_FEVER']],
+        [
+            'a Frost loadout without Counterspell',
+            [...FROST_LOADOUT.slice(0, 4), 'SPELL_FROST_BOMB', ...FROST_LOADOUT.slice(5)],
+        ],
+    ])('rejects %s from an untrusted client and keeps the previous loadout', (_, spells) => {
+        const { lobby, transport } = startMatch()
+        lobby.message('c1', { t: 'set_spells', spells: FROST_LOADOUT })
+        transport.clear()
+        lobby.message('c1', { t: 'set_spells', spells } as never)
+        expect(lobby.seats.player1!.spells).toEqual(FROST_LOADOUT)
+        expect(transport.sent).toEqual([{ to: 'c1', msg: { t: 'error', message: 'Invalid spell selection' } }])
+    })
+
+    it('resets Chilling at the start of each round', () => {
+        const { lobby } = startMatch({ bestOf: 3 })
+        lobby.message('c1', { t: 'set_spells', spells: FROST_LOADOUT })
+        toBattle(lobby)
+        const round1 = lobby.battle!
+        lobby.message('c1', { t: 'start_cast', i: 1 })
+        vi.advanceTimersByTime(round1.state.player1.spells[1].castTime * GAME_TICK_INTERVAL)
+        lobby.message('c1', { t: 'stop_cast', i: 1 })
+        expect(round1.state.player1.chilling).toBe(3)
+        killPlayer2(lobby)
+        seconds(10)
+        expect(lobby.info()).toMatchObject({ phase: 'set_up', round: 2 })
+        toBattle(lobby)
+        expect(lobby.battle).not.toBe(round1)
+        expect(lobby.battle!.state.player1.spells.map(s => s.id)).toEqual(FROST_LOADOUT)
+        expect(lobby.battle!.state.player1.chilling).toBe(0)
+    })
+})
