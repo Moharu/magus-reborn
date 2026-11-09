@@ -17,7 +17,8 @@ import { canTarget, click, drop, type Selection, type Target } from './loadout-l
 
 const BAR = { ...BATTLE_BAR, buttonTop: BATTLE_BAR.top, panelPad: 16 }
 
-const ELEMENT_LABEL: Record<SpellElement, string> = { FIRE: 'Fire' }
+/** Frost is not offered yet (#149): the picker only ever shows the default element. */
+const ELEMENT_LABEL: Record<SpellElement, string> = { FIRE: 'Fire', FROST: 'Frost' }
 /** Pointer travel in px before a press counts as a drag rather than a tap. */
 const DRAG_THRESHOLD = 6
 

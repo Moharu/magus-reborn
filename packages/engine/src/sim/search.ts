@@ -16,7 +16,7 @@ import { describePolicy, isTerminalRule, type PolicyRule } from './policy'
 import { simulate, type SimInterrupt, type SimPressure } from './index'
 
 /**
- * Spells that can change the damage dealt to a passive dummy: the Fire spells and Haste. Searched policies
+ * Spells that can change the damage dealt to a passive dummy: the Fire and Frost spells and Haste. Searched policies
  * only cast these. Counterspell, Temporal Shield, Magic Eater and Blur deal no damage and the dummy never
  * casts at the caster, so casting them only costs the caster a tick; a loadout still equips them.
  */
@@ -27,6 +27,12 @@ export const DAMAGE_POOL: SpellId[] = [
     'SPELL_AFTERBURN',
     'SPELL_LIVING_BOMB',
     'SPELL_METEOR',
+    'SPELL_FROSTBOLT',
+    'SPELL_GLACIER',
+    'SPELL_FROST_BOMB',
+    'SPELL_ICE_SPEAR',
+    'SPELL_ICY_TOUCH',
+    'SPELL_FROST_FEVER',
     'SPELL_HASTE',
 ]
 
@@ -47,6 +53,12 @@ const afterburnAfter = (count: number): PolicyRule => ({
     when: [{ type: 'recentReleasesAtLeast', spell: 'SPELL_FIREBALL', count, seconds: AFTERBURN_LOOKBACK }],
 })
 
+const FROST_FEVER = 'DEBUFF_FROST_FEVER' as const
+const iceSpearAt = (count: number): PolicyRule => ({
+    spell: 'SPELL_ICE_SPEAR',
+    when: [{ type: 'casterChillingAtLeast', count }],
+})
+
 /**
  * The default variant menu. Kept small on purpose: the number of policies per loadout grows with
  * (orderings) x (product of menu sizes), so each extra variant multiplies the search.
@@ -62,6 +74,24 @@ export const DEFAULT_RULE_VARIANTS: RuleVariants = {
     SPELL_METEOR: [
         { spell: 'SPELL_METEOR' },
         { spell: 'SPELL_METEOR', when: [{ type: 'enemyCounterspellOnCooldown' }] },
+    ],
+    SPELL_GLACIER: [
+        { spell: 'SPELL_GLACIER' },
+        { spell: 'SPELL_GLACIER', when: [{ type: 'enemyCounterspellOnCooldown' }] },
+    ],
+    SPELL_FROST_BOMB: [
+        { spell: 'SPELL_FROST_BOMB' },
+        { spell: 'SPELL_FROST_BOMB', when: [{ type: 'targetEffectsBelow', effect: 'DEBUFF_FROST_BOMB', count: 1 }] },
+    ],
+    SPELL_ICE_SPEAR: [{ spell: 'SPELL_ICE_SPEAR' }, iceSpearAt(3), iceSpearAt(5)],
+    // Icy Touch is rejected by the engine without a stack, so the bare rule already waits for one
+    SPELL_ICY_TOUCH: [
+        { spell: 'SPELL_ICY_TOUCH' },
+        { spell: 'SPELL_ICY_TOUCH', when: [{ type: 'targetEffectsAtLeast', effect: FROST_FEVER, count: 1 }] },
+    ],
+    SPELL_FROST_FEVER: [
+        { spell: 'SPELL_FROST_FEVER' },
+        { spell: 'SPELL_FROST_FEVER', when: [{ type: 'targetEffectsBelow', effect: FROST_FEVER, count: 1 }] },
     ],
 }
 
@@ -99,19 +129,19 @@ const narrow = (book: readonly SpellId[], chosen: SpellId[] | undefined, count: 
  * Every 0.2 loadout: `ELEMENT_SPELL_COUNT` element spells, Counterspell in its fixed slot, then
  * `GENERAL_SPELL_COUNT` general spells, each group in spellbook order. Order within a group does not
  * matter to the simulator (the policy decides what is cast), so only combinations are enumerated, and
- * Counterspell is never permuted. For Fire: C(6, 4) = 15 Fire sets x C(4, 2) = 6 general pairs = 90.
+ * Counterspell is never permuted. For each element: C(6, 4) = 15 element sets x C(4, 2) = 6 general pairs = 90.
  */
 export const enumerateShapeLoadouts = ({
     element = DEFAULT_ELEMENT,
     elementSpells,
     generalSpells,
 }: ShapeOptions = {}): SpellId[][] => {
-    const book = SPELLBOOKS[element]
+    const book = Object.hasOwn(SPELLBOOKS, element) ? SPELLBOOKS[element] : undefined
     if (!book) throw new Error(`unknown element: ${String(element)}`)
-    const fire = narrow(book.elementSpells, elementSpells, ELEMENT_SPELL_COUNT, `${element.toLowerCase()}`)
+    const own = narrow(book.elementSpells, elementSpells, ELEMENT_SPELL_COUNT, `${element.toLowerCase()}`)
     const general = narrow(book.generalSpells, generalSpells, GENERAL_SPELL_COUNT, 'general')
     const out: SpellId[][] = []
-    for (const e of enumerateLoadouts(fire, ELEMENT_SPELL_COUNT))
+    for (const e of enumerateLoadouts(own, ELEMENT_SPELL_COUNT))
         for (const g of enumerateLoadouts(general, GENERAL_SPELL_COUNT)) {
             const loadout = [...e, FIXED_SPELL, ...g]
             if (!isValidLoadout(loadout, element)) throw new Error(`invalid loadout: ${JSON.stringify(loadout)}`)
@@ -123,7 +153,7 @@ export const enumerateShapeLoadouts = ({
 /** The loadout spells a searched policy may cast (see `DAMAGE_POOL`), in loadout order. */
 export const policySpells = (loadout: SpellId[]) => loadout.filter(id => DAMAGE_POOL.includes(id))
 
-/** An instant that starts the GCD when released (mirrors `createSpellState`). No 0.2 spell does. */
+/** An instant that starts the GCD when released (mirrors `createSpellState`). Icy Touch is the only one shipped. */
 const startsGlobalCooldown = (id: SpellId) => createSpellState(id).globalCooldown > 0
 
 /**
@@ -134,9 +164,8 @@ const startsGlobalCooldown = (id: SpellId) => createSpellState(id).globalCooldow
  * later rule could still fire, and it only runs after one of the caster's own on-GCD instants. The simulator
  * also tries rules only while not casting, so an off-GCD instant never fires mid-cast either, and the search
  * sets no `maxCasts`, which would also make the simulator skip a rule.
- * So pruning is safe unless the policy can cast both an on-GCD instant and an off-GCD one. In 0.2 nothing
- * starts the GCD, so it is always safe; Haste, Counterspell and the other general spells being off-GCD
- * no longer turns it off.
+ * So pruning is safe unless the policy can cast both an on-GCD instant and an off-GCD one. Fire policies never
+ * do, so they are always pruned; a Frost policy with Icy Touch (on-GCD) and Haste (off-GCD) is not.
  */
 export const canPrune = (spells: SpellId[]) =>
     !(spells.some(startsGlobalCooldown) && spells.some(id => SPELLS[id].offGlobalCooldown))

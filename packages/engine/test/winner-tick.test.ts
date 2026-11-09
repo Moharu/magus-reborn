@@ -17,7 +17,7 @@ const killerVsGeneral = (killer: PlayerKey, hp = HP) => {
 
 const mirror = (hp = HP, spells: SpellId[] = FIRE) => new Battle({ name: 'A', spells, hp }, { name: 'B', spells, hp })
 
-/** No catalog spell is both instant and damaging, so Fireball gets no cast time for both players. */
+/** Fireball given no cast time for both players: a lethal instant that needs no Chilling stack. */
 const withLethalInstants = () => {
     const b = mirror()
     for (const key of KEYS) b.state[key].spells[FIREBALL].castTime = 0

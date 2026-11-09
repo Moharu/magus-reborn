@@ -55,8 +55,8 @@ export const effectIds = (battle: Battle, player: PlayerKey) => battle.state[pla
 const clearedOffGcd = new Set<SpellId>()
 
 /**
- * Since #84 no shipped instant is on the GCD, so tests that need one (to start a GCD, or to be blocked by it)
- * clear `offGlobalCooldown` on a spell. Call it before creating the battle when the spell must also start the
+ * Since #84 no general spell is on the GCD (Icy Touch is the one shipped on-GCD instant), so tests that need a
+ * general on-GCD instant (to start a GCD, or to be blocked by it) clear `offGlobalCooldown` on a spell. Call it before creating the battle when the spell must also start the
  * GCD: `createSpellState` reads the flag then. Undo with `restoreOffGcd` in `afterEach`.
  */
 export const putOnGcd = (...ids: SpellId[]) => {

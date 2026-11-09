@@ -5,6 +5,7 @@ type Ctx = CanvasRenderingContext2D
 
 const SCHOOL_COLORS: Record<School, [string, string, string]> = {
     FIRE: ['#ff9a3c', '#8a1c0c', '#2a0805'],
+    FROST: ['#9ee7ff', '#1c5a8a', '#05182a'],
     GENERAL: ['#7c8cff', '#2b2a7a', '#0c0b26'],
 }
 
@@ -45,6 +46,15 @@ const orb = (ctx: Ctx, x: number, y: number, r: number, stops: [number, string][
     ctx.beginPath()
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.fill()
+}
+
+const frostOrb = (ctx: Ctx) => {
+    glow(ctx, '#bdf0ff')
+    orb(ctx, 64, 64, 30, [
+        [0, '#ffffff'],
+        [0.5, '#9ee7ff'],
+        [1, '#1c5a8a'],
+    ])
 }
 
 const DRAW: Record<SpellId, (ctx: Ctx) => void> = {
@@ -267,6 +277,13 @@ const DRAW: Record<SpellId, (ctx: Ctx) => void> = {
         }
         ctx.globalAlpha = 1
     },
+    // placeholder art until the Frost client work (#149): the client doesn't offer Frost yet
+    SPELL_FROSTBOLT: ctx => frostOrb(ctx),
+    SPELL_GLACIER: ctx => frostOrb(ctx),
+    SPELL_FROST_BOMB: ctx => frostOrb(ctx),
+    SPELL_ICE_SPEAR: ctx => frostOrb(ctx),
+    SPELL_ICY_TOUCH: ctx => frostOrb(ctx),
+    SPELL_FROST_FEVER: ctx => frostOrb(ctx),
 }
 
 const canvases = new Map<SpellId, HTMLCanvasElement>()

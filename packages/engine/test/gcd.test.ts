@@ -19,7 +19,7 @@ const OFF_GCD: SpellId[] = [
     'SPELL_MAGIC_EATER',
     'SPELL_BLUR',
 ]
-/** General spells the tests put back on the GCD (`putOnGcd`) to get on-GCD instants; none ship. */
+/** General spells the tests put back on the GCD (`putOnGcd`) to get on-GCD instants; Icy Touch is the shipped one. */
 const ON_GCD_FIXTURES: SpellId[] = ['SPELL_HASTE', 'SPELL_TEMPORAL_SHIELD', 'SPELL_MAGIC_EATER']
 
 /** An on-GCD fixture other than `id`, to start a GCD while `id` stays off it. */

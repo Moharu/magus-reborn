@@ -5,6 +5,12 @@ import { Fireball } from './spells/fire/fireball'
 import { Ignite, igniteDebuffReducer } from './spells/fire/ignite'
 import { LivingBomb, livingBombDebuffReducer } from './spells/fire/living-bomb'
 import { Meteor } from './spells/fire/meteor'
+import { FrostBomb, frostBombDebuffReducer } from './spells/frost/frost-bomb'
+import { FrostFever, frostFeverDebuffReducer } from './spells/frost/frost-fever'
+import { Frostbolt } from './spells/frost/frostbolt'
+import { Glacier } from './spells/frost/glacier'
+import { IceSpear } from './spells/frost/ice-spear'
+import { IcyTouch } from './spells/frost/icy-touch'
 import { Blur, blurBuffReducer } from './spells/general/blur'
 import { Counterspell } from './spells/general/counterspell'
 import { Haste, hasteBuffReducer } from './spells/general/haste'
@@ -19,6 +25,12 @@ export const SPELLS: Record<SpellId, SpellDefinition> = {
     SPELL_AFTERBURN: Afterburn,
     SPELL_LIVING_BOMB: LivingBomb,
     SPELL_METEOR: Meteor,
+    SPELL_FROSTBOLT: Frostbolt,
+    SPELL_GLACIER: Glacier,
+    SPELL_FROST_BOMB: FrostBomb,
+    SPELL_ICE_SPEAR: IceSpear,
+    SPELL_ICY_TOUCH: IcyTouch,
+    SPELL_FROST_FEVER: FrostFever,
     SPELL_HASTE: Haste,
     SPELL_COUNTERSPELL: Counterspell,
     SPELL_TEMPORAL_SHIELD: TemporalShield,
@@ -31,6 +43,8 @@ export const SPELL_IDS = Object.keys(SPELLS) as SpellId[]
 export const EFFECT_REDUCERS: EffectReducers = {
     DEBUFF_IGNITE: igniteDebuffReducer,
     DEBUFF_LIVING_BOMB: livingBombDebuffReducer,
+    DEBUFF_FROST_FEVER: frostFeverDebuffReducer,
+    DEBUFF_FROST_BOMB: frostBombDebuffReducer,
     DEBUFF_COUNTERSPELL: () => {},
     BUFF_HASTE: hasteBuffReducer,
     BUFF_BLUR: blurBuffReducer,
@@ -39,8 +53,8 @@ export const EFFECT_REDUCERS: EffectReducers = {
 }
 
 /**
- * An element is a spell school a player builds around (Fire, later Frost). It is chosen per match;
- * every school other than GENERAL is one.
+ * An element is a spell school a player builds around (Fire or Frost). Each player plays one element, chosen with
+ * their loadout; every school other than GENERAL is one.
  */
 export type SpellElement = Exclude<School, 'GENERAL'>
 
@@ -64,7 +78,10 @@ const spellbook = (element: SpellElement): Spellbook => ({
 
 export const SPELLBOOKS: Record<SpellElement, Spellbook> = {
     FIRE: spellbook('FIRE'),
+    FROST: spellbook('FROST'),
 }
+
+export const ELEMENTS = Object.keys(SPELLBOOKS) as SpellElement[]
 
 export const DEFAULT_ELEMENT: SpellElement = 'FIRE'
 
@@ -100,7 +117,8 @@ const slotAccepts = (book: Spellbook, kind: SlotKind, id: SpellId) =>
 
 /**
  * A loadout is valid for an element when it has one distinct, known spell per slot and each slot
- * holds its kind: an element spell, Counterspell, or a general spell.
+ * holds its kind: an element spell, Counterspell, or a general spell. All four element spells are from `element`,
+ * so a loadout that mixes elements is valid for none.
  */
 export const isValidLoadout = (spells: unknown, element: SpellElement = DEFAULT_ELEMENT): spells is SpellId[] =>
     Object.hasOwn(SPELLBOOKS, element) &&
@@ -109,3 +127,10 @@ export const isValidLoadout = (spells: unknown, element: SpellElement = DEFAULT_
     spells.every(isSpellId) &&
     new Set(spells).size === LOADOUT_SIZE &&
     LOADOUT_SLOTS.every((kind, i) => slotAccepts(SPELLBOOKS[element], kind, spells[i]))
+
+/**
+ * The element a loadout is valid for, or null if it is valid for none (including one that mixes elements). Each
+ * player plays one element, read from their loadout, so this is what checks an untrusted client loadout.
+ */
+export const loadoutElement = (spells: unknown): SpellElement | null =>
+    ELEMENTS.find(element => isValidLoadout(spells, element)) ?? null
