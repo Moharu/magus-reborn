@@ -9,7 +9,7 @@ import {
     type SpellId,
 } from '@magus/engine'
 import { h } from '../dom'
-import { keybindsVisible } from '../game/hotkeys'
+import '../game/hotkeys'
 import { iconUrl } from '../game/icons'
 import { BATTLE_BAR, battleButtonX as buttonX, HEIGHT, WIDTH } from '../game/layout'
 import { getAdvancedDescriptions, setAdvancedDescriptions } from '../identity'
@@ -220,7 +220,7 @@ export const spellPicker = (
                         ...(fixed ? { onclick: () => activate(target) } : {}),
                     },
                     h('img', { src: iconUrl(id), alt: '', draggable: 'false' }),
-                    keybindsVisible() ? h('span', { class: 'key' }, HOTKEYS[i]) : null,
+                    h('span', { class: 'key' }, HOTKEYS[i]),
                 ),
                 h('span', { class: 'name' }, SPELLS[id].label),
             )
@@ -244,7 +244,7 @@ export const spellPicker = (
                         ...draggable(target),
                     },
                     h('img', { src: iconUrl(id), alt: '', draggable: 'false' }),
-                    equipped !== -1 && keybindsVisible() ? h('span', { class: 'key' }, HOTKEYS[equipped]) : null,
+                    equipped !== -1 ? h('span', { class: 'key' }, HOTKEYS[equipped]) : null,
                     h('span', { class: 'name' }, SPELLS[id].label),
                 )
             })
@@ -254,7 +254,7 @@ export const spellPicker = (
         const generalX = buttonX(5)
         const bookY = BOOK.top
         const labelBox = (x: number, w: number) => box(x, bookY - 22, w, 18)
-        const keys = (slots: string) => (keybindsVisible() ? h('span', { class: 'desktop-only' }, ` · ${slots}`) : null)
+        const keys = (slots: string) => h('span', { class: 'desktop-only' }, ` · ${slots}`)
 
         el.classList.toggle('locked', locked)
         el.replaceChildren(
@@ -273,7 +273,17 @@ export const spellPicker = (
                     ),
                     ...(!options.elementLocked
                         ? ['Frost', 'Lightning'].map(name =>
-                              h('button', { class: 'chip teaser', disabled: true }, `${name} · Locked · coming later`),
+                              h(
+                                  'button',
+                                  {
+                                      class: 'chip teaser',
+                                      disabled: true,
+                                      title: `${name} · Locked · coming later`,
+                                      'aria-label': `${name} · Locked · coming later`,
+                                  },
+                                  h('span', { class: 'teaser-desktop' }, `${name} · Locked · coming later`),
+                                  h('span', { class: 'teaser-compact' }, `${name} · Soon`),
+                              ),
                           )
                         : []),
                 ),

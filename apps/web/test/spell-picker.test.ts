@@ -55,12 +55,6 @@ it('shows disabled teaser cards only before the match', () => {
     expect(swap.textContent).toContain('locked for the match')
 })
 
-it('omits all visible keybind reminders for touch input', () => {
-    vi.stubGlobal('matchMedia', () => ({ matches: true }))
-    const root = spellPicker([...DEFAULT_SPELLS], vi.fn()).el as unknown as FakeElement
-    expect(root.find(el => el.className === 'key' || el.className === 'desktop-only')).toBeNull()
-})
-
 it('places all seven editable bar icons at the battle coordinates and size', () => {
     const root = spellPicker([...DEFAULT_SPELLS], vi.fn()).el as unknown as FakeElement
     const layout = battleLayout(WIDTH, HEIGHT)

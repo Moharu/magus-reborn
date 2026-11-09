@@ -23,7 +23,7 @@ import {
     type Side,
     mobileBattleLayout,
 } from './layout'
-import { keybindsVisible } from './hotkeys'
+import { keybindsVisible, onKeybindVisibilityChange } from './hotkeys'
 import { iconTexture } from './textures'
 
 export const INFINITE_HP = 1e8
@@ -348,6 +348,12 @@ export class ActionBar extends Container {
                 spellId: '',
             })
         }
+        const unsubscribe = onKeybindVisibilityChange(visible => {
+            this.buttons.forEach(button => {
+                button.key.visible = visible
+            })
+        })
+        this.on('destroyed', unsubscribe)
     }
 
     /** Reposition existing input owners; never replace their handlers or held state. */

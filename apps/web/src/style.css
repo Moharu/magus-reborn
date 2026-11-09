@@ -579,6 +579,7 @@ footer {
     width: 100%;
     height: 100%;
     display: block;
+    object-fit: contain;
     pointer-events: none;
 }
 
@@ -725,7 +726,7 @@ footer {
     opacity: 0.8;
 }
 
-@media (pointer: coarse) {
+html.touch-keybinds {
     .slot .key,
     .spell .key,
     .desktop-only {
@@ -1132,13 +1133,6 @@ footer {
     min-height: 0;
 }
 
-@media (pointer: coarse) {
-    .slot .key,
-    .spell .key,
-    .picker .desktop-only {
-        display: none;
-    }
-}
 @media (max-height: 500px) and (orientation: landscape) {
     .battle-screen {
         padding: 0;
@@ -1316,10 +1310,6 @@ footer {
     .training-picker .bar-panel {
         height: 90px !important;
     }
-    .training-picker .key,
-    .training-picker .desktop-only {
-        display: none;
-    }
     .training-picker .details {
         display: none;
     }
@@ -1353,5 +1343,17 @@ footer {
     .training-picker .general-book-label {
         left: 62% !important;
         width: 36% !important;
+    }
+}
+
+.teaser-compact {
+    display: none;
+}
+@media (max-height: 500px) and (orientation: landscape) {
+    .teaser-desktop {
+        display: none;
+    }
+    .teaser-compact {
+        display: inline;
     }
 }

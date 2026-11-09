@@ -33,7 +33,50 @@ export const hotkeyFor = (event: KeyLike): number | undefined => {
     return index
 }
 
-/** Keybind labels only make sense with a keyboard: hide them where the primary input is touch. */
-export const keybindsVisible = (
-    match: ((query: string) => { matches: boolean }) | undefined = globalThis.matchMedia?.bind(globalThis),
-) => !match || !match('(pointer: coarse)').matches
+/** Hide reminders for any touch-capable pointer, including hybrids and misreported Android pointers.
+ * Observed touch wins for the rest of the session; synthetic mouse events cannot restore labels.
+ */
+export const createKeybindVisibility = (
+    match: ((query: string) => Pick<MediaQueryList, 'matches' | 'addEventListener'>) | undefined,
+    events: Pick<Window, 'addEventListener'>,
+) => {
+    const queries = ['(pointer: coarse)', '(any-pointer: coarse)', '(hover: none)'].map(q => match?.(q))
+    let touched = false
+    const listeners = new Set<(visible: boolean) => void>()
+    const visible = () => !touched && !queries.some(q => q?.matches)
+    const notify = () => listeners.forEach(listener => listener(visible()))
+    queries.forEach(q => q?.addEventListener('change', notify))
+    events.addEventListener(
+        'pointerdown',
+        event => {
+            if (event.pointerType !== 'touch' || touched) return
+            touched = true
+            notify()
+        },
+        { capture: true, passive: true },
+    )
+    return {
+        visible,
+        subscribe(listener: (visible: boolean) => void) {
+            listeners.add(listener)
+            listener(visible())
+            return () => {
+                listeners.delete(listener)
+            }
+        },
+    }
+}
+
+const visibility =
+    typeof window === 'undefined' ? undefined : createKeybindVisibility(window.matchMedia?.bind(window), window)
+
+export const keybindsVisible = () => visibility?.visible() ?? true
+export const onKeybindVisibilityChange = (listener: (visible: boolean) => void) =>
+    visibility?.subscribe(listener) ?? (() => {})
+
+// CSS updates existing picker labels without replacing focused buttons or drag/input owners.
+if (typeof document !== 'undefined') {
+    onKeybindVisibilityChange(visible => {
+        document.documentElement?.classList.toggle('touch-keybinds', !visible)
+    })
+}

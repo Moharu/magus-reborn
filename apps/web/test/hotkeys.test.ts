@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { HOTKEYS, LOADOUT_SIZE } from '@magus/engine'
-import { hotkeyFor, keybindsVisible, KEY_CODES } from '../src/game/hotkeys'
+import { hotkeyFor, createKeybindVisibility, KEY_CODES } from '../src/game/hotkeys'
 import { BAR, BAR_LEFT, BAR_WIDTH, buttonX, WIDTH } from '../src/game/layout'
 
 describe('hotkeys', () => {
@@ -60,10 +60,58 @@ describe('hotkeyFor', () => {
     })
 })
 
-describe('keybindsVisible', () => {
-    it('hides labels on touch only', () => {
-        expect(keybindsVisible(q => ({ matches: q.includes('pointer: coarse') }))).toBe(false)
-        expect(keybindsVisible(() => ({ matches: false }))).toBe(true)
-        expect(keybindsVisible(undefined)).toBe(true)
+describe('keybind visibility', () => {
+    const setup = (matching: string[] = []) => {
+        const events = new EventTarget()
+        const queries = new Map<string, EventTarget & { matches: boolean }>()
+        const state = createKeybindVisibility(query => {
+            const media = Object.assign(new EventTarget(), { matches: matching.includes(query) })
+            queries.set(query, media)
+            return media
+        }, events as Window)
+        const touch = (pointerType: string) =>
+            events.dispatchEvent(Object.assign(new Event('pointerdown'), { pointerType }))
+        return { state, queries, touch }
+    }
+
+    it.each([
+        ['touch-only', ['(pointer: coarse)', '(any-pointer: coarse)', '(hover: none)'], false],
+        ['hybrid with a fine primary mouse', ['(any-pointer: coarse)'], false],
+        ['Android with a fine pointer but no hover', ['(hover: none)'], false],
+        ['mouse-only', [], true],
+    ] as const)('%s', (_name, matching, expected) => {
+        expect(setup([...matching]).state.visible()).toBe(expected)
+    })
+
+    it('updates existing subscribers on the first touch, even when all media queries report a mouse', () => {
+        const { state, touch } = setup()
+        const seen: boolean[] = []
+        const unsubscribe = state.subscribe(value => seen.push(value))
+        touch('mouse')
+        touch('pen')
+        expect(seen).toEqual([true])
+        touch('touch')
+        expect(seen).toEqual([true, false])
+        touch('mouse')
+        touch('touch')
+        expect(state.visible()).toBe(false)
+        expect(seen).toEqual([true, false])
+        unsubscribe()
+    })
+
+    it('updates subscribers when pointer capabilities change', () => {
+        const { state, queries } = setup()
+        const seen: boolean[] = []
+        const unsubscribe = state.subscribe(value => seen.push(value))
+        const media = queries.get('(any-pointer: coarse)')!
+        media.matches = true
+        media.dispatchEvent(new Event('change'))
+        media.matches = false
+        media.dispatchEvent(new Event('change'))
+        expect(seen).toEqual([true, false, true])
+        unsubscribe()
+        media.matches = true
+        media.dispatchEvent(new Event('change'))
+        expect(seen).toEqual([true, false, true])
     })
 })
