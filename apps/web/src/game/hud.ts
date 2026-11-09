@@ -2,6 +2,7 @@ import 'pixi.js/accessibility'
 import { Container, Graphics, Rectangle, Sprite, Text } from 'pixi.js'
 import {
     cooldownRemaining,
+    FROST_NUMBERS,
     HOTKEYS,
     SPELLS,
     ticksToSeconds,
@@ -54,6 +55,7 @@ export class PlayerHud extends Container {
     private readonly bars = new Graphics()
     private readonly nameText = label(18, '800')
     private readonly hpText = label(12)
+    private readonly chillingText = label(12, '700', 0x9ee7ff)
     private readonly castText = label(13)
     private readonly lockText = label(13)
     private readonly castIcon = new Sprite()
@@ -86,6 +88,7 @@ export class PlayerHud extends Container {
         this.nameText.anchor.set(0, 0)
         this.hpText.anchor.set(1, 0)
         this.hpText.position.set(this.x0 + this.w, 12)
+        this.chillingText.position.set(this.x0, 25)
         this.castText.anchor.set(0.5)
         this.castText.position.set(this.x0 + this.w / 2 + 14, 89)
         this.castIcon.width = this.castIcon.height = 22
@@ -97,6 +100,7 @@ export class PlayerHud extends Container {
             this.bars,
             this.nameText,
             this.hpText,
+            this.chillingText,
             this.castIcon,
             this.castText,
             this.effectIcons,
@@ -114,6 +118,7 @@ export class PlayerHud extends Container {
             (player.name.length > NAME_MAX_LENGTH ? player.name.slice(0, NAME_MAX_LENGTH - 1) + '…' : player.name) ||
             (this.seat === 'player1' ? 'Player 1' : 'Player 2')
         setText(this.nameText, this.me ? `${this.seat === this.me ? 'YOU' : 'OPPONENT'} · ${name}` : name)
+        setText(this.chillingText, `Chilling ${player.chilling} / ${FROST_NUMBERS.chillingMaxStacks}`)
         const infinite = player.hp >= INFINITE_HP
         const hp = infinite ? 100 : player.hp
         this.shownHp += (hp - this.shownHp) * (this.reducedMotion ? 1 : Math.min(1, dt / 0.12))
@@ -450,16 +455,20 @@ export class ActionBar extends Container {
                 ? `Locked, ${ticksToSeconds(state.timer).toFixed(1)} seconds. Personal cooldown ${ticksToSeconds(cooldown).toFixed(1)} seconds.`
                 : cooldown > 0
                   ? `Cooldown, ${ticksToSeconds(cooldown).toFixed(1)} seconds.`
-                  : state.fader > 0
-                    ? 'Global cooldown.'
-                    : 'Ready.'
+                  : state.missingChilling
+                    ? 'Not enough Chilling.'
+                    : state.fader > 0
+                      ? 'Global cooldown.'
+                      : 'Ready.'
             b.blockedReason = state.locked
                 ? 'Locked'
                 : cooldown > 0
                   ? 'Cooldown'
-                  : state.fader > 0
-                    ? 'Global cooldown'
-                    : ''
+                  : state.missingChilling
+                    ? 'Need Chilling'
+                    : state.fader > 0
+                      ? 'Global cooldown'
+                      : ''
             if (!b.blockedReason || confirmedTick > b.feedbackUntil) setText(b.feedback, '')
             b.root.accessibleHint = `${b.root.accessibleTitle}. ${reason}`
             this.drawButton(b, state, player.cast === i, keysDown.has(i) || this.pressed.has(i))

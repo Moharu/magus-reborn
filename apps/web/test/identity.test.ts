@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_SPELLS } from '@magus/engine'
+import { DEFAULT_SPELLS, SPELLBOOKS } from '@magus/engine'
 
 const store = new Map<string, string>()
 
@@ -29,4 +29,14 @@ describe('stored loadout', () => {
         store.set('magus.loadout', '{nope')
         expect(getLoadout()).toEqual(DEFAULT_SPELLS)
     })
+})
+
+it('persists Frost and rejects mixed-element stored loadouts', async () => {
+    const { getLoadout, setLoadout } = await import('../src/identity')
+    const frost = [...SPELLBOOKS.FROST.elementSpells.slice(0, 4), ...DEFAULT_SPELLS.slice(4)]
+    setLoadout(frost)
+    expect(getLoadout()).toEqual(frost)
+    frost[0] = 'SPELL_FIREBALL'
+    setLoadout(frost)
+    expect(getLoadout()).toEqual(DEFAULT_SPELLS)
 })

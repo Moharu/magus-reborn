@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { DEFAULT_SPELLS } from '@magus/engine'
+import { DEFAULT_SPELLS, SPELLBOOKS, loadoutElement } from '@magus/engine'
 import { DEFAULT_SETTINGS, type LobbyInfo, type ServerMessage } from '@magus/engine/protocol'
 import { lobbyScreen } from '../src/screens/lobby'
 import { FakeElement, FakeNode } from './fake-dom'
@@ -98,6 +98,55 @@ it('keeps Ready final while disconnected and retries after fresh unready metadat
         recovered.receive({ t: 'meta', lobby: { ...lobby, round: 2 } })
         expect(recovered.sent).toHaveLength(1)
         expect(root.button('Ready for round 2')).not.toBeNull()
+    } finally {
+        cleanup()
+    }
+})
+
+it('accepts a raw-client Frost loadout and permits only Frost swaps when spell changes are enabled', () => {
+    const root = new FakeElement('main')
+    const cleanup = lobbyScreen(root as unknown as HTMLElement, ['ABCDEF'])
+    const frost = [...SPELLBOOKS.FROST.elementSpells.slice(0, 4), ...DEFAULT_SPELLS.slice(4)]
+    const lobby: LobbyInfo = {
+        code: 'ABCDEF',
+        phase: 'set_up',
+        round: 2,
+        countdown: 30,
+        paused: false,
+        pauseReason: null,
+        matchStarted: true,
+        matchWinner: null,
+        admin: 'player1',
+        player1: { name: 'Wizard', ready: false, wins: 0, connected: true },
+        player2: { name: 'Rival', ready: false, wins: 1, connected: true },
+        spectators: [],
+        settings: { ...DEFAULT_SETTINGS, allowSpellChange: true },
+        rounds: [],
+    }
+    try {
+        const socket = FakeWebSocket.instances[0]
+        socket.open()
+        socket.receive({ t: 'welcome', role: 'player1', spells: [...DEFAULT_SPELLS] })
+        socket.receive({ t: 'loadout', spells: frost })
+        socket.receive({ t: 'meta', lobby })
+        expect(root.button('Ready for round 2')!.attrs.get('disabled')).toBeUndefined()
+        expect((root.button('Ready for round 2') as unknown as HTMLButtonElement).disabled).not.toBe(true)
+        expect(root.textContent).toContain('Frost spellbook')
+        expect(root.button('Fire')).toBeNull()
+        const target = (value: string) => root.find(el => el.attrs.get('data-target') === value)!
+        target('spell:SPELL_ICY_TOUCH').click()
+        target('slot:0').click()
+        const sent = socket.sent.map(message => JSON.parse(message))
+        expect(sent).toHaveLength(1)
+        expect(sent[0].t).toBe('set_spells')
+        expect(loadoutElement(sent[0].spells)).toBe('FROST')
+        expect(sent[0].spells[0]).toBe('SPELL_ICY_TOUCH')
+        socket.receive({ t: 'meta', lobby: { ...lobby, settings: { ...lobby.settings, allowSpellChange: false } } })
+        target('spell:SPELL_FROST_FEVER').click()
+        target('slot:0').click()
+        expect(socket.sent).toHaveLength(1)
+        expect(root.textContent).toContain('Spell changes are off')
+        expect(root.textContent).not.toContain('Rival: Frost')
     } finally {
         cleanup()
     }

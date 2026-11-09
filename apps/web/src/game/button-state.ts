@@ -9,6 +9,8 @@ import {
 
 /** What a spell button shows on this frame. */
 export interface ButtonState {
+    /** Resource unavailable; keep the button dimmed without inventing a cooldown timer. */
+    missingChilling?: boolean
     /** Share of the cooldown fader to fill, from 0 (no fader) to 1 (full). */
     fader: number
     /** Whether to draw the Counterspell lock tint. */
@@ -34,6 +36,9 @@ export const buttonState = (player: PlayerState, spell: SpellState, tick: number
 
     const gcd = SPELLS[spell.id].offGlobalCooldown ? 0 : gcdRemaining(player, tick)
     if (gcd > cooldown) return { fader: gcd / GLOBAL_COOLDOWN, locked: false, timer: 0 }
+
+    const cost = SPELLS[spell.id].chillingCost ?? 0
+    if (player.chilling < cost) return { fader: 1, locked: false, timer: cooldown, missingChilling: true }
 
     return { fader: cooldownFader, locked: false, timer: cooldown }
 }

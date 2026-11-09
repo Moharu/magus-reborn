@@ -1,5 +1,7 @@
 import {
     DEFAULT_ELEMENT,
+    ELEMENTS,
+    loadoutElement,
     FIXED_SLOT,
     HOTKEYS,
     LOADOUT_SLOTS,
@@ -17,7 +19,7 @@ import { canTarget, click, drop, type Selection, type Target } from './loadout-l
 
 const BAR = { ...BATTLE_BAR, buttonTop: BATTLE_BAR.top, panelPad: 16 }
 
-/** Frost is not offered yet (#149): the picker only ever shows the default element. */
+/** Labels only; spells and descriptions come from the engine catalog. */
 const ELEMENT_LABEL: Record<SpellElement, string> = { FIRE: 'Fire', FROST: 'Frost' }
 /** Pointer travel in px before a press counts as a drag rather than a tap. */
 const DRAG_THRESHOLD = 6
@@ -93,8 +95,8 @@ export const spellPicker = (
     onChange: (loadout: SpellId[]) => void,
     options: SpellPickerOptions = {},
 ): SpellPicker => {
-    const element = options.element ?? DEFAULT_ELEMENT
-    const book = SPELLBOOKS[element]
+    let element = options.element ?? loadoutElement(initial) ?? DEFAULT_ELEMENT
+    let book = SPELLBOOKS[element]
     let loadout = [...initial]
     let selection: Selection = null
     let detail: SpellId = loadout[0]
@@ -277,26 +279,44 @@ export const spellPicker = (
                     'div',
                     { class: 'element', role: 'group', 'aria-label': 'Element' },
                     h('span', { class: 'muted' }, 'Element'),
-                    h(
-                        'span',
-                        { class: `chip active${options.elementLocked ? ' locked' : ''}`, 'aria-disabled': 'true' },
-                        ELEMENT_LABEL[element],
-                        options.elementLocked ? ' · locked for the match' : '',
+                    ...ELEMENTS.filter(value => !options.elementLocked || value === element).map(value =>
+                        h(
+                            'button',
+                            {
+                                class: `chip${value === element ? ' active' : ''}`,
+                                disabled: locked || !!options.elementLocked,
+                                'aria-pressed': String(value === element),
+                                onclick: () => {
+                                    if (locked || options.elementLocked || value === element) return
+                                    element = value
+                                    book = SPELLBOOKS[element]
+                                    selection = null
+                                    const next = [...loadout]
+                                    LOADOUT_SLOTS.forEach((kind, i) => {
+                                        if (kind === 'element') next[i] = book.elementSpells[i]
+                                    })
+                                    detail = next[0]
+                                    commit(next)
+                                    render()
+                                },
+                            },
+                            `${ELEMENT_LABEL[value]}${options.elementLocked ? ' · locked for the match' : ''}`,
+                        ),
                     ),
                     ...(!options.elementLocked
-                        ? ['Frost', 'Lightning'].map(name =>
+                        ? [
                               h(
                                   'button',
                                   {
                                       class: 'chip teaser',
                                       disabled: true,
-                                      title: `${name} · Locked · coming later`,
-                                      'aria-label': `${name} · Locked · coming later`,
+                                      title: 'Lightning · Locked · coming later',
+                                      'aria-label': 'Lightning · Locked · coming later',
                                   },
-                                  h('span', { class: 'teaser-desktop' }, `${name} · Locked · coming later`),
-                                  h('span', { class: 'teaser-compact' }, `${name} · Soon`),
+                                  h('span', { class: 'teaser-desktop' }, 'Lightning · Locked · coming later'),
+                                  h('span', { class: 'teaser-compact' }, 'Lightning · Soon'),
                               ),
-                          )
+                          ]
                         : []),
                 ),
                 h('div', { class: 'header-details', 'aria-label': 'Spell details' }, ...detailContent()),
@@ -377,6 +397,10 @@ export const spellPicker = (
         setLoadout(next) {
             if (next.join() === loadout.join()) return
             loadout = [...next]
+            element = loadoutElement(next) ?? element
+            book = SPELLBOOKS[element]
+            selection = null
+            detail = next[0]
             render()
         },
         setLocked(value, reason) {
