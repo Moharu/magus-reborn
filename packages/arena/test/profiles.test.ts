@@ -83,6 +83,7 @@ const handView = (
             startingTick: tick - 10,
             expiresAt: tick + 190,
         })),
+        log: [],
     },
 })
 
@@ -151,15 +152,34 @@ describe('profile loader', () => {
         const raw = quietProfile()
         raw.rotation = ['SPELL_METEOR', { spell: 'SPELL_FIREBALL', when: [{ type: 'enemyHpBelow', hp: 50 }] }]
         const loaded = loadProfile(raw, METEOR_LOADOUT)
-        expect(loaded.lockoutWindow).toEqual({ rotation: loaded.rotation })
+        expect(loaded.lockoutWindow).toEqual({ rotation: loaded.rotation, edgeGreedSeconds: 0 })
         expect(loaded.lockoutWindow.rotation).not.toBe(loaded.rotation)
         expect(loaded.fakeCast.realBaitShare).toBe(0)
         const withWindow = { ...raw, lockoutWindow: { rotation: ['SPELL_FIREBALL'] } }
         withWindow.fakeCast = { ...raw.fakeCast, realBaitShare: 0.3 } as typeof raw.fakeCast
         const explicit = loadProfile(withWindow, METEOR_LOADOUT)
-        expect(explicit.lockoutWindow).toEqual({ rotation: [{ spell: 'SPELL_FIREBALL', when: [] }] })
+        expect(explicit.lockoutWindow).toEqual({
+            rotation: [{ spell: 'SPELL_FIREBALL', when: [] }],
+            edgeGreedSeconds: 0,
+        })
         expect(explicit.fakeCast.realBaitShare).toBe(0.3)
         expect(parseProfile(JSON.parse(JSON.stringify(explicit)))).toEqual(explicit)
+    })
+
+    it('reads lockoutWindow.edgeGreedSeconds (#126): default 0, bounded to [0, 1.5] s', () => {
+        const window = (extra: Record<string, unknown>) => ({
+            ...quietProfile(),
+            lockoutWindow: { rotation: ['SPELL_FIREBALL'], ...extra },
+        })
+        expect(loadProfile(window({}), METEOR_LOADOUT).lockoutWindow.edgeGreedSeconds).toBe(0)
+        expect(loadProfile(window({ edgeGreedSeconds: 1.5 }), METEOR_LOADOUT).lockoutWindow.edgeGreedSeconds).toBe(1.5)
+        const greedy = loadProfile(window({ edgeGreedSeconds: 0.4 }), METEOR_LOADOUT)
+        expect(parseProfile(JSON.parse(JSON.stringify(greedy)))).toEqual(greedy)
+        for (const edgeGreedSeconds of [-0.05, 1.51, '1', null])
+            rejects(
+                raw => (raw.lockoutWindow = { rotation: ['SPELL_FIREBALL'], edgeGreedSeconds }),
+                'lockoutWindow.edgeGreedSeconds',
+            )
     })
 
     it('rejects unknown keys, naming the key', () => {
@@ -585,6 +605,7 @@ const freeView = (
             startingTick: tick - 10,
             expiresAt: tick + 190,
         })),
+        log: [],
     },
 })
 
@@ -716,6 +737,9 @@ describe('profile controller: free-cast window after a Counterspell (#123)', () 
         expect(decide(1260, true)).toBe('SPELL_FIREBALL')
         // Haste ends on 120, before the hasted release on 124
         expect(decide(120, false)).toBe('SPELL_FIREBALL')
+        // Haste ends on 124, the hasted release tick: the view of 124 no longer shows it and the engine has restored the
+        // 48-tick cast time, so the cast doesn't release then (hasteEnds <= release, not <)
+        expect(decide(124, false)).toBe('SPELL_FIREBALL')
         expect(decide(125, false)).toBe('SPELL_COMBUSTION')
     })
 
@@ -914,6 +938,172 @@ describe('profile controller: sacrificial bait (#123)', () => {
         expect(mixed.real).toBeGreaterThan(0)
         expect(mixed.fakes + mixed.real).toBe(10)
         expect(kinds(0.5, 1)).toEqual(mixed)
+    })
+})
+
+describe("profile controller: the enemy's spell log (#126)", () => {
+    /** The enemy's log entry of a Counterspell used on `tick`, as the view shows it. */
+    const counterUsed = (tick: number) => ({
+        tick,
+        type: 'SPELL_RELEASE' as const,
+        spellId: 'SPELL_COUNTERSPELL' as const,
+    })
+    const withLog = (view: ArenaView, log: ArenaView['enemy']['log']): ArenaView => ({
+        ...view,
+        enemy: { ...view.enemy, log },
+    })
+    // Fireballs normally; Meteors only while the enemy's Counterspell can't come
+    const meteorsInWindow = profile(raw => {
+        raw.rotation = ['SPELL_FIREBALL']
+        ;(raw as Record<string, unknown>).lockoutWindow = { rotation: ['SPELL_METEOR', 'SPELL_FIREBALL'] }
+    })
+
+    it('infers the enemy Counterspell cooldown from a whiff on its spell log, with no lock or debuff on the view', () => {
+        const decide = (log: ArenaView['enemy']['log']) =>
+            castOf(
+                METEOR_LOADOUT,
+                controllerFor(meteorsInWindow, METEOR_LOADOUT)(withLog(freeView(METEOR_LOADOUT, 300), log)),
+            )
+        // never seen used: taken as ready, so the normal rotation
+        expect(decide([])).toBe('SPELL_FIREBALL')
+        // used on 139 (nothing interrupted): on cooldown until 139 + 234 = 373, after the Meteor's release on 372
+        expect(decide([counterUsed(139)])).toBe('SPELL_METEOR')
+        // used on 138: ready on 372, the Meteor's release tick, so the window plays its Fireball (released on 326)
+        expect(decide([counterUsed(138)])).toBe('SPELL_FIREBALL')
+        // the latest use counts; other entries don't
+        expect(decide([counterUsed(20), counterUsed(139)])).toBe('SPELL_METEOR')
+        expect(
+            decide([
+                { tick: 139, type: 'START_CAST', spellId: 'SPELL_METEOR' },
+                { tick: 139, type: 'CANCEL_CAST', spellId: 'SPELL_METEOR' },
+            ]),
+        ).toBe('SPELL_FIREBALL')
+        // ready again on 300: no window
+        expect(decide([counterUsed(66)])).toBe('SPELL_FIREBALL')
+    })
+
+    it('reads the log as it grows on the same array, as the runner gives it', () => {
+        const decide = controllerFor(meteorsInWindow, METEOR_LOADOUT)
+        const log: { tick: number; type: 'SPELL_RELEASE'; spellId: 'SPELL_COUNTERSPELL' }[] = []
+        const view = withLog(freeView(METEOR_LOADOUT, 300), log)
+        expect(castOf(METEOR_LOADOUT, decide(view))).toBe('SPELL_FIREBALL')
+        log.push(counterUsed(290))
+        expect(castOf(METEOR_LOADOUT, decide({ ...view, tick: 301 }))).toBe('SPELL_METEOR')
+    })
+
+    for (const side of ['a', 'b'] as const) {
+        const enemy = side === 'a' ? 'b' : 'a'
+        it(`after a fake cast draws a whiffed Counterspell, casts Meteors during its cooldown (as ${side})`, () => {
+            const baiter = profileEntrant(
+                profile(raw => {
+                    raw.rotation = ['SPELL_FIREBALL']
+                    ;(raw as Record<string, unknown>).lockoutWindow = { rotation: ['SPELL_METEOR', 'SPELL_FIREBALL'] }
+                    raw.fakeCast = { ...raw.fakeCast, enabled: true, pauseAfterSeconds: 0.4 }
+                }),
+                METEOR_LOADOUT,
+                'baiter',
+            )
+            const result = runMatch({
+                seed: 1,
+                [side]: baiter,
+                [enemy]: counterer('early', 0.4),
+                maxTicks: 242,
+            } as unknown as Parameters<typeof runMatch>[0])
+            // the fake Meteor (0 to 5) draws the enemy's Counterspell on 9, which hits nothing
+            expect(fakeCasts(result.log, side, 'SPELL_METEOR')).toEqual([5])
+            expect(of(result.log, enemy, 'SPELL_RELEASE').map(e => `${e.tick} ${e.spellId}`)).toEqual([
+                '9 SPELL_COUNTERSPELL',
+            ])
+            expect(result.stats[side].interrupted).toBe(0)
+            // on cooldown until 243: after the pause, Meteors (not the normal Fireballs), each released before 243 and
+            // the next started on the same tick; a fourth (229 + 72) wouldn't be, so nothing starts on 229
+            expect(startsOf(result.log, side)).toEqual([0, 13, 85, 157])
+            expect(of(result.log, side, 'SPELL_RELEASE').map(e => `${e.tick} ${e.spellId}`)).toEqual([
+                '85 SPELL_METEOR',
+                '157 SPELL_METEOR',
+                '229 SPELL_METEOR',
+            ])
+        })
+    }
+})
+
+describe('profile controller: edge greed (#126)', () => {
+    const { profile: aggressive, loadout } = ARCHETYPES.aggressive
+    const greedy = (edgeGreedSeconds: number, base = aggressive) => ({
+        ...base,
+        lockoutWindow: { ...base.lockoutWindow, edgeGreedSeconds },
+    })
+    // aggressive on tick 100 with 2 Ignites on the enemy, locked until `enemyLockedUntil` (see the #123 tests above)
+    const decide = (edgeGreedSeconds: number, enemyLockedUntil: number) =>
+        castOf(
+            loadout,
+            controllerFor(greedy(edgeGreedSeconds), loadout)(freeView(loadout, 100, { enemyLockedUntil, ignites: 2 })),
+        )
+
+    it('at the default 0, waits when no cast fits, as in #123', () => {
+        expect(aggressive.lockoutWindow.edgeGreedSeconds).toBe(0)
+        // a Fireball started on 100 releases on 126, the tick the lockout ends
+        expect(decide(0, 126)).toBeNull()
+        expect(decide(0, 133)).toBe('SPELL_IGNITE')
+    })
+
+    it('with no safe cast, lets one release up to edgeGreedSeconds past the window, in window order', () => {
+        // one tick of greed: the Fireball releasing on 126 now fits (126 < 127)
+        expect(decide(0.05, 126)).toBe('SPELL_FIREBALL')
+        expect(decide(0.05, 125)).toBeNull()
+        // 1.5 s = 30 ticks: up to 155, so Combustion (148) comes first in the window list
+        expect(decide(1.5, 126)).toBe('SPELL_COMBUSTION')
+        // with a safe cast there is no greed: the Ignite (132 < 133), not the Combustion that would fit the greedy bound
+        expect(decide(1.5, 133)).toBe('SPELL_IGNITE')
+        // outside the window it changes nothing
+        expect(decide(1.5, 0)).toBe(decide(0, 0))
+    })
+
+    it('clamps an out-of-range value to [0, 1.5] s', () => {
+        const meteorWindow = greedy(
+            0,
+            profile(raw => ((raw as Record<string, unknown>).lockoutWindow = { rotation: ['SPELL_METEOR'] })),
+        )
+        const meteor = (edgeGreedSeconds: number) =>
+            castOf(
+                METEOR_LOADOUT,
+                controllerFor(
+                    greedy(edgeGreedSeconds, meteorWindow),
+                    METEOR_LOADOUT,
+                )(freeView(METEOR_LOADOUT, 100, { enemyLockedUntil: 126 })),
+            )
+        // the Meteor releases on 172: 46 ticks past the window, more than the 30 of 1.5 s
+        expect(meteor(5)).toBeNull()
+        expect(meteor(1.5)).toBeNull()
+        expect(meteor(-5)).toBeNull()
+        expect(meteor(Number.NaN)).toBeNull()
+    })
+
+    it('in a match: the cast the whiff window has no room for goes out greedily, and lands', () => {
+        // the bait match above: on 229 a Meteor (301) and a Fireball (255) both release after the enemy's Counterspell
+        // is ready on 243; with 1.5 s of greed the Fireball fits (255 < 273), and b doesn't target it
+        const run = (edgeGreedSeconds: number) => {
+            const baiter = profileEntrant(
+                greedy(
+                    edgeGreedSeconds,
+                    profile(raw => {
+                        raw.rotation = ['SPELL_FIREBALL']
+                        ;(raw as Record<string, unknown>).lockoutWindow = {
+                            rotation: ['SPELL_METEOR', 'SPELL_FIREBALL'],
+                        }
+                        raw.fakeCast = { ...raw.fakeCast, enabled: true, pauseAfterSeconds: 0.4 }
+                    }),
+                ),
+                METEOR_LOADOUT,
+                'baiter',
+            )
+            return runMatch({ seed: 1, a: baiter, b: counterer('early', 0.4), maxTicks: 260 })
+        }
+        expect(startsOf(run(0).log, 'a').filter(t => t > 200 && t < 243)).toEqual([])
+        const greedyRun = run(1.5)
+        expect(startsOf(greedyRun.log, 'a').filter(t => t > 200 && t < 243)).toEqual([229])
+        expect(of(greedyRun.log, 'a', 'SPELL_RELEASE').at(-1)).toMatchObject({ tick: 255, spellId: 'SPELL_FIREBALL' })
+        expect(greedyRun.stats.a.interrupted).toBe(0)
     })
 })
 

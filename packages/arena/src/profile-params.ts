@@ -1,4 +1,4 @@
-import { GENERAL_SPELLS, parseProfile, type Profile } from './profile'
+import { EDGE_GREED_MAX_SECONDS, GENERAL_SPELLS, parseProfile, type Profile } from './profile'
 import type { Rng } from './prng'
 
 /**
@@ -52,6 +52,8 @@ export const PROFILE_PARAMETERS: Readonly<Record<string, Parameter>> = {
     'fakeCast.minGapSeconds': num(0, 60, 0.01, 3),
     'fakeCast.maxPerMatch': num(0, 50, 1, 3),
     'fakeCast.realBaitShare': num(0, 1, 0.01, 0.1),
+    // edge greed (#126): the loader's whole range, so the tuner can find whether the risk pays off
+    'lockoutWindow.edgeGreedSeconds': num(0, EDGE_GREED_MAX_SECONDS, 0.01, 0.2),
 }
 
 /**

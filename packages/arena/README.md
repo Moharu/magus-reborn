@@ -19,8 +19,8 @@ npm run arena:tune -- --top 2 --general-pairs 1 --population 6 --generations 4 -
   imports a spell module or computes damage, cooldowns or cast times: readiness comes from the engine's
   `cooldownRemaining` and `lockRemaining`, and GCD, Counterspell lock, cast cancelling and death are the engine's. The
   one estimate a profile makes is what a player would: when the opponent's Counterspell is ready again, from the tick
-  it was seen landing plus Counterspell's public cooldown (`SPELLS`), since the view never shows the opponent's
-  cooldowns (see the free-cast window below).
+  it was seen used (on the opponent's spell log, or landing on us) plus Counterspell's public cooldown (`SPELLS`),
+  since the view never shows the opponent's cooldowns (see the free-cast window below).
 - Randomness comes only from the seeded PRNG in `src/prng.ts` (mulberry32). `packages/engine` stays deterministic and
   untouched. The same seed and inputs give an identical result and log.
 
@@ -59,8 +59,16 @@ one early (a fake cast). Use the shared `start(slot)`/`stop(slot)` helpers to av
 - `self`: `hp`, `casting` (`slot`, `spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `gcdUntil`,
   `lockedUntil`, `effects`, and `spells`, the player's own loadout with `castTime`, `cooldownRemaining`,
   `lockRemaining` and `ready` per slot.
-- `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil` and `effects`.
-  Never the opponent's loadout, cooldowns or GCD.
+- `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil`, `effects` and
+  `log`. Never the opponent's loadout, cooldowns or GCD.
+- `enemy.log` (#126) is the opponent's spell log, what the game client's spell log shows: one `{ tick, type, spellId }`
+  per engine log entry about the opponent, oldest first. `type` is `START_CAST`, `STOP_CAST` (the cast it stopped),
+  `SPELL_RELEASE` (instants included), `CANCEL_CAST` or `INTERRUPTED` (its cast, by us). These are the entries the server
+  streams to both clients (`battle.state.log`), without the loadout slot (`spellIndex`). The view on tick `t` holds the
+  entries logged before tick `t`'s decisions, as the client has them, so an action on tick `t` shows from tick `t + 1`.
+  A Counterspell that hit an empty cast bar shows here as its `SPELL_RELEASE`. The array only grows and its entries
+  never change, so a controller may keep them. Only the spells the opponent has used show; the rest of its loadout
+  never does.
 - `effects` (both players) is the buff bar: one `{ id, type, startingTick, expiresAt }` per effect, so Ignite stacks,
   Living Bomb, Haste, Blur, Temporal Shield, Magic Eater and the Counterspell lock (`DEBUFF_COUNTERSPELL`). Never an
   effect's internals (Haste's saved cast times, Temporal Shield's saved HP, Magic Eater's pending heal). `expiresAt` is
@@ -80,7 +88,8 @@ shape and ranges and returns it in normal form; `loadProfile(raw, loadout)` also
 play. Both throw a `ProfileError` whose message starts with the offending key's path (`counterspell.reaction.meanSeconds:
 must be in [0, 10], got 11`): unknown keys, missing keys and out-of-range values are rejected. `profileController(profile)`
 is its `ControllerFactory`, `profileEntrant(profile, loadout)` an entrant. Every key except `intent`, a rotation
-entry's `when`, `lockoutWindow` (default: a copy of `rotation`) and `fakeCast.realBaitShare` (default 0) is required.
+entry's `when`, `lockoutWindow` (default: a copy of `rotation`), `lockoutWindow.edgeGreedSeconds` (default 0) and
+`fakeCast.realBaitShare` (default 0) is required.
 
 ```jsonc
 {
@@ -96,7 +105,8 @@ entry's `when`, `lockoutWindow` (default: a copy of `rotation`) and `fakeCast.re
         "SPELL_FIREBALL",
     ],
     // the free-cast window's list, highest value first, same form as rotation (#123)
-    "lockoutWindow": { "rotation": ["SPELL_COMBUSTION", "SPELL_FIREBALL"] },
+    // edgeGreedSeconds (#126, default 0): see the free-cast window below
+    "lockoutWindow": { "rotation": ["SPELL_COMBUSTION", "SPELL_FIREBALL"], "edgeGreedSeconds": 0 },
     "counterspell": {
         "enabled": true,
         "targets": ["SPELL_METEOR"], // enemy casts it interrupts
@@ -133,7 +143,7 @@ profile's own choice this tick (`src/conditions.ts`): `selfHpBelow`/`selfHpAtLea
 **Each tick** the controller: (1) cancels its fake cast once `cancelAfterSeconds` has passed, or releases a completed
 cast; (2) lands a committed Counterspell; (3) picks its next cast if it has none in progress, isn't pausing after a
 fake and didn't just press Counterspell (it waits one tick to see on the view whether the lock landed): in the
-free-cast window, the first `lockoutWindow.rotation` entry that is ready, whose `when` holds and that fits, or none;
+free-cast window, the first `lockoutWindow.rotation` entry that is ready, whose `when` holds and that fits (or, with edge greed, fits the greedy bound), or none;
 else a bait if `fakeCast` allows one (a fake, or a real cast, see below); else the first rotation entry that is ready
 and whose `when` holds; (4)
 uses each general spell that is ready and whose rule holds (an instant used mid-cast cancels the cast, so rules that
@@ -157,14 +167,25 @@ counterers decide near the release and are not fooled by short fakes.
 **Free-cast window (#123).** While the opponent can't Counterspell, the profile casts from `lockoutWindow.rotation`
 instead of `rotation`, and starts no fake cast or bait (there is nothing to bait). Everything comes from the view: the
 opponent can't Counterspell before `safeUntil`, the later of `enemy.lockedUntil` (our Counterspell landed: 3 s in which
-it can cast nothing) and the tick its Counterspell is ready again, known when one was seen landing on us (the
-`DEBUFF_COUNTERSPELL` on our buff bar starts on that tick) plus Counterspell's 11.7 s cooldown. A cast fits when its
+it can cast nothing) and the tick its Counterspell is ready again: the latest tick one was seen used plus
+Counterspell's 11.7 s cooldown. It is seen used on `enemy.log` (#126), whether it interrupted us or hit an empty cast
+bar, and also by the `DEBUFF_COUNTERSPELL` on our buff bar when it landed (that starts on the same tick). A cast fits when its
 release tick is before `safeUntil`: on that tick the opponent may act first and interrupt it. So a cast that finishes
 before the lockout ends is always allowed, and one that would finish after it only while the opponent's Counterspell
 is seen on cooldown until after its release. The release tick uses the cast time the view shows, or the un-hasted one
-when the Haste on won't last to the release (it ends first, or this tick's release uses it up). With no entry
-fitting, no cast starts until the window ends (general spells are still used). An opponent Counterspell that hit an
-empty cast bar leaves nothing on the view, so it isn't known and that Counterspell is taken as ready.
+when the Haste on won't last to the release (it ends first, on the release tick at the latest, or this tick's release
+uses it up). With no entry fitting, no cast starts until the window ends (general spells are still used). An opponent
+Counterspell never seen used is taken as ready.
+
+So a fake cast that pays off opens the window: the opponent's Counterspell lands on the empty cast bar after the cancel,
+its `SPELL_RELEASE` shows on `enemy.log` the next tick, and the profile plays its window list (high-value casts first)
+until that Counterspell is ready again.
+
+**Edge greed (#126, pending an owner decision).** `lockoutWindow.edgeGreedSeconds`, in [0, 1.5] s (the loader rejects
+other values; the controller and the tuner clamp to that range), default 0: when no window entry fits, the entries are
+tried again, in order, against `safeUntil` plus that much, so a cast may release up to that long after the opponent can
+Counterspell again, at the risk of being countered. A safe cast always comes first. At 0 there is no second try: the
+window behaves exactly as in #123. It is a tunable parameter, so self-tuning (#104) can find whether the risk pays off.
 
 **Sacrificial bait (#123).** With `realBaitShare` above 0, that share of baits (drawn per bait from the seeded stream;
 no draw at 0 or 1) is a real cast of the lowest-priority rotation entry that is ready and whose `when` holds, instead
@@ -267,6 +288,7 @@ gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouch
     | `fakeCast.cancelAfterSeconds` / `pauseAfterSeconds` / `minGapSeconds`                | 0.25-2 / 0.25-2 / 0-60 s |
     | `fakeCast.maxPerMatch`                                                               | 0 to 50                  |
     | `fakeCast.realBaitShare`                                                             | 0 to 1                   |
+    | `lockoutWindow.edgeGreedSeconds` (#126)                                              | 0 to 1.5 s               |
     | every condition's `hp` / `count` / `seconds` (rotation, window, fake cast, generals) | 0-100 / 0-20 / 0-3 s     |
 
 - **Overfitting guard.** The final best profile is re-scored on a fresh seed set (a tournament seed derived from `S`
@@ -300,8 +322,8 @@ From code: `tune({ baseline, seeds, field, generations, population, elite, seed,
 
 ### Tick order and the end of a match
 
-Each loop: both views are refreshed from the same state (the decisions are simultaneous), then `a`'s actions are
-applied, then `b`'s, then `Battle.tick()`. Within a tick `a` acts first, so tournaments swap sides between games.
+Each loop: both views are refreshed from the same state (the decisions are simultaneous; each `enemy.log` gets the
+entries logged since the last loop), then `a`'s actions are applied, then `b`'s, then `Battle.tick()`. Within a tick `a` acts first, so tournaments swap sides between games.
 
 - **Death**: the match ends when the engine's result is final (`Battle.finished`). Actions in the tick the winner is
   decided still resolve, whether the kill came from an action or from `tick()`, so same-tick lethal damage to both

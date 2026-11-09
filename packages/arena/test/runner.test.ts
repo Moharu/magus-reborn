@@ -250,7 +250,7 @@ describe('runMatch: what a controller sees', () => {
         expect(inits[0].loadout).toEqual(METEOR_LOADOUT)
     })
 
-    it("never holds the opponent's loadout, only the spell the opponent is casting", () => {
+    it("never holds the opponent's loadout, only the spells the opponent is casting or has cast", () => {
         const hidden = OTHER_LOADOUT.filter(id => !METEOR_LOADOUT.includes(id))
         expect(hidden.length).toBeGreaterThan(0)
         const seen: ArenaView[] = []
@@ -268,13 +268,16 @@ describe('runMatch: what a controller sees', () => {
         // ticks 0 to maxTicks, the cap tick included
         expect(seen).toHaveLength(201)
         for (const view of seen) {
-            expect(Object.keys(view.enemy).sort()).toEqual(['casting', 'effects', 'hp', 'lockedUntil'])
+            expect(Object.keys(view.enemy).sort()).toEqual(['casting', 'effects', 'hp', 'lockedUntil', 'log'])
+            // a spell the opponent has cast is on the client's spell log; the rest of its loadout never shows
+            const revealed = new Set([view.enemy.casting?.spellId, ...view.enemy.log.map(e => e.spellId)])
             const json = JSON.stringify(view)
             for (const id of hidden) {
-                if (id === view.enemy.casting?.spellId) continue
+                if (revealed.has(id)) continue
                 expect(json).not.toContain(id)
             }
         }
+        expect(new Set(seen[200].enemy.log.map(e => e.spellId))).toEqual(new Set(['SPELL_LIVING_BOMB']))
         const visible = seen.find(view => view.enemy.casting)
         expect(visible?.enemy.casting).toMatchObject({ spellId: 'SPELL_LIVING_BOMB', startTick: 0, completesAt: 30 })
         expect(seen[0].self.spells.map(s => s.id)).toEqual(METEOR_LOADOUT)
@@ -360,6 +363,67 @@ describe('runMatch: what a controller sees', () => {
             const enemy = JSON.stringify(view.enemy)
             for (const hidden of ['cooldown', 'gcd', 'spells', 'ready']) expect(enemy).not.toContain(hidden)
         }
+    })
+
+    it("shows the opponent's spell log as the client receives it: the engine log entries before this tick", () => {
+        // b: a Fireball, a Meteor cancelled by starting an Ignite, Ignite released, a fake Meteor stopped early, then a
+        // Counterspell on a's empty cast bar and one that interrupts a's Fireball
+        const b = scripted({
+            0: start(FIREBALL),
+            26: stop(FIREBALL),
+            27: start(METEOR),
+            30: start(slotOf(METEOR_LOADOUT, 'SPELL_IGNITE')),
+            62: stop(slotOf(METEOR_LOADOUT, 'SPELL_IGNITE')),
+            63: start(METEOR),
+            66: stop(METEOR),
+            70: start(COUNTER),
+            // ready again on 70 + 234 = 304
+            310: start(COUNTER),
+        })
+        const a = scripted({ 300: start(FIREBALL) })
+        const seenA: ArenaView[] = []
+        const seenB: ArenaView[] = []
+        const result = runMatch({
+            seed: 1,
+            a: entrant('a', recording(a, seenA)),
+            b: entrant('b', recording(b, seenB)),
+            maxTicks: 330,
+        })
+        const entriesOf = (side: 'a' | 'b', before: number) =>
+            result.log
+                .filter(e => e.side === side && e.tick < before)
+                .map(e => ({ tick: e.tick, type: e.type, spellId: e.spellId }))
+        // on every tick, each side's enemy log is exactly the other side's engine log entries from earlier ticks
+        for (const view of seenA) expect(view.enemy.log).toEqual(entriesOf('b', view.tick))
+        for (const view of seenB) expect(view.enemy.log).toEqual(entriesOf('a', view.tick))
+        expect(seenA[300].enemy.log.map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
+            '0 START_CAST SPELL_FIREBALL',
+            '26 STOP_CAST SPELL_FIREBALL',
+            '26 SPELL_RELEASE SPELL_FIREBALL',
+            '27 START_CAST SPELL_METEOR',
+            '30 CANCEL_CAST SPELL_METEOR',
+            '30 START_CAST SPELL_IGNITE',
+            '62 STOP_CAST SPELL_IGNITE',
+            '62 SPELL_RELEASE SPELL_IGNITE',
+            '63 START_CAST SPELL_METEOR',
+            '66 STOP_CAST SPELL_METEOR',
+            // the whiff: no INTERRUPTED and no lock, but the client's log shows it
+            '70 SPELL_RELEASE SPELL_COUNTERSPELL',
+        ])
+        expect(seenA[71].self.lockedUntil).toBe(0)
+        expect(seenA[71].self.effects.map(e => e.id)).not.toContain('DEBUFF_COUNTERSPELL')
+        // a's interrupted Fireball is on b's enemy log, b's Counterspell that landed on a's
+        expect(seenB[330].enemy.log.map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
+            '300 START_CAST SPELL_FIREBALL',
+            '310 INTERRUPTED SPELL_FIREBALL',
+        ])
+        expect(seenA[311].enemy.log.at(-1)).toEqual({ tick: 310, type: 'SPELL_RELEASE', spellId: 'SPELL_COUNTERSPELL' })
+        // seen from the tick after, the same as the client: on its own tick it isn't on the log yet
+        expect(seenA[70].enemy.log.some(e => e.spellId === 'SPELL_COUNTERSPELL')).toBe(false)
+        expect(seenA[71].enemy.log.at(-1)).toEqual({ tick: 70, type: 'SPELL_RELEASE', spellId: 'SPELL_COUNTERSPELL' })
+        // only the client's fields: never a loadout slot or anything else of the engine entry
+        for (const view of [...seenA, ...seenB])
+            for (const entry of view.enemy.log) expect(Object.keys(entry).sort()).toEqual(['spellId', 'tick', 'type'])
     })
 
     it('shows engine readiness: cooldowns and the lock after an interrupt', () => {
