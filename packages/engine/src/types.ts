@@ -117,7 +117,7 @@ export interface PlayerState {
     /** Tick until which a Counterspell lock blocks every spell. Independent of effects: cleansing does not clear it. */
     lockedUntil: number
     /**
-     * Frost's Chilling stacks, a resource on the caster: 0 to `CHILLING_MAX_STACKS`, no duration. Gained when a Frost
+     * Frost's Chilling stacks, a resource on the caster: 0 to `FROST_NUMBERS.chillingMaxStacks`, no duration. Gained when a Frost
      * cast completes, spent by Ice Spear and Icy Touch. Starts at 0 in every battle, so it resets each round.
      */
     chilling: number

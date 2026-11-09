@@ -1,4 +1,5 @@
 import {
+    DEFAULT_LOADOUTS,
     DEFAULT_ELEMENT,
     ELEMENTS,
     loadoutElement,
@@ -291,10 +292,8 @@ export const spellPicker = (
                                     element = value
                                     book = SPELLBOOKS[element]
                                     selection = null
-                                    const next = [...loadout]
-                                    LOADOUT_SLOTS.forEach((kind, i) => {
-                                        if (kind === 'element') next[i] = book.elementSpells[i]
-                                    })
+                                    // the element's default loadout, not just its first four spells
+                                    const next = [...DEFAULT_LOADOUTS[element]]
                                     detail = next[0]
                                     commit(next)
                                     render()

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { DEFAULT_SPELLS, SPELLBOOKS, SPELLS, loadoutElement } from '@magus/engine'
+import { DEFAULT_LOADOUTS, DEFAULT_SPELLS, SPELLBOOKS, SPELLS, loadoutElement } from '@magus/engine'
 import { battleLayout, HEIGHT, WIDTH } from '../src/game/layout'
 import { spellPicker } from '../src/ui/spell-picker'
 import { FakeElement, FakeNode } from './fake-dom'
@@ -44,7 +44,7 @@ it('selects Frost with four of six spells, while Lightning stays locked', () => 
     const root = spellPicker([...DEFAULT_SPELLS], save, { overlayDetails: true }).el as unknown as FakeElement
     root.button('Frost')!.click()
     expect(loadoutElement(save.mock.calls[0][0])).toBe('FROST')
-    expect(save.mock.calls[0][0].slice(0, 4)).toEqual(SPELLBOOKS.FROST.elementSpells.slice(0, 4))
+    expect(save.mock.calls[0][0]).toEqual(DEFAULT_LOADOUTS.FROST)
     for (const id of SPELLBOOKS.FROST.elementSpells) {
         const card = target(root, `spell:${id}`)
         expect(card).not.toBeNull()

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
     DEFAULT_ELEMENT,
+    DEFAULT_LOADOUTS,
     DEFAULT_SPELLS,
+    ELEMENTS,
     ELEMENT_SPELL_COUNT,
     FIXED_SLOT,
     FIXED_SPELL,
@@ -70,6 +72,20 @@ describe('loadout shape', () => {
         // validity only: the owner has yet to pick the 0.2 default
         expect(isValidLoadout(DEFAULT_SPELLS)).toBe(true)
         expect(isValidLoadout(DEFAULT_SPELLS, DEFAULT_ELEMENT)).toBe(true)
+    })
+
+    it('every element has a valid default loadout; Frost is the one the owner picked (#148)', () => {
+        expect(DEFAULT_LOADOUTS.FIRE).toEqual(DEFAULT_SPELLS)
+        expect(DEFAULT_LOADOUTS.FROST).toEqual([
+            'SPELL_FROSTBOLT',
+            'SPELL_GLACIER',
+            'SPELL_FROST_BOMB',
+            'SPELL_ICE_SPEAR',
+            'SPELL_COUNTERSPELL',
+            'SPELL_HASTE',
+            'SPELL_TEMPORAL_SHIELD',
+        ])
+        for (const element of ELEMENTS) expect(isValidLoadout(DEFAULT_LOADOUTS[element], element)).toBe(true)
     })
 })
 
