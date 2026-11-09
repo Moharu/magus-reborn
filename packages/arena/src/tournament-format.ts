@@ -1,3 +1,4 @@
+import type { BracketResult } from './bracket'
 import type { TournamentResult } from './tournament'
 
 /** `SPELL_TEMPORAL_SHIELD` as `Temporal Shield`. */
@@ -59,5 +60,18 @@ export const formatTable = (result: TournamentResult) => {
         ...rows.map(line),
         '',
         ...legend,
+    ].join('\n')
+}
+
+/** The bracket's sets and placements as plain lines, for the CLI after the ranked table (#136). */
+export const formatBracket = (bracket: BracketResult) => {
+    const seed = (n: number) => `${n} ${bracket.seeds[n - 1].id}`
+    return [
+        `Bracket: top ${bracket.seeds.length} double elimination, best-of-${bracket.bestOf} sets${bracket.reset ? ', grand final reset' : ''}.`,
+        ...bracket.sets.map(
+            s =>
+                `${s.id.padEnd(3)}  ${seed(s.a)} v ${seed(s.b)}  ${s.winsA}-${s.winsB}${s.draws ? ` (${s.draws} drawn)` : ''}  -> ${seed(s.winner)}${s.decidedBy === 'seed' ? ' (by seed)' : ''}`,
+        ),
+        ...bracket.placements.map(p => `${p.place.padEnd(7)}  ${p.seeds.map(seed).join(', ')}`),
     ].join('\n')
 }

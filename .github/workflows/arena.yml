@@ -13,7 +13,7 @@ on:
                 type: string
                 default: '1'
             top:
-                description: Top N distinct Fire sets (each plays its best 2 general pairs)
+                description: Top N distinct Fire sets (each plays all 6 general pairs)
                 type: string
                 default: '8'
             games:
@@ -101,7 +101,9 @@ jobs:
                   if-no-files-found: error
 
     # Runs when some shards failed too: it merges the ones that uploaded, and the report is marked PARTIAL, naming the
-    # missing shards. (It does not run when the inputs were rejected or the run was cancelled.)
+    # missing shards. (It does not run when the inputs were rejected or the run was cancelled.) After the merge it plays
+    # the top-8 double-elimination bracket (#136, best-of-5 sets, a few dozen games), recorded in the result JSON and the
+    # report's Bracket section.
     merge:
         name: merge
         needs: [plan, shard]
@@ -122,10 +124,11 @@ jobs:
                   pattern: arena-shard-*
                   path: arena-in
                   merge-multiple: true
-            - name: Merge the shards into one result and one report
+            - name: Merge the shards, play the top-8 bracket, write one result and one report
               run: |
                   mkdir -p "$GITHUB_WORKSPACE/arena-out"
                   npm run arena -- merge "$GITHUB_WORKSPACE"/arena-in/arena-shard-*.json --allow-missing \
+                      --bracket-best-of 5 \
                       --out "$GITHUB_WORKSPACE/arena-out/arena-result.json" \
                       --report "$GITHUB_WORKSPACE/arena-out/arena-report.md" --commit "$GITHUB_SHA" > /dev/null
                   cat arena-out/arena-report.md >> "$GITHUB_STEP_SUMMARY"

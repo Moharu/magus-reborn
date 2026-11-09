@@ -88,14 +88,32 @@ describe('entrants and pairs', () => {
         expect(() => small({ top: 1, profiles: [profiles[0]] })).toThrow(/two entrants/)
     })
 
-    it('adapts a profile to a loadout without its spells and keeps one that fits', () => {
+    it('builds a profile for a loadout: keeps the entries it can play, in order, and changes nothing twice', () => {
         const aggressive = ARCHETYPES.aggressive.profile
-        expect(adaptProfile(aggressive, ARCHETYPES.aggressive.loadout)).toEqual(aggressive)
-        // bait: no Meteor, Haste or Blur on OTHER_LOADOUT, so Fireball is all that is left of its rotation
+        const own = adaptProfile(aggressive, ARCHETYPES.aggressive.loadout)
+        // its own loadout has no Living Bomb or Afterburn: those entries are dropped, the rest kept in order
+        expect(own.rotation.map(r => r.spell)).toEqual([
+            'SPELL_COMBUSTION',
+            'SPELL_IGNITE',
+            'SPELL_METEOR',
+            'SPELL_FIREBALL',
+        ])
+        expect(own.rotation).toEqual(aggressive.rotation.filter(r => ARCHETYPES.aggressive.loadout.includes(r.spell)))
+        expect(adaptProfile(own, ARCHETYPES.aggressive.loadout)).toBe(own)
+        // bait on OTHER_LOADOUT (no Meteor or Combustion): Ignite, Living Bomb, Afterburn after Fireballs, Fireball
         const adapted = adaptProfile(ARCHETYPES.bait.profile, OTHER_LOADOUT)
-        expect(adapted.rotation.map(r => r.spell)).toEqual(['SPELL_FIREBALL'])
-        // and of its window list (Meteor, Fireball)
-        expect(adapted.lockoutWindow.rotation.map(r => r.spell)).toEqual(['SPELL_FIREBALL'])
+        expect(adapted.rotation.map(r => r.spell)).toEqual([
+            'SPELL_IGNITE',
+            'SPELL_LIVING_BOMB',
+            'SPELL_AFTERBURN',
+            'SPELL_FIREBALL',
+        ])
+        expect(adapted.lockoutWindow.rotation.map(r => r.spell)).toEqual([
+            'SPELL_LIVING_BOMB',
+            'SPELL_IGNITE',
+            'SPELL_AFTERBURN',
+            'SPELL_FIREBALL',
+        ])
         // its fake cast of Meteor moves to the longest cast on the loadout (Ignite, 1.6 s)
         expect(adapted.fakeCast).toEqual({ ...ARCHETYPES.bait.profile.fakeCast, spell: 'SPELL_IGNITE' })
         expect(() => checkLoadout(adapted, OTHER_LOADOUT)).not.toThrow()
@@ -109,6 +127,26 @@ describe('entrants and pairs', () => {
         expect(fallback.rotation.map(r => r.spell)).toEqual(OTHER_LOADOUT.slice(0, 4))
         // nothing of the window list is left either: it plays the adapted rotation
         expect(fallback.lockoutWindow.rotation).toEqual(fallback.rotation)
+    })
+
+    it('never relies on a spell the loadout lacks: an entry waiting on one is dropped (#136)', () => {
+        // Combustion and Afterburn but no Ignite or Fireball: Combustion at 4+ Ignites and Afterburn after Fireballs
+        // could never be cast, so aggressive keeps only Living Bomb and Meteor
+        const loadout: SpellId[] = [
+            'SPELL_COMBUSTION',
+            'SPELL_AFTERBURN',
+            'SPELL_LIVING_BOMB',
+            'SPELL_METEOR',
+            'SPELL_COUNTERSPELL',
+            'SPELL_HASTE',
+            'SPELL_BLUR',
+        ]
+        const built = adaptProfile(ARCHETYPES.aggressive.profile, loadout)
+        expect(built.rotation.map(r => r.spell)).toEqual(['SPELL_LIVING_BOMB', 'SPELL_METEOR'])
+        expect(built.lockoutWindow.rotation.map(r => r.spell)).toEqual(['SPELL_METEOR', 'SPELL_LIVING_BOMB'])
+        // with the Ignites there, Combustion stays
+        const withIgnite = loadout.map(id => (id === 'SPELL_AFTERBURN' ? 'SPELL_IGNITE' : id))
+        expect(adaptProfile(ARCHETYPES.aggressive.profile, withIgnite).rotation[0].spell).toBe('SPELL_COMBUSTION')
     })
 })
 
@@ -154,13 +192,24 @@ describe('entrant selection: distinct Fire sets, each with its best general pair
         const sets = loadoutsOf(plan).map(fireSet)
         expect(new Set(sets).size).toBe(3)
         expect(plan.config.top).toEqual({ requested: 3, used: 3 })
-        // A, B, C in the order of their best loadout; D (4th set) is left out
-        expect(plan.config.entrants.map(e => e.loadoutRank)).toEqual([1, 1, 4, 4, 6, 6, 8, 8, 7, 7, 9, 9])
+        // A (all three of its pairs), B, C in the order of their best loadout; D (4th set) is left out
+        expect(plan.config.entrants.map(e => e.loadoutRank)).toEqual([1, 1, 4, 4, 5, 5, 6, 6, 8, 8, 7, 7, 9, 9])
     })
 
-    it('gives each set its top K general pairs, 2 by default', () => {
+    it('gives each set every general pair the table has by default (#136), or its top K', () => {
         const byDefault = selected({ top: 3 })
+        expect(byDefault.config.generalPairs).toBe(6)
         expect(loadoutsOf(byDefault).map(l => l.slice(5).join())).toEqual([
+            'SPELL_HASTE,SPELL_BLUR',
+            'SPELL_HASTE,SPELL_MAGIC_EATER',
+            'SPELL_HASTE,SPELL_TEMPORAL_SHIELD',
+            'SPELL_HASTE,SPELL_BLUR',
+            'SPELL_HASTE,SPELL_MAGIC_EATER',
+            'SPELL_HASTE,SPELL_BLUR',
+            'SPELL_HASTE,SPELL_MAGIC_EATER',
+        ])
+        const two = selected({ top: 3, generalPairs: 2 })
+        expect(loadoutsOf(two).map(l => l.slice(5).join())).toEqual([
             'SPELL_HASTE,SPELL_BLUR',
             'SPELL_HASTE,SPELL_MAGIC_EATER',
             'SPELL_HASTE,SPELL_BLUR',
@@ -168,13 +217,14 @@ describe('entrant selection: distinct Fire sets, each with its best general pair
             'SPELL_HASTE,SPELL_BLUR',
             'SPELL_HASTE,SPELL_MAGIC_EATER',
         ])
-        expect(byDefault.config.generalPairs).toBe(2)
+        expect(two.config.generalPairs).toBe(2)
         const counts = (plan: TournamentPlan) => {
             const per = new Map<string, number>()
             for (const l of loadoutsOf(plan)) per.set(fireSet(l), (per.get(fireSet(l)) ?? 0) + 1)
             return [...per.values()]
         }
-        expect(counts(byDefault)).toEqual([2, 2, 2])
+        expect(counts(byDefault)).toEqual([3, 2, 2])
+        expect(counts(two)).toEqual([2, 2, 2])
         expect(counts(selected({ top: 3, generalPairs: 1 }))).toEqual([1, 1, 1])
         // A has three pairs, B and C only two: K above what a set has gives all it has
         expect(counts(selected({ top: 3, generalPairs: 3 }))).toEqual([3, 2, 2])
@@ -196,7 +246,7 @@ describe('entrant selection: distinct Fire sets, each with its best general pair
         const a = selected({ top: 3 })
         const b = selected({ top: 3 })
         expect(JSON.stringify(a.config)).toBe(JSON.stringify(b.config))
-        expect(a.config.loadouts.map(l => l.rank)).toEqual([1, 4, 6, 8, 7, 9])
+        expect(a.config.loadouts.map(l => l.rank)).toEqual([1, 4, 5, 6, 8, 7, 9])
     })
 
     it('clamps N to the sets the table has, and rejects a bad K', () => {

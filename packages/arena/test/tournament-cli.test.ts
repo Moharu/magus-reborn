@@ -37,10 +37,11 @@ describe('default entrants', () => {
     const baseline = parseBaseline(JSON.parse(readFileSync(baselineFile, 'utf8')), ENGINE_VERSION)
     const profiles = Object.values(ARCHETYPES).map(a => a.profile)
 
-    it('are 8 distinct Fire sets with 2 general pairs each, from the shipped baseline', () => {
+    it('are 8 distinct Fire sets with all 6 general pairs each, from the shipped baseline: 192 entrants (#136)', () => {
         const { config } = planTournament({ baseline, profiles })
         expect(config.top).toEqual({ requested: 8, used: 8 })
-        expect(config.loadouts).toHaveLength(16)
+        expect(config.loadouts).toHaveLength(48)
+        expect(config.entrants).toHaveLength(192)
         const loadouts = [...new Map(config.entrants.map(e => [e.loadoutRank, e.loadout] as const)).values()]
         const sets = new Map<string, number>()
         for (const l of loadouts) {
@@ -48,8 +49,26 @@ describe('default entrants', () => {
             sets.set(key, (sets.get(key) ?? 0) + 1)
         }
         expect(sets.size).toBe(8)
-        expect([...sets.values()]).toEqual(Array(8).fill(2))
-        expect(new Set(loadouts.map(l => l.join())).size).toBe(16)
+        expect([...sets.values()]).toEqual(Array(8).fill(6))
+        expect(new Set(loadouts.map(l => l.join())).size).toBe(48)
+        // per Fire set: the 3 pairs with Haste and the 3 without, Counterspell fixed
+        const pairs = (fire: string) =>
+            loadouts
+                .filter(l => [...l.slice(0, 4)].sort().join() === fire)
+                .map(l => {
+                    expect(l[4]).toBe('SPELL_COUNTERSPELL')
+                    return [...l.slice(5)].sort().join('+')
+                })
+                .sort()
+        for (const fire of sets.keys())
+            expect(pairs(fire)).toEqual([
+                'SPELL_BLUR+SPELL_HASTE',
+                'SPELL_BLUR+SPELL_MAGIC_EATER',
+                'SPELL_BLUR+SPELL_TEMPORAL_SHIELD',
+                'SPELL_HASTE+SPELL_MAGIC_EATER',
+                'SPELL_HASTE+SPELL_TEMPORAL_SHIELD',
+                'SPELL_MAGIC_EATER+SPELL_TEMPORAL_SHIELD',
+            ])
     })
 })
 

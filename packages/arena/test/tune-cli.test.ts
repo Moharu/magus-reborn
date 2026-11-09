@@ -6,7 +6,18 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ENGINE_VERSION } from '@magus/engine'
 import { afterAll, describe, expect, it } from 'vitest'
-import { ARCHETYPES, formatTuning, parseBaseline, parseProfile, tune, tunedProfile } from '../src'
+import {
+    ARCHETYPES,
+    DEFAULT_GENERAL_PAIRS,
+    DEFAULT_TOP,
+    formatTuning,
+    parseBaseline,
+    parseProfile,
+    runMatch,
+    scorer,
+    tune,
+    tunedProfile,
+} from '../src'
 
 const script = fileURLToPath(new URL('../scripts/tune.ts', import.meta.url))
 const baselineFile = fileURLToPath(new URL(`../baselines/${ENGINE_VERSION}.json`, import.meta.url))
@@ -111,5 +122,44 @@ describe('tuned profiles', () => {
             const text = readFileSync(file, 'utf8')
             expect(text.includes('@magus/arena') || text.includes('packages/arena'), file).toBe(false)
         }
+    })
+})
+
+describe('arena:tune with the default field (#136)', () => {
+    const baseline = parseBaseline(JSON.parse(readFileSync(baselineFile, 'utf8')), ENGINE_VERSION)
+    const workflow = readFileSync(
+        fileURLToPath(new URL('../../../.github/workflows/arena.yml', import.meta.url)),
+        'utf8',
+    )
+
+    it('scores a profile on all 48 default loadouts against the 4-archetype field, and the workflow budget fits it', () => {
+        const field = Object.values(ARCHETYPES).map(a => a.profile)
+        // building the scorer plans the tournament but plays nothing
+        const { config, matches } = scorer(
+            {
+                baseline,
+                field,
+                top: DEFAULT_TOP,
+                generalPairs: DEFAULT_GENERAL_PAIRS,
+                games: 2,
+                maxTicks: 3600,
+                run: runMatch,
+            },
+            1,
+        )
+        expect(config.loadouts).toHaveLength(48)
+        expect(config.entrants).toHaveLength(48 * 5)
+        // each of the candidate's 48 entrants meets the 192 field entrants, 2 games a pair
+        expect(matches).toBe(48 * 192 * 2)
+        // the tune job's --max-matches covers a selection score and its holdout re-score many times over
+        const maxMatches = Number(/--max-matches (\d+)/.exec(workflow)?.[1])
+        expect(maxMatches).toBeGreaterThanOrEqual(2 * matches * 10)
+    })
+
+    it('the workflow merge job plays the bracket after merging the shards', () => {
+        const merge = workflow.slice(workflow.search(/^ {4}merge:$/m), workflow.search(/^ {4}tune:$/m))
+        expect(merge).toContain('npm run arena -- merge')
+        expect(merge).toContain('--bracket-best-of 5')
+        expect(merge).not.toContain('--no-bracket')
     })
 })

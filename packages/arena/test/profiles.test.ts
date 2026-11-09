@@ -2,8 +2,10 @@ import { secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
 import { describe, expect, it } from 'vitest'
 import {
     ARCHETYPE_NAMES,
+    adaptProfile,
     ARCHETYPES,
     archetypeEntrant,
+    checkLoadout,
     deriveSeed,
     formatLog,
     loadProfile,
@@ -72,6 +74,7 @@ const handView = (
         lockedUntil: 0,
         effects: [],
         spells: loadout.map(id => ({ id, castTime: 0, cooldownRemaining: 0, lockRemaining: 0, ready: true })),
+        log: [],
     },
     enemy: {
         hp: 80,
@@ -108,13 +111,17 @@ const checked =
     }
 
 describe('profile loader', () => {
-    it('loads every checked-in archetype against its loadout, each with a one-line intent', () => {
+    it('loads every checked-in archetype and builds it for its loadout, each with a one-line intent', () => {
         expect(ARCHETYPE_NAMES).toEqual(['aggressive', 'patient-counter', 'bait', 'defensive'])
         for (const name of ARCHETYPE_NAMES) {
             const { profile: loaded, loadout } = ARCHETYPES[name]
             expect(loaded.name).toBe(name)
-            expect(loaded.intent).toMatch(/^[^\n]{10,200}$/)
-            expect(() => loadProfile(JSON.parse(JSON.stringify(loaded)), loadout)).not.toThrow()
+            // the intent explains the general-spell plan too (#136)
+            expect(loaded.intent).toMatch(/^[^\n]{10,600}$/)
+            expect(loaded.intent).toMatch(/Generals: /)
+            const reparsed = parseProfile(JSON.parse(JSON.stringify(loaded)))
+            expect(reparsed).toEqual(loaded)
+            expect(() => checkLoadout(adaptProfile(reparsed, loadout), loadout)).not.toThrow()
         }
     })
 
@@ -243,7 +250,7 @@ describe('profile loader', () => {
         rejects(raw => Object.assign(raw.fakeCast, { realBaitShare: -0.1 }), 'fakeCast.realBaitShare')
     })
 
-    it('rejects, at load time, a rotation spell that is not on the loadout instead of skipping it', () => {
+    it('loadProfile rejects a rotation spell that is not on the loadout; playing a profile builds it for the loadout', () => {
         expect(OTHER_LOADOUT).not.toContain('SPELL_METEOR')
         const raw = quietProfile()
         raw.rotation = ['SPELL_FIREBALL', 'SPELL_METEOR']
@@ -253,14 +260,19 @@ describe('profile loader', () => {
         expect(() => loadProfile(windowRaw, OTHER_LOADOUT)).toThrow(
             /^lockoutWindow\.rotation\[1\]: SPELL_METEOR is not on the loadout/,
         )
-        // shape-only parsing passes, but every way of playing it checks the loadout before the first tick
+        // playing it builds it for the loadout (#136): the Meteor entry is dropped, never skipped during a match
         const parsed = parseProfile(raw)
-        expect(() => profileEntrant(parsed, OTHER_LOADOUT)).toThrow(/rotation\[1\]/)
-        const factory = profileController(parsed)
-        expect(() => factory({ loadout: OTHER_LOADOUT, rng: new Rng(1) })).toThrow(/rotation\[1\]/)
-        expect(() =>
-            runMatch({ seed: 1, a: entrant('x', profileController(parsed), OTHER_LOADOUT), b: idler(), maxTicks: 1 }),
-        ).toThrow(/rotation\[1\]/)
+        expect(adaptProfile(parsed, OTHER_LOADOUT).rotation.map(e => e.spell)).toEqual(['SPELL_FIREBALL'])
+        expect(() => profileEntrant(parsed, OTHER_LOADOUT)).not.toThrow()
+        // what can't be built still fails before the first tick: Counterspell enabled on a loadout without it
+        const counter = parseProfile({
+            ...quietProfile(),
+            counterspell: { ...quietProfile().counterspell, enabled: true },
+        })
+        const noCounter = OTHER_LOADOUT.map(id => (id === 'SPELL_COUNTERSPELL' ? 'SPELL_METEOR' : id))
+        expect(() => profileEntrant(counter, noCounter)).toThrow(/counterspell\.enabled/)
+        const factory = profileController(counter)
+        expect(() => factory({ loadout: noCounter, rng: new Rng(1) })).toThrow(/counterspell\.enabled/)
     })
 
     it('rejects an enabled fake cast of a spell not on the loadout, and ignores general rules for spells it lacks', () => {
@@ -450,7 +462,11 @@ describe('profile controller: fake casts', () => {
 
     it('does not let nextCastIs rules (Haste before Meteor) fire for a fake cast', () => {
         const { profile: bait, loadout } = ARCHETYPES.bait
-        const fakesOnly = { ...bait, fakeCast: { ...bait.fakeCast, realBaitShare: 0 } }
+        const fakesOnly = {
+            ...bait,
+            rotation: [{ spell: 'SPELL_METEOR' as const, when: [] }],
+            fakeCast: { ...bait.fakeCast, realBaitShare: 0 },
+        }
         const result = runMatch({ seed: 1, a: profileEntrant(fakesOnly, loadout), b: idler(), maxTicks: 20 })
         // the fake Meteor starts on tick 0 and is cancelled on 5; Haste goes with the real Meteor on 13
         expect(result.log.map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
@@ -594,6 +610,7 @@ const freeView = (
             lockRemaining: 0,
             ready: true,
         })),
+        log: [],
     },
     enemy: {
         hp: 100,
@@ -647,8 +664,8 @@ describe('profile controller: free-cast window after a Counterspell (#123)', () 
         { name: 'aggressive', ignites: 2, window: 'SPELL_COMBUSTION', normal: 'SPELL_IGNITE' },
         { name: 'defensive', ignites: 1, window: 'SPELL_COMBUSTION', normal: 'SPELL_LIVING_BOMB' },
         { name: 'patient-counter', ignites: 1, window: 'SPELL_COMBUSTION', normal: 'SPELL_IGNITE' },
-        // a 3 s lockout has no room for Meteor (3.6 s), so bait casts a Fireball instead of a bait or a Meteor
-        { name: 'bait', ignites: 0, window: 'SPELL_FIREBALL', normal: undefined },
+        // a 3 s lockout has no room for Meteor (3.6 s), so bait casts its next window entry, an Ignite, instead of a bait
+        { name: 'bait', ignites: 0, window: 'SPELL_IGNITE', normal: undefined },
     ] as const
 
     it('every archetype casts from its window list while the enemy is locked out', () => {
@@ -683,10 +700,11 @@ describe('profile controller: free-cast window after a Counterspell (#123)', () 
         const enemy = side === 'a' ? 'b' : 'a'
         it(`in a match (as ${side}): the cast after its Counterspell is a Combustion that lands before the lockout ends`, () => {
             // the enemy Meteor's start tick is picked so the archetype has the Ignites its window rule asks for
-            for (const [name, meteorAt] of [
-                ['aggressive', 70],
-                ['defensive', 100],
-                ['patient-counter', 60],
+            // aggressive holds Haste, which it uses in the window (#136): its Combustion is hasted to 24 ticks
+            for (const [name, meteorAt, combustion] of [
+                ['aggressive', 70, 24],
+                ['defensive', 100, 48],
+                ['patient-counter', 60, 48],
             ] as const) {
                 const meteor = entrant('meteor', scripted({ [meteorAt]: start(METEOR), [meteorAt + 72]: stop(METEOR) }))
                 const result = runMatch({
@@ -703,7 +721,7 @@ describe('profile controller: free-cast window after a Counterspell (#123)', () 
                 const release = of(result.log, side, 'SPELL_RELEASE').find(
                     e => e.tick > landed && e.spellId === 'SPELL_COMBUSTION',
                 )
-                expect(release?.tick, name).toBe(landed + 1 + 48)
+                expect(release?.tick, name).toBe(landed + 1 + combustion)
                 expect(release!.tick, name).toBeLessThan(landed + 60)
                 expect(result.stats[side].interrupted, name).toBe(0)
             }
@@ -874,7 +892,8 @@ describe('profile controller: sacrificial bait (#123)', () => {
             const releases = of(result.log, side, 'SPELL_RELEASE').filter(
                 e => between(e) && e.spellId === 'SPELL_METEOR',
             )
-            expect(releases.length).toBeGreaterThanOrEqual(2)
+            // the second Meteor may be cancelled by the bait's own Counterspell on an enemy Combustion
+            expect(releases.length).toBeGreaterThanOrEqual(1)
             expect(of(result.log, side, 'INTERRUPTED').filter(e => e.tick < readyAgain)).toHaveLength(1)
         })
     }

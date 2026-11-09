@@ -396,6 +396,9 @@ describe('runMatch: what a controller sees', () => {
         // on every tick, each side's enemy log is exactly the other side's engine log entries from earlier ticks
         for (const view of seenA) expect(view.enemy.log).toEqual(entriesOf('b', view.tick))
         for (const view of seenB) expect(view.enemy.log).toEqual(entriesOf('a', view.tick))
+        // and its own log (#136) is exactly its own entries from earlier ticks, the interrupted cast included
+        for (const view of seenA) expect(view.self.log).toEqual(entriesOf('a', view.tick))
+        for (const view of seenB) expect(view.self.log).toEqual(entriesOf('b', view.tick))
         expect(seenA[300].enemy.log.map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
             '0 START_CAST SPELL_FIREBALL',
             '26 STOP_CAST SPELL_FIREBALL',

@@ -38,21 +38,56 @@ export type Condition =
     | { type: 'enemyLocked' }
     /** The real cast this profile starts this tick is one of `spells`, e.g. Haste before Meteor. Never a fake cast. */
     | { type: 'nextCastIs'; spells: SpellId[] }
+    /**
+     * The real cast this profile starts this tick is the loadout's longest cast (by the public base cast time; any of
+     * them on a tie), e.g. Haste on Meteor, or on Combustion for a loadout without Meteor. Never a fake cast.
+     */
+    | { type: 'nextCastIsLongest' }
+    /** An effect with id `effect` on yourself ends within `seconds`, e.g. Temporal Shield before a Living Bomb explodes. */
+    | { type: 'selfEffectEndsWithin'; effect: EffectId; seconds: number }
+    /** An effect with id `effect` on the enemy ends within `seconds`, e.g. Magic Eater before its Living Bomb explodes. */
+    | { type: 'enemyEffectEndsWithin'; effect: EffectId; seconds: number }
+    /**
+     * At least `count` casts of `spell` released by this player within the last `withinSeconds` (this tick's release
+     * included), e.g. Afterburn after a few Fireballs. Counted from the player's own releases, not from the engine.
+     */
+    | { type: 'selfCastsAtLeast'; spell: SpellId; count: number; withinSeconds: number }
+    /** The free-cast window (#123) is open: the enemy can't Counterspell yet, as the profile reads it from the view. */
+    | { type: 'inLockoutWindow' }
+    /** At least one of the lists in `of` holds (each list: all of its conditions). Lists hold no `anyOf` of their own. */
+    | { type: 'anyOf'; of: Condition[][] }
 
 export type ConditionType = Condition['type']
 
-/** What a condition may read: the player's view, and the cast the profile itself decided to start this tick. */
+/** One of the player's own releases, as its controller saw it go out. */
+export interface OwnRelease {
+    readonly spellId: SpellId
+    readonly tick: number
+}
+
+/**
+ * What a condition may read: the player's view, the cast the profile itself decided to start this tick, and what its
+ * controller remembers from earlier views (its own releases, whether the free-cast window is open).
+ */
 export interface ConditionInput {
     readonly view: ArenaView
     /** Whether the player still has a cast in progress after this tick's release or cancel. */
     readonly casting: boolean
     /** The spell the profile starts this tick, or null (also for a fake cast). */
     readonly nextCast: SpellId | null
+    /** The loadout's longest casts (`nextCastIsLongest`). Default: none. */
+    readonly longest?: readonly SpellId[]
+    /** The player's own releases so far, oldest first (`selfCastsAtLeast`). Default: none. */
+    readonly releases?: readonly OwnRelease[]
+    /** Whether the free-cast window is open (`inLockoutWindow`). Default: false. */
+    readonly window?: boolean
 }
 
 const EFFECT_IDS = Object.keys(EFFECT_REDUCERS) as EffectId[]
 const MAX_COUNT = 100
 const MAX_SECONDS = 10
+
+const MAX_WITHIN_SECONDS = 60
 
 const count = (effects: readonly EffectView[], id: EffectId) => {
     let n = 0
@@ -60,8 +95,16 @@ const count = (effects: readonly EffectView[], id: EffectId) => {
     return n
 }
 
+/** Some effect with id `id` ends within `ticks` of `tick`. */
+const endsWithin = (effects: readonly EffectView[], id: EffectId, tick: number, ticks: number) => {
+    for (let i = 0; i < effects.length; i++)
+        if (effects[i].id === id && effects[i].expiresAt - tick <= ticks) return true
+    return false
+}
+
 /** Whether `condition` holds. A pure read of `input`. */
-export const conditionHolds = (condition: Condition, { view, casting, nextCast }: ConditionInput): boolean => {
+export const conditionHolds = (condition: Condition, input: ConditionInput): boolean => {
+    const { view, casting, nextCast } = input
     const { self, enemy, tick } = view
     switch (condition.type) {
         case 'selfHpBelow':
@@ -98,6 +141,25 @@ export const conditionHolds = (condition: Condition, { view, casting, nextCast }
             return enemy.lockedUntil > tick
         case 'nextCastIs':
             return nextCast !== null && condition.spells.includes(nextCast)
+        case 'nextCastIsLongest':
+            return nextCast !== null && (input.longest ?? []).includes(nextCast)
+        case 'selfEffectEndsWithin':
+            return endsWithin(self.effects, condition.effect, tick, secondsToTicks(condition.seconds))
+        case 'enemyEffectEndsWithin':
+            return endsWithin(enemy.effects, condition.effect, tick, secondsToTicks(condition.seconds))
+        case 'selfCastsAtLeast': {
+            const releases = input.releases ?? []
+            const from = tick - secondsToTicks(condition.withinSeconds)
+            let n = 0
+            for (let i = releases.length - 1; i >= 0 && releases[i].tick >= from; i--)
+                if (releases[i].spellId === condition.spell) n += 1
+            return n >= condition.count
+        }
+        case 'inLockoutWindow':
+            return input.window === true
+        case 'anyOf':
+            for (const when of condition.of) if (allHold(when, input)) return true
+            return false
     }
 }
 
@@ -106,6 +168,8 @@ export const allHold = (when: readonly Condition[], input: ConditionInput) => {
     for (let i = 0; i < when.length; i++) if (!conditionHolds(when[i], input)) return false
     return true
 }
+
+const seconds = (raw: Record<string, unknown>, path: string) => number(raw.seconds, `${path}.seconds`, 0, MAX_SECONDS)
 
 const hp = (raw: Record<string, unknown>, path: string) => number(raw.hp, `${path}.hp`, 0, 100)
 
@@ -141,10 +205,16 @@ const KEYS: Record<ConditionType, readonly string[]> = {
     enemyCastEndsWithin: ['seconds', 'spells'],
     enemyLocked: [],
     nextCastIs: ['spells'],
+    nextCastIsLongest: [],
+    selfEffectEndsWithin: ['effect', 'seconds'],
+    enemyEffectEndsWithin: ['effect', 'seconds'],
+    selfCastsAtLeast: ['spell', 'count', 'withinSeconds'],
+    inLockoutWindow: [],
+    anyOf: ['of'],
 }
 
-/** Throws an error naming the key unless `raw` is a valid condition. */
-export const parseCondition = (raw: unknown, path: string): Condition => {
+/** Throws an error naming the key unless `raw` is a valid condition. Inside an `anyOf`, `nested` forbids another. */
+export const parseCondition = (raw: unknown, path: string, nested = false): Condition => {
     if (!isRecord(raw)) fail(path, 'must be a condition object')
     const type = raw.type as ConditionType
     if (typeof type !== 'string' || !Object.hasOwn(KEYS, type))
@@ -167,15 +237,43 @@ export const parseCondition = (raw: unknown, path: string): Condition => {
         case 'selfNotCasting':
         case 'enemyNotCasting':
         case 'enemyLocked':
+        case 'nextCastIsLongest':
+        case 'inLockoutWindow':
             return { type }
+        case 'selfEffectEndsWithin':
+        case 'enemyEffectEndsWithin': {
+            const { effect } = effectCount({ ...raw, count: 0 }, path)
+            return { type, effect, seconds: seconds(raw, path) }
+        }
+        case 'selfCastsAtLeast': {
+            if (!isSpellId(raw.spell)) fail(`${path}.spell`, `unknown spell id ${JSON.stringify(raw.spell)}`)
+            return {
+                type,
+                spell: raw.spell as SpellId,
+                count: number(raw.count, `${path}.count`, 0, MAX_COUNT, true),
+                withinSeconds: number(raw.withinSeconds, `${path}.withinSeconds`, 0, MAX_WITHIN_SECONDS),
+            }
+        }
+        case 'anyOf': {
+            if (nested) fail(`${path}.type`, 'an anyOf may not hold another anyOf')
+            if (!Array.isArray(raw.of) || raw.of.length === 0) fail(`${path}.of`, 'must be a non-empty array of lists')
+            return {
+                type,
+                of: (raw.of as unknown[]).map((when, i) => {
+                    const at = `${path}.of[${i}]`
+                    if (!Array.isArray(when) || when.length === 0) fail(at, 'must be a non-empty array of conditions')
+                    return (when as unknown[]).map((condition, j) => parseCondition(condition, `${at}[${j}]`, true))
+                }),
+            }
+        }
         case 'enemyCasting': {
             const list = spells('spells', true)
             return list ? { type, spells: list } : { type }
         }
         case 'enemyCastEndsWithin': {
-            const seconds = number(raw.seconds, `${path}.seconds`, 0, MAX_SECONDS)
+            const within = seconds(raw, path)
             const list = spells('spells', true)
-            return list ? { type, seconds, spells: list } : { type, seconds }
+            return list ? { type, seconds: within, spells: list } : { type, seconds: within }
         }
         case 'nextCastIs':
             return { type, spells: spells('spells', false)! }
