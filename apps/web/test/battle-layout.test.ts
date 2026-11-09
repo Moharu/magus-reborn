@@ -274,6 +274,7 @@ describe('accessible cast ownership', () => {
                 update: BattleView['update']
                 setOverlay: BattleView['setOverlay']
                 onKeyDown(event: unknown): void
+                onKeyUp(event: unknown): void
             }
             const feed = () => view.update(game.snapshot(), [], [])
             const press = (i: number) => {
@@ -294,17 +295,19 @@ describe('accessible cast ownership', () => {
                 for (const command of commands.splice(0)) command()
                 feed()
             }
+            const code = (i: number) => ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'Space', 'KeyD', 'KeyF'][i]
             const input = (kind: 'click' | 'pointer' | 'keyboard', i: number) => {
-                if (kind === 'keyboard')
-                    view.onKeyDown({
-                        code: ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'Space', 'KeyD', 'KeyF'][i],
-                        preventDefault: vi.fn(),
-                    })
+                if (kind === 'keyboard') view.onKeyDown({ code: code(i), preventDefault: vi.fn() })
                 else
                     bar.children[i + 1].emit(
                         kind === 'click' ? 'click' : 'pointerdown',
                         new FederatedPointerEvent(new EventBoundary(bar)),
                     )
+                sync()
+            }
+            const lift = (kind: 'pointer' | 'keyboard', i: number) => {
+                if (kind === 'keyboard') view.onKeyUp({ code: code(i), preventDefault: vi.fn() })
+                else bar.children[i + 1].emit('pointerup', new FederatedPointerEvent(new EventBoundary(bar)))
                 sync()
             }
             const charge = () => {
@@ -314,8 +317,52 @@ describe('accessible cast ownership', () => {
                 }
             }
             sync()
-            return { game, view, bar, release, input, charge, sync }
+            return { game, view, bar, release, input, lift, charge, sync }
         }
+
+        it.each(['keyboard', 'pointer'] as const)(
+            'lets a same-tick manual %s Fireball take over a confirmed accessible one (#112)',
+            kind => {
+                const { game, release, input, lift, charge } = harness()
+                input('click', 0)
+                const start = game.state.player1.castStartingTick
+                input(kind, 0)
+                // The replacement is indistinguishable by state: same spell index and starting tick.
+                expect(game.state.player1).toMatchObject({ cast: 0, castStartingTick: start })
+                charge()
+                expect(release).not.toHaveBeenCalled()
+                expect(game.state.player1.cast).toBe(0)
+                lift(kind, 0)
+                expect(release).toHaveBeenCalledExactlyOnceWith(0)
+                expect(game.state.player2.hp).toBeLessThan(100)
+            },
+        )
+
+        it('gives a second same-tick replacement its own release behavior (#112)', () => {
+            const { game, release, input, lift, charge } = harness()
+            input('click', 0)
+            input('keyboard', 0)
+            // Released and pressed again within the same tick: the held key still owns the cast.
+            lift('keyboard', 0)
+            input('keyboard', 0)
+            charge()
+            expect(release).toHaveBeenCalledExactlyOnceWith(0)
+            expect(game.state.player1.cast).toBe(0)
+            lift('keyboard', 0)
+            expect(release).toHaveBeenCalledTimes(2)
+            expect(game.state.player2.hp).toBeLessThan(100)
+        })
+
+        it('lets an accessible activation after a same-tick manual press own the release again (#112)', () => {
+            const { game, release, input, charge } = harness()
+            input('click', 0)
+            input('pointer', 0)
+            input('click', 0)
+            expect(game.state.player1.castStartingTick).toBe(0)
+            charge()
+            expect(release).toHaveBeenCalledExactlyOnceWith(0)
+            expect(game.state.player2.hp).toBeLessThan(100)
+        })
 
         it.each([0, 0.4, 0.6, 0.99])('auto-releases activation at display tick 10 + %s', fraction => {
             const { game, bar, release, input, sync } = harness()

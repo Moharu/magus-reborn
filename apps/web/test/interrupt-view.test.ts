@@ -618,3 +618,163 @@ describe('cast ownership across lobby pauses', () => {
         expect(battle.state.player2.hp).toBeLessThan(100)
     })
 })
+
+describe('releases made during a pause before the cast reached a snapshot (#112)', () => {
+    type Input = 'keyboard' | 'pointer'
+    const KEY_Q = { code: 'KeyQ', preventDefault: () => {} } as unknown as KeyboardEvent
+
+    /** A lobby client whose start_cast reaches the server (`accept`) after the last broadcast it saw. */
+    const setup = (battle: Battle, accept = true) => {
+        let paused = false
+        const server = { accept }
+        const release = vi.fn((i: number) => {
+            if (!paused) battle.stopCast('player1', i)
+        })
+        const Ctor = BattleView as unknown as new (
+            container: unknown,
+            options: { me: PlayerKey; onPress(i: number): void; onRelease(i: number): void },
+        ) => Pick<BattleView, 'update' | 'setFrozen' | 'setOverlay'> & {
+            actionBar: ActionBar
+            unseenReleases: Map<number, number>
+            onKeyDown(event: KeyboardEvent): void
+            onKeyUp(event: KeyboardEvent): void
+            pressInput(i: number): void
+            releaseInput(i: number): void
+        }
+        const view = new Ctor(
+            {},
+            {
+                me: 'player1',
+                onPress: i => {
+                    if (server.accept && !paused) battle.startCast('player1', i)
+                },
+                onRelease: release,
+            },
+        )
+        view.actionBar = new ActionBar(
+            i => view.pressInput(i),
+            i => view.releaseInput(i),
+        )
+        view.update(battle.snapshot(), [], [])
+        view.setOverlay(null)
+        const button = view.actionBar.children[1]
+        const down = (input: Input) =>
+            input === 'keyboard' ? view.onKeyDown(KEY_Q) : button.emit('pointerdown', {} as never)
+        const up = (input: Input) =>
+            input === 'keyboard' ? view.onKeyUp(KEY_Q) : button.emit('pointerupoutside', {} as never)
+        const pause = () => {
+            paused = true
+            view.setFrozen(true)
+            view.setOverlay('Paused', 'Opponent disconnected')
+        }
+        const resume = () => {
+            paused = false
+            view.setFrozen(false)
+            view.setOverlay(null)
+        }
+        const step = () => {
+            battle.tick()
+            view.update(battle.snapshot(), [], [])
+        }
+        return { view, release, down, up, pause, resume, step, server }
+    }
+
+    it.each<Input>(['keyboard', 'pointer'])('fires a %s Fireball accepted just before the pause', input => {
+        const battle = newBattle()
+        for (let i = 0; i < 10; i++) battle.tick()
+        const { view, release, down, up, pause, resume, step } = setup(battle)
+        down(input)
+        // Accepted by the server, but the pause arrives before the next broadcast shows it.
+        expect(battle.state.player1.cast).toBe(0)
+        const completion = battle.state.gameTick + battle.state.player1.spells[0].castTime
+        pause()
+        up(input)
+        view.update(battle.snapshot(), [], [])
+        expect(release).not.toHaveBeenCalled()
+        resume()
+        expect(release).not.toHaveBeenCalled()
+        while (battle.state.gameTick < completion) {
+            expect(release).not.toHaveBeenCalled()
+            step()
+        }
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player1.cast).toBeNull()
+        expect(battle.state.player2.hp).toBeLessThan(100)
+        step()
+        expect(release).toHaveBeenCalledTimes(1)
+        expect(view.unseenReleases.size).toBe(0)
+    })
+
+    it.each(['rejected', 'interrupted', 'replaced'] as const)(
+        'drops the release when the cast is %s server-side and never fires a later Fireball',
+        outcome => {
+            const battle = newBattle()
+            for (let i = 0; i < 10; i++) battle.tick()
+            const { view, release, down, up, pause, resume, step } = setup(battle, outcome !== 'rejected')
+            down('keyboard')
+            pause()
+            up('keyboard')
+            resume()
+            expect(view.unseenReleases.size).toBe(1)
+            if (outcome === 'interrupted') press(battle, 'player2', 'SPELL_COUNTERSPELL')
+            if (outcome === 'replaced') press(battle, 'player1', 'SPELL_METEOR')
+            step()
+            expect(view.unseenReleases.size).toBe(0)
+            expect(battle.state.player1.cast).toBe(outcome === 'replaced' ? 1 : null)
+            // A Fireball that no input of this view started is not owned by the old release.
+            while (battle.state.gameTick < battle.state.player1.lockedUntil) step()
+            if (outcome === 'replaced') battle.stopCast('player1', 1)
+            press(battle, 'player1', 'SPELL_FIREBALL')
+            for (let i = 0; i <= battle.state.player1.spells[0].castTime; i++) step()
+            expect(release).not.toHaveBeenCalled()
+            expect(battle.state.player1.cast).toBe(0)
+        },
+    )
+
+    it('drops the release when the pause ends with the round decided', () => {
+        const battle = newBattle()
+        for (let i = 0; i < 10; i++) battle.tick()
+        const { view, release, down, up, pause, resume, step } = setup(battle)
+        battle.state.player2.hp = 1
+        simpleDebuff<IgniteDebuff>(battle.state, 'player2', {
+            id: 'DEBUFF_IGNITE',
+            label: 'Ignite',
+            source: 'SPELL_IGNITE',
+            damage: 1000,
+            duration: 10,
+        })
+        step()
+        expect(battle.snapshot()).toMatchObject({ winner: 'player1', finished: false })
+        // Deciding-tick input still counts, but its cast can never complete.
+        down('keyboard')
+        expect(battle.state.player1.cast).toBe(0)
+        pause()
+        up('keyboard')
+        resume()
+        step()
+        expect(battle.snapshot()).toMatchObject({ winner: 'player1', finished: true })
+        expect(view.unseenReleases.size).toBe(0)
+        expect((view.actionBar as unknown as { accessibleCast: unknown }).accessibleCast).toBeNull()
+        expect(release).not.toHaveBeenCalled()
+    })
+
+    it.each([true, false])('lets a new press after resume own its release (first press accepted: %s)', accepted => {
+        const battle = newBattle()
+        for (let i = 0; i < 10; i++) battle.tick()
+        const { view, release, down, up, pause, resume, step, server } = setup(battle, accepted)
+        down('keyboard')
+        pause()
+        up('keyboard')
+        resume()
+        server.accept = true
+        // Pressed again before any post-resume snapshot arrives, and held.
+        down('keyboard')
+        expect(view.unseenReleases.size).toBe(0)
+        for (let i = 0; i <= battle.state.player1.spells[0].castTime; i++) step()
+        expect(release).not.toHaveBeenCalled()
+        expect(battle.state.player1.cast).toBe(0)
+        up('keyboard')
+        expect(release).toHaveBeenCalledExactlyOnceWith(0)
+        expect(battle.state.player2.hp).toBeLessThan(100)
+    })
+})
