@@ -10,7 +10,7 @@
     ],
     "profile": {
         "name": "aggressive",
-        "intent": "All-out damage: stack 4 Ignites, Combustion on them, Living Bomb kept up, Meteor otherwise; an early Counterspell on the biggest threats seen (12+ HP), any cast after 8 s held; a completed cast is held (up to 1.2 s) while the enemy shows a Temporal Shield, unless it would kill, so its rewind can't undo the hit. Generals: Haste and Magic Eater on its longest cast or in a window; Temporal Shield just before an enemy Meteor or Combustion lands or its Living Bomb explodes (or on 3+ Ignites, between casts); Blur as an enemy Living Bomb lands, or an Ignite when between casts or already on 2 Ignites.",
+        "intent": "All-out damage. Fire: stack 4 Ignites, Combustion on them, Living Bomb kept up, Meteor otherwise. Frost: Ice Spear at 4+ Chilling, Frost Bomb and Frost Fever kept up (never recast while up), Icy Touch whenever Frost Fever is on and a stack is free (its GCD then holds the next cast), Glacier while its 3 stacks fit, Frostbolt otherwise. An early Counterspell on the biggest threats seen (12+ HP), any cast after 8 s held; a completed cast is held (up to 1.2 s) while the enemy shows a Temporal Shield, unless it would kill. Generals: Haste and Magic Eater on its longest cast (Meteor, Glacier) or in a window, Magic Eater also on a 4-stack Ice Spear; Temporal Shield just before an enemy Meteor, Combustion, Glacier or 4-stack Ice Spear lands, or its Living Bomb explodes or Frost Bomb's last pulse (or on 3+ Ignites, between casts); Blur as an enemy Living Bomb or Frost Bomb lands, an Ignite when between casts or on 2 Ignites, or a Frost Bomb with Frost Fever between casts.",
         "rotation": [
             {
                 "spell": "SPELL_COMBUSTION",
@@ -54,7 +54,72 @@
                     }
                 ]
             },
-            "SPELL_FIREBALL"
+            "SPELL_FIREBALL",
+            {
+                "spell": "SPELL_ICE_SPEAR",
+                "when": [
+                    {
+                        "type": "anyOf",
+                        "of": [
+                            [
+                                {
+                                    "type": "selfChillingAtLeast",
+                                    "count": 4
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "noChillingSource"
+                                }
+                            ]
+                        ]
+                    }
+                ]
+            },
+            {
+                "spell": "SPELL_FROST_BOMB",
+                "when": [
+                    {
+                        "type": "enemyEffectsBelow",
+                        "effect": "DEBUFF_FROST_BOMB",
+                        "count": 1
+                    }
+                ]
+            },
+            {
+                "spell": "SPELL_ICY_TOUCH",
+                "when": [
+                    {
+                        "type": "enemyEffectsAtLeast",
+                        "effect": "DEBUFF_FROST_FEVER",
+                        "count": 1
+                    },
+                    {
+                        "type": "selfChillingAtLeast",
+                        "count": 1
+                    }
+                ]
+            },
+            {
+                "spell": "SPELL_FROST_FEVER",
+                "when": [
+                    {
+                        "type": "enemyEffectsBelow",
+                        "effect": "DEBUFF_FROST_FEVER",
+                        "count": 1
+                    }
+                ]
+            },
+            {
+                "spell": "SPELL_GLACIER",
+                "when": [
+                    {
+                        "type": "selfChillingBelow",
+                        "count": 3
+                    }
+                ]
+            },
+            "SPELL_FROSTBOLT"
         ],
         "lockoutWindow": {
             "rotation": [
@@ -100,7 +165,60 @@
                         }
                     ]
                 },
-                "SPELL_FIREBALL"
+                "SPELL_FIREBALL",
+                {
+                    "spell": "SPELL_ICE_SPEAR",
+                    "when": [
+                        {
+                            "type": "anyOf",
+                            "of": [
+                                [
+                                    {
+                                        "type": "selfChillingAtLeast",
+                                        "count": 3
+                                    }
+                                ],
+                                [
+                                    {
+                                        "type": "noChillingSource"
+                                    }
+                                ]
+                            ]
+                        }
+                    ]
+                },
+                "SPELL_GLACIER",
+                {
+                    "spell": "SPELL_FROST_BOMB",
+                    "when": [
+                        {
+                            "type": "enemyEffectsBelow",
+                            "effect": "DEBUFF_FROST_BOMB",
+                            "count": 1
+                        }
+                    ]
+                },
+                {
+                    "spell": "SPELL_FROST_FEVER",
+                    "when": [
+                        {
+                            "type": "enemyEffectsBelow",
+                            "effect": "DEBUFF_FROST_FEVER",
+                            "count": 1
+                        }
+                    ]
+                },
+                {
+                    "spell": "SPELL_ICY_TOUCH",
+                    "when": [
+                        {
+                            "type": "enemyEffectsAtLeast",
+                            "effect": "DEBUFF_FROST_FEVER",
+                            "count": 1
+                        }
+                    ]
+                },
+                "SPELL_FROSTBOLT"
             ]
         },
         "counterspell": {
@@ -172,7 +290,7 @@
                                 {
                                     "type": "enemyCastEndsWithin",
                                     "seconds": 0.25,
-                                    "spells": ["SPELL_METEOR", "SPELL_COMBUSTION"]
+                                    "spells": ["SPELL_METEOR", "SPELL_COMBUSTION", "SPELL_GLACIER"]
                                 }
                             ],
                             [
@@ -190,6 +308,24 @@
                                     "type": "selfEffectsAtLeast",
                                     "effect": "DEBUFF_IGNITE",
                                     "count": 3
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "enemyCastEndsWithin",
+                                    "seconds": 0.3,
+                                    "spells": ["SPELL_ICE_SPEAR"]
+                                },
+                                {
+                                    "type": "enemyChillingAtLeast",
+                                    "count": 4
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "selfEffectEndsWithin",
+                                    "effect": "DEBUFF_FROST_BOMB",
+                                    "seconds": 0.5
                                 }
                             ]
                         ]
@@ -222,6 +358,16 @@
                                 {
                                     "type": "enemyEffectsAtLeast",
                                     "effect": "DEBUFF_IGNITE",
+                                    "count": 4
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "nextCastIs",
+                                    "spells": ["SPELL_ICE_SPEAR"]
+                                },
+                                {
+                                    "type": "selfChillingAtLeast",
                                     "count": 4
                                 }
                             ]
@@ -261,6 +407,28 @@
                                     "type": "selfEffectsAtLeast",
                                     "effect": "DEBUFF_IGNITE",
                                     "count": 2
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "enemyCastEndsWithin",
+                                    "seconds": 0.3,
+                                    "spells": ["SPELL_FROST_BOMB"]
+                                }
+                            ],
+                            [
+                                {
+                                    "type": "selfNotCasting"
+                                },
+                                {
+                                    "type": "selfEffectsAtLeast",
+                                    "effect": "DEBUFF_FROST_BOMB",
+                                    "count": 1
+                                },
+                                {
+                                    "type": "selfEffectsAtLeast",
+                                    "effect": "DEBUFF_FROST_FEVER",
+                                    "count": 1
                                 }
                             ]
                         ]

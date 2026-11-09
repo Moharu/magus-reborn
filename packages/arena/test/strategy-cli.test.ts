@@ -111,6 +111,31 @@ describe('arena --mode strategy (#137)', () => {
     )
 
     it(
+        'accepts a Frost set through --set (or --fire-set), labelled I<n> with the Frost table baseline (#150)',
+        () => {
+            const sets = [
+                '--fire-set',
+                'fireball,ignite,combustion,meteor',
+                '--set',
+                'frostbolt,glacier,frost-bomb,ice-spear',
+            ]
+            arena('--mode', 'strategy', ...tiny, ...sets, '--jobs', '1', '--out', join(dir, 'frost.json'))
+            const result = json('frost.json')
+            expect(result.config.setups.map(s => s.id)).toContain('I2/haste+blur')
+            expect(result.config.fireSets[1]).toMatchObject({
+                element: 'FROST',
+                spells: ['SPELL_FROSTBOLT', 'SPELL_GLACIER', 'SPELL_FROST_BOMB', 'SPELL_ICE_SPEAR'],
+                baseline: { rank: 4 },
+            })
+            expect(result.games).toBe(12 * 3 * 2 * 2)
+            expect(fails(entry, '--mode', 'strategy', '--set', 'frostbolt,glacier,frost-bomb,fireball')).toMatch(
+                /four distinct Fire spells \(nor four Frost spells\)/,
+            )
+        },
+        TIMEOUT,
+    )
+
+    it(
         'shards merge into the unsharded result, with absolute --out paths, and a missing shard makes it partial',
         () => {
             const whole = join(dir, 'm-whole.json')
@@ -220,5 +245,23 @@ describe('.github/workflows/arena.yml: the mode input (#137)', () => {
         expect(workflow).toContain('arena-out/arena-report.md')
         // the tuning belongs to the tournament mode
         expect(workflow).toContain('"$ARENA_MODE" == "tournament"')
+    })
+})
+
+describe('.github/workflows/arena.yml: Frost sets (#150)', () => {
+    const workflow = readFileSync(
+        fileURLToPath(new URL('../../../.github/workflows/arena.yml', import.meta.url)),
+        'utf8',
+    )
+
+    it('has a frost_top input, checked as an integer and passed to the tournament shards as --frost-top', () => {
+        const input = /^ {12}frost_top:\n((?: {16}.*\n)+)/m.exec(workflow)?.[1] ?? ''
+        expect(input).toMatch(/default: '8'/)
+        expect(workflow).toContain('ARENA_FROST_TOP: ${{ inputs.frost_top }}')
+        expect(workflow).toMatch(/for name in [^;]*\bARENA_FROST_TOP\b/)
+        expect(workflow).toContain('--frost-top "$ARENA_FROST_TOP"')
+        // workflow_dispatch takes at most 10 inputs
+        const inputs = /^ {8}inputs:\n((?: {12,}.*\n)+)/m.exec(workflow)?.[1] ?? ''
+        expect([...inputs.matchAll(/^ {12}\w+:$/gm)].length).toBeLessThanOrEqual(10)
     })
 })

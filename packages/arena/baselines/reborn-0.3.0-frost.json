@@ -1,0 +1,1267 @@
+{
+    "version": "reborn-0.3.0",
+    "element": "FROST",
+    "generatedBy": "npm run arena:baseline -- --element frost --top 90",
+    "loadouts": [
+        {
+            "rank": 1,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 10.273333,
+            "dpsUnderPressure": 8.384167
+        },
+        {
+            "rank": 2,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 10.273333,
+            "dpsUnderPressure": 8.384167
+        },
+        {
+            "rank": 3,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 10.273333,
+            "dpsUnderPressure": 8.384167
+        },
+        {
+            "rank": 4,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.683333,
+            "dpsUnderPressure": 8.258333
+        },
+        {
+            "rank": 5,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.683333,
+            "dpsUnderPressure": 8.258333
+        },
+        {
+            "rank": 6,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 9.683333,
+            "dpsUnderPressure": 8.258333
+        },
+        {
+            "rank": 7,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.683333,
+            "dpsUnderPressure": 8.258333
+        },
+        {
+            "rank": 8,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.683333,
+            "dpsUnderPressure": 8.258333
+        },
+        {
+            "rank": 9,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 9.683333,
+            "dpsUnderPressure": 8.258333
+        },
+        {
+            "rank": 10,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.683333,
+            "dpsUnderPressure": 8.258333
+        },
+        {
+            "rank": 11,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.683333,
+            "dpsUnderPressure": 8.258333
+        },
+        {
+            "rank": 12,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 9.683333,
+            "dpsUnderPressure": 8.258333
+        },
+        {
+            "rank": 13,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.545,
+            "dpsUnderPressure": 8.048333
+        },
+        {
+            "rank": 14,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.545,
+            "dpsUnderPressure": 8.048333
+        },
+        {
+            "rank": 15,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 9.545,
+            "dpsUnderPressure": 8.048333
+        },
+        {
+            "rank": 16,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.7,
+            "dpsUnderPressure": 7.633333
+        },
+        {
+            "rank": 17,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.7,
+            "dpsUnderPressure": 7.633333
+        },
+        {
+            "rank": 18,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 9.7,
+            "dpsUnderPressure": 7.633333
+        },
+        {
+            "rank": 19,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.066667,
+            "dpsUnderPressure": 7.633333
+        },
+        {
+            "rank": 20,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.066667,
+            "dpsUnderPressure": 7.633333
+        },
+        {
+            "rank": 21,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.066667,
+            "dpsUnderPressure": 7.633333
+        },
+        {
+            "rank": 22,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.72,
+            "dpsUnderPressure": 7.571667
+        },
+        {
+            "rank": 23,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.72,
+            "dpsUnderPressure": 7.571667
+        },
+        {
+            "rank": 24,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 9.72,
+            "dpsUnderPressure": 7.571667
+        },
+        {
+            "rank": 25,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.1275,
+            "dpsUnderPressure": 7.3925
+        },
+        {
+            "rank": 26,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.1275,
+            "dpsUnderPressure": 7.3925
+        },
+        {
+            "rank": 27,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 9.1275,
+            "dpsUnderPressure": 7.3925
+        },
+        {
+            "rank": 28,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.111667,
+            "dpsUnderPressure": 7.3675
+        },
+        {
+            "rank": 29,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.111667,
+            "dpsUnderPressure": 7.3675
+        },
+        {
+            "rank": 30,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 9.111667,
+            "dpsUnderPressure": 7.3675
+        },
+        {
+            "rank": 31,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.491667,
+            "dpsUnderPressure": 7.363333
+        },
+        {
+            "rank": 32,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.491667,
+            "dpsUnderPressure": 7.363333
+        },
+        {
+            "rank": 33,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.491667,
+            "dpsUnderPressure": 7.363333
+        },
+        {
+            "rank": 34,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 8.641667,
+            "dpsUnderPressure": 7.225
+        },
+        {
+            "rank": 35,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 8.641667,
+            "dpsUnderPressure": 7.225
+        },
+        {
+            "rank": 36,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 8.641667,
+            "dpsUnderPressure": 7.225
+        },
+        {
+            "rank": 37,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 8.641667,
+            "dpsUnderPressure": 7.225
+        },
+        {
+            "rank": 38,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 8.641667,
+            "dpsUnderPressure": 7.225
+        },
+        {
+            "rank": 39,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 8.641667,
+            "dpsUnderPressure": 7.225
+        },
+        {
+            "rank": 40,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 8.825,
+            "dpsUnderPressure": 7.2
+        },
+        {
+            "rank": 41,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 8.825,
+            "dpsUnderPressure": 7.2
+        },
+        {
+            "rank": 42,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 8.825,
+            "dpsUnderPressure": 7.2
+        },
+        {
+            "rank": 43,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 8.825,
+            "dpsUnderPressure": 7.2
+        },
+        {
+            "rank": 44,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 8.825,
+            "dpsUnderPressure": 7.2
+        },
+        {
+            "rank": 45,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 8.825,
+            "dpsUnderPressure": 7.2
+        },
+        {
+            "rank": 46,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.158333,
+            "dpsUnderPressure": 7.165
+        },
+        {
+            "rank": 47,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.158333,
+            "dpsUnderPressure": 7.165
+        },
+        {
+            "rank": 48,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.158333,
+            "dpsUnderPressure": 7.165
+        },
+        {
+            "rank": 49,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.4,
+            "dpsUnderPressure": 6.956667
+        },
+        {
+            "rank": 50,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.4,
+            "dpsUnderPressure": 6.956667
+        },
+        {
+            "rank": 51,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.4,
+            "dpsUnderPressure": 6.956667
+        },
+        {
+            "rank": 52,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.15,
+            "dpsUnderPressure": 6.833333
+        },
+        {
+            "rank": 53,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 9.15,
+            "dpsUnderPressure": 6.833333
+        },
+        {
+            "rank": 54,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 9.15,
+            "dpsUnderPressure": 6.833333
+        },
+        {
+            "rank": 55,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 8.465833,
+            "dpsUnderPressure": 6.456667
+        },
+        {
+            "rank": 56,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 8.465833,
+            "dpsUnderPressure": 6.456667
+        },
+        {
+            "rank": 57,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 8.465833,
+            "dpsUnderPressure": 6.456667
+        },
+        {
+            "rank": 58,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.75,
+            "dpsUnderPressure": 6.106667
+        },
+        {
+            "rank": 59,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.75,
+            "dpsUnderPressure": 6.106667
+        },
+        {
+            "rank": 60,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 7.75,
+            "dpsUnderPressure": 6.106667
+        },
+        {
+            "rank": 61,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.75,
+            "dpsUnderPressure": 6.106667
+        },
+        {
+            "rank": 62,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.75,
+            "dpsUnderPressure": 6.106667
+        },
+        {
+            "rank": 63,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 7.75,
+            "dpsUnderPressure": 6.106667
+        },
+        {
+            "rank": 64,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.908333,
+            "dpsUnderPressure": 6.098333
+        },
+        {
+            "rank": 65,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.908333,
+            "dpsUnderPressure": 6.098333
+        },
+        {
+            "rank": 66,
+            "loadout": [
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 7.908333,
+            "dpsUnderPressure": 6.098333
+        },
+        {
+            "rank": 67,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.633333,
+            "dpsUnderPressure": 6.09
+        },
+        {
+            "rank": 68,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.633333,
+            "dpsUnderPressure": 6.09
+        },
+        {
+            "rank": 69,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 7.633333,
+            "dpsUnderPressure": 6.09
+        },
+        {
+            "rank": 70,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 6.65,
+            "dpsUnderPressure": 5.835
+        },
+        {
+            "rank": 71,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 6.65,
+            "dpsUnderPressure": 5.835
+        },
+        {
+            "rank": 72,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 6.65,
+            "dpsUnderPressure": 5.835
+        },
+        {
+            "rank": 73,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.75,
+            "dpsUnderPressure": 5.625
+        },
+        {
+            "rank": 74,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.75,
+            "dpsUnderPressure": 5.625
+        },
+        {
+            "rank": 75,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 7.75,
+            "dpsUnderPressure": 5.625
+        },
+        {
+            "rank": 76,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 6.825,
+            "dpsUnderPressure": 5.458333
+        },
+        {
+            "rank": 77,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 6.825,
+            "dpsUnderPressure": 5.458333
+        },
+        {
+            "rank": 78,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 6.825,
+            "dpsUnderPressure": 5.458333
+        },
+        {
+            "rank": 79,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.116667,
+            "dpsUnderPressure": 5.415
+        },
+        {
+            "rank": 80,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 7.116667,
+            "dpsUnderPressure": 5.415
+        },
+        {
+            "rank": 81,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 7.116667,
+            "dpsUnderPressure": 5.415
+        },
+        {
+            "rank": 82,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 6.758333,
+            "dpsUnderPressure": 5.083333
+        },
+        {
+            "rank": 83,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 6.758333,
+            "dpsUnderPressure": 5.083333
+        },
+        {
+            "rank": 84,
+            "loadout": [
+                "SPELL_FROSTBOLT",
+                "SPELL_GLACIER",
+                "SPELL_FROST_BOMB",
+                "SPELL_ICY_TOUCH",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 6.758333,
+            "dpsUnderPressure": 5.083333
+        },
+        {
+            "rank": 85,
+            "loadout": [
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_BLUR"
+            ],
+            "dps": 5.416667,
+            "dpsUnderPressure": 4.1775
+        },
+        {
+            "rank": 86,
+            "loadout": [
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 5.416667,
+            "dpsUnderPressure": 4.1775
+        },
+        {
+            "rank": 87,
+            "loadout": [
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_HASTE",
+                "SPELL_TEMPORAL_SHIELD"
+            ],
+            "dps": 5.416667,
+            "dpsUnderPressure": 4.1775
+        },
+        {
+            "rank": 88,
+            "loadout": [
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_MAGIC_EATER",
+                "SPELL_BLUR"
+            ],
+            "dps": 5.016667,
+            "dpsUnderPressure": 4.106667
+        },
+        {
+            "rank": 89,
+            "loadout": [
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_BLUR"
+            ],
+            "dps": 5.016667,
+            "dpsUnderPressure": 4.106667
+        },
+        {
+            "rank": 90,
+            "loadout": [
+                "SPELL_FROST_BOMB",
+                "SPELL_ICE_SPEAR",
+                "SPELL_ICY_TOUCH",
+                "SPELL_FROST_FEVER",
+                "SPELL_COUNTERSPELL",
+                "SPELL_TEMPORAL_SHIELD",
+                "SPELL_MAGIC_EATER"
+            ],
+            "dps": 5.016667,
+            "dpsUnderPressure": 4.106667
+        }
+    ]
+}

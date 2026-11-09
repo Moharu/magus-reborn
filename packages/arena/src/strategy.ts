@@ -1,6 +1,14 @@
-import { ELEMENT_SPELL_COUNT, FIXED_SPELL, isSpellId, isValidLoadout, type SpellId } from '@magus/engine'
+import {
+    DEFAULT_ELEMENT,
+    ELEMENT_SPELL_COUNT,
+    FIXED_SPELL,
+    isSpellId,
+    loadoutElement,
+    type SpellElement,
+    type SpellId,
+} from '@magus/engine'
 import { adaptProfile } from './adapt'
-import type { Baseline } from './baseline'
+import { baselineElement, type Baseline } from './baseline'
 import type { GeneralSpell, Profile } from './profile'
 import { profileEntrant } from './profile-controller'
 import { deriveSeed, isSeed } from './prng'
@@ -14,7 +22,8 @@ import type { Entrant } from './types'
  * mixes loadout strength with strategy. Here every game is a mirror: both players get the same fixed loadout, and the
  * only thing that varies is the profile (the strategy model).
  *
- * Setups are one Fire set (by default the best set of the dummy-DPS baseline, or the `--fire-set` ones) combined with
+ * Setups are one Fire set (by default the best set of the dummy-DPS baseline, or the `--fire-set` ones, which may
+ * also be Frost sets, #150: every game is a mirror, so each setup plays one element) combined with
  * each of the 6 pairs of the four non-Counterspell general spells, Counterspell always included. On every setup each
  * profile plays every profile, itself included (`matchupList`): `seeds` derived seeds, `games` games each, sides
  * alternating game by game, so each profile moves first (is `player1`) in half the games.
@@ -54,9 +63,14 @@ const shortName = (id: string) =>
 /** A general pair as `haste+blur`. */
 export const pairName = (pair: readonly SpellId[]) => pair.map(shortName).join('+')
 
+/** The element of a set of four element spells (with Counterspell and a general pair, as a loadout), or null. */
+const setElement = (spells: readonly SpellId[]) =>
+    loadoutElement([...spells, FIXED_SPELL, ...STRATEGY_GENERAL_PAIRS[0]])
+
 /**
- * A `--fire-set` value: four distinct Fire spells separated by commas, as spell ids (`SPELL_FIREBALL`) or short names
- * (`fireball`, `living-bomb`), in any case. Throws when a name is unknown or the four are not a valid Fire set.
+ * A `--fire-set` (or `--set`) value: four distinct spells of one element separated by commas, Fire or Frost (#150), as
+ * spell ids (`SPELL_FIREBALL`) or short names (`fireball`, `living-bomb`, `ice-spear`), in any case. Throws when a name
+ * is unknown or the four are not a valid set of one element.
  */
 export const parseFireSet = (raw: string): SpellId[] => {
     const spells = raw
@@ -72,17 +86,29 @@ export const parseFireSet = (raw: string): SpellId[] => {
     if (spells.length !== ELEMENT_SPELL_COUNT)
         throw new Error(`--fire-set needs ${ELEMENT_SPELL_COUNT} Fire spells separated by commas, got ${spells.length}`)
     // the same check the engine applies to a loadout, with the first valid general pair filling the other slots
-    if (!isValidLoadout([...spells, FIXED_SPELL, ...STRATEGY_GENERAL_PAIRS[0]]))
-        throw new Error(`--fire-set: ${spells.join(', ')} are not four distinct Fire spells`)
+    if (setElement(spells) === null)
+        throw new Error(`--fire-set: ${spells.join(', ')} are not four distinct Fire spells (nor four Frost spells)`)
     return spells
 }
+
+/** `parseFireSet` under its element-neutral name (#150): a Fire or a Frost set. */
+export const parseElementSet = parseFireSet
+
+/** A set's label: `F<n>` for a Fire set, `I<n>` (Ice) for a Frost one (#150), `n` its position from 1. */
+export const setLabel = (set: { element?: SpellElement }, index: number) =>
+    `${(set.element ?? DEFAULT_ELEMENT) === DEFAULT_ELEMENT ? 'F' : 'I'}${index + 1}`
 
 /** The sorted spell ids of a Fire set: the identity of a set, whatever the slot order. */
 const fireKey = (spells: readonly SpellId[]) => [...spells].sort().join()
 
 export interface StrategyOptions {
     readonly baseline: Baseline
-    /** The Fire sets (4 spells each) to play. Default: the best set of the baseline, i.e. that of its rank 1. */
+    /** The Frost table (#150): where a Frost set's dummy baseline comes from. */
+    readonly frostBaseline?: Baseline
+    /**
+     * The sets (4 spells of one element each, Fire or Frost, #150) to play. Default: the best set of the baseline, i.e.
+     * that of its rank 1.
+     */
     readonly fireSets?: readonly (readonly SpellId[])[]
     /** The profiles, by distinct `name`. At least 2. */
     readonly profiles: readonly Profile[]
@@ -99,13 +125,15 @@ export interface StrategyFireSet {
     readonly spells: readonly SpellId[]
     /** `baseline`: the default, the best set of the baseline; `override`: given with `--fire-set`. */
     readonly source: 'baseline' | 'override'
+    /** `FROST` for a Frost set (#150); absent for Fire. */
+    readonly element?: SpellElement
     /** The best loadout of the baseline with this Fire set, when the baseline has one. */
     readonly baseline?: { readonly rank: number; readonly dps: number; readonly dpsUnderPressure: number }
 }
 
 /** One mirror setup: both players play `loadout`. */
 export interface StrategySetup {
-    /** `F<fire set, from 1>/<pair>`, for example `F1/haste+blur`. */
+    /** `F<set, from 1>/<pair>` for a Fire set, `I<set>/<pair>` for a Frost one (#150): `F1/haste+blur`, `I2/haste+blur`. */
     readonly id: string
     /** Index into `config.fireSets`. */
     readonly fireSet: number
@@ -264,28 +292,36 @@ export const planStrategy = (options: StrategyOptions): StrategyPlan => {
     const sets = (given ?? [baseline.loadouts[0].loadout.slice(0, ELEMENT_SPELL_COUNT)]).map(set => [...set])
     const keys = new Set<string>()
     for (const set of sets) {
-        if (!isValidLoadout([...set, FIXED_SPELL, ...STRATEGY_GENERAL_PAIRS[0]]))
-            throw new Error(`${set.join(', ')} is not a valid Fire set (four distinct Fire spells)`)
+        if (setElement(set) === null)
+            throw new Error(
+                `${set.join(', ')} is not a valid Fire set (four distinct Fire spells) nor a valid Frost set`,
+            )
         if (keys.has(fireKey(set))) throw new Error(`Fire set ${set.join(', ')} is listed twice`)
         keys.add(fireKey(set))
     }
+    const tables = [baseline, ...(options.frostBaseline ? [options.frostBaseline] : [])]
     const fireSets = sets.map((spells): StrategyFireSet => {
-        const best = baseline.loadouts.find(l => fireKey(l.loadout.slice(0, ELEMENT_SPELL_COUNT)) === fireKey(spells))
+        const element = setElement(spells)!
+        // the set's own element's table: a Frost set is looked up in the Frost table (#150)
+        const table = tables.find(t => baselineElement(t) === element)
+        const best = table?.loadouts.find(l => fireKey(l.loadout.slice(0, ELEMENT_SPELL_COUNT)) === fireKey(spells))
         return {
             spells,
             source: given === undefined ? 'baseline' : 'override',
+            ...(element === DEFAULT_ELEMENT ? {} : { element }),
             ...(best ? { baseline: { rank: best.rank, dps: best.dps, dpsUnderPressure: best.dpsUnderPressure } } : {}),
         }
     })
 
     const setups: StrategySetup[] = []
     const make: (() => Entrant)[][] = []
-    fireSets.forEach(({ spells }, fireSet) => {
+    fireSets.forEach((set, fireSet) => {
+        const { spells } = set
         for (const pair of STRATEGY_GENERAL_PAIRS) {
             const loadout = [...spells, FIXED_SPELL, ...pair]
-            if (!isValidLoadout(loadout))
+            if (loadoutElement(loadout) === null)
                 throw new Error(`invalid loadout for ${spells.join(', ')} with ${pairName(pair)}`)
-            setups.push({ id: `F${fireSet + 1}/${pairName(pair)}`, fireSet, pair, loadout })
+            setups.push({ id: `${setLabel(set, fireSet)}/${pairName(pair)}`, fireSet, pair, loadout })
             make.push(
                 profiles.map(profile => {
                     const adapted = adaptProfile(profile, loadout)

@@ -6,10 +6,20 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ENGINE_VERSION } from '@magus/engine'
 import { afterAll, describe, expect, it } from 'vitest'
-import { ARCHETYPES, formatTable, parseBaseline, planTournament, runTournament, type TournamentResult } from '../src'
+import {
+    ARCHETYPES,
+    formatBracket,
+    formatTable,
+    parseBaseline,
+    planTournament,
+    runTournament,
+    withBracket,
+    type TournamentResult,
+} from '../src'
 
 const script = fileURLToPath(new URL('../scripts/tournament.ts', import.meta.url))
 const baselineFile = fileURLToPath(new URL(`../baselines/${ENGINE_VERSION}.json`, import.meta.url))
+const frostFile = fileURLToPath(new URL(`../baselines/${ENGINE_VERSION}-frost.json`, import.meta.url))
 const dir = mkdtempSync(join(tmpdir(), 'arena-tournament-test-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
@@ -95,8 +105,34 @@ describe('arena:tournament CLI', () => {
             )
             const { config } = json('k.json')
             expect(config.generalPairs).toBe(2)
-            expect(config.loadouts).toHaveLength(4)
-            expect(new Set(config.entrants.map(e => e.loadout.slice(0, 4).sort().join())).size).toBe(2)
+            // 2 Fire sets and, by default, as many Frost sets (#150), 2 pairs each
+            expect(config.loadouts).toHaveLength(8)
+            expect(config.frost).toEqual({ top: { requested: 2, used: 2 } })
+            for (const element of [undefined, 'FROST']) {
+                const own = config.entrants.filter(e => e.element === element)
+                expect(new Set(own.map(e => e.loadout.slice(0, 4).sort().join())).size).toBe(2)
+            }
+        },
+        TIMEOUT,
+    )
+
+    it(
+        '--frost-top 0 plays the Fire sets only, --frost-top M sets the Frost count on its own (#150)',
+        () => {
+            const tinyRun = ['--top', '1', '--general-pairs', '1', '--profiles', 'aggressive,bait', '--games', '2']
+            const quick = [...tinyRun, '--max-ticks', '40', '--jobs', '1', '--no-bracket']
+            cli(...quick, '--frost-top', '0', '--out', join(dir, 'f0.json'))
+            expect(json('f0.json').config).not.toHaveProperty('frost')
+            expect(json('f0.json').config.entrants.map(e => e.id)).toEqual(['L01/aggressive', 'L01/bait'])
+            cli(...quick, '--frost-top', '2', '--out', join(dir, 'f2.json'))
+            expect(json('f2.json').config.entrants.map(e => e.id)).toEqual([
+                'L01/aggressive',
+                'L01/bait',
+                'I01/aggressive',
+                'I01/bait',
+                'I04/aggressive',
+                'I04/bait',
+            ])
         },
         TIMEOUT,
     )
@@ -105,18 +141,24 @@ describe('arena:tournament CLI', () => {
         'prints the ranked table and writes the same result as the library',
         () => {
             const table = cli(...small, '--jobs', '1', '--out', join(dir, 'one.json'))
-            const expected = runTournament(
-                planTournament({
-                    baseline: parseBaseline(JSON.parse(readFileSync(baselineFile, 'utf8'))),
-                    top: 2,
-                    generalPairs: 1,
-                    profiles: [ARCHETYPES.aggressive.profile, ARCHETYPES.bait.profile],
-                    games: 2,
-                    seed: 3,
-                }),
+            // 8 entrants with the Frost sets, so the CLI also plays the top-8 bracket
+            const { result: expected } = withBracket(
+                runTournament(
+                    planTournament({
+                        baseline: parseBaseline(JSON.parse(readFileSync(baselineFile, 'utf8'))),
+                        // by default the Frost table's top sets play too, as many as --top (#150)
+                        frostBaseline: parseBaseline(JSON.parse(readFileSync(frostFile, 'utf8'))),
+                        top: 2,
+                        generalPairs: 1,
+                        profiles: [ARCHETYPES.aggressive.profile, ARCHETYPES.bait.profile],
+                        games: 2,
+                        seed: 3,
+                    }),
+                ),
             )
+            expect(expected.config.entrants.filter(e => e.element === 'FROST')).toHaveLength(4)
             expect(json('one.json')).toEqual(JSON.parse(JSON.stringify(expected)))
-            expect(table.trim()).toBe(formatTable(expected))
+            expect(table.trim()).toBe(`${formatTable(expected)}\n\n${formatBracket(expected.bracket!)}`)
             expect(table).toContain('win rate')
             expect(table).toContain('95% CI')
         },

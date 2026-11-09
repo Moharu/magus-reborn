@@ -350,11 +350,13 @@ describe('review fixes (#136)', () => {
         ])
     })
 
-    it('keeps profile names short (200 characters) while an intent may hold a plan of 600', () => {
+    it('keeps profile names short (200 characters) while an intent may hold a plan of 1200 (Fire and Frost, #150)', () => {
         expect(() => custom(raw => (raw.name = 'n'.repeat(200)))).not.toThrow()
         expect(() => custom(raw => (raw.name = 'n'.repeat(201)))).toThrow(/^name: must be one line of at most 200/)
-        expect(() => custom(raw => (raw.intent = 'i'.repeat(600)))).not.toThrow()
-        expect(() => custom(raw => (raw.intent = 'i'.repeat(601)))).toThrow(/^intent: must be one line of at most 600/)
+        expect(() => custom(raw => (raw.intent = 'i'.repeat(1200)))).not.toThrow()
+        expect(() => custom(raw => (raw.intent = 'i'.repeat(1201)))).toThrow(
+            /^intent: must be one line of at most 1200/,
+        )
     })
 
     describe('drops an entry waiting on a spell the loadout lacks, for every condition that names an effect or spell', () => {

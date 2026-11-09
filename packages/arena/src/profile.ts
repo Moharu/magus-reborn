@@ -177,8 +177,8 @@ export type GeneralRule = 'never' | { readonly when: readonly Condition[] }
 const MAX_SECONDS = 10
 /** A profile name's longest length. */
 const MAX_NAME = 200
-/** An intent's longest length: room for the plan, general spells included (#136). */
-const MAX_INTENT = 600
+/** An intent's longest length: room for the plan, general spells included (#136), for Fire and Frost (#150). */
+const MAX_INTENT = 1200
 const PROFILE_KEYS = [
     'name',
     'intent',

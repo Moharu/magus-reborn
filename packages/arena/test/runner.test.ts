@@ -293,7 +293,16 @@ describe('runMatch: what a controller sees', () => {
         expect(seen).toHaveLength(201)
         for (const view of seen) {
             // hpLog (#146): the floating combat text over the opponent, which every client shows
-            expect(Object.keys(view.enemy).sort()).toEqual(['casting', 'effects', 'hp', 'hpLog', 'lockedUntil', 'log'])
+            // chilling (#150): the opponent's Chilling stacks, which every client's HUD gets
+            expect(Object.keys(view.enemy).sort()).toEqual([
+                'casting',
+                'chilling',
+                'effects',
+                'hp',
+                'hpLog',
+                'lockedUntil',
+                'log',
+            ])
             for (const entry of [...(view.enemy.hpLog ?? []), ...(view.self.hpLog ?? [])])
                 expect(Object.keys(entry).sort()).toEqual(['amount', 'kind', 'spellId', 'tick'])
             // a spell the opponent has cast is on the client's spell log; the rest of its loadout never shows

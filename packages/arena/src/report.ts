@@ -1,7 +1,8 @@
-import { ELEMENT_SPELL_COUNT, FIXED_SPELL, type SpellId } from '@magus/engine'
+import { ELEMENT_SPELL_COUNT, ELEMENTS, FIXED_SPELL, type SpellElement, type SpellId } from '@magus/engine'
+import { baselineFile } from './baseline'
 import type { BracketResult } from './bracket'
 import { wilsonInterval } from './stats'
-import { pairList, type RankedEntrant, type TournamentResult } from './tournament'
+import { elementOf, loadoutLabel, pairList, type RankedEntrant, type TournamentResult } from './tournament'
 import { NO_GAMES, percent, spellName } from './tournament-format'
 
 /**
@@ -9,13 +10,14 @@ import { NO_GAMES, percent, spellName } from './tournament-format'
  * A pure function of the result and the two options, so the tables are the same for a given seed and inputs; the
  * date is the one thing that changes between runs, and it is in the header only.
  *
- * Fixed sections, in this order: Header, Dummy baseline, Arena win rates, General pairs, Matchup matrix, Bracket,
- * Caveats.
+ * Fixed sections, in this order: Header, Dummy baseline, Arena win rates, Elements (#150), General pairs, Matchup
+ * matrix, Bracket, Caveats.
  */
 export const REPORT_SECTIONS = [
     'Header',
     'Dummy baseline',
     'Arena win rates',
+    'Elements',
     'General pairs',
     'Matchup matrix',
     'Bracket',
@@ -111,12 +113,124 @@ export const table = (header: string[], rows: string[][], left: number[] = [0]) 
 
 export const rate = (wins: number, games: number) => (games === 0 ? 0 : wins / games)
 
+/** `FIRE` as `Fire`. */
+const elementName = (element: SpellElement) => element[0] + element.slice(1).toLowerCase()
+
+/**
+ * The Elements section (#150): how each element fares against the other, over the games between a Fire entrant and a
+ * Frost one (the played pairs only), overall and per profile, with 95% Wilson intervals; then each element's win rate
+ * over all its games. A Fire-only run says so.
+ */
+const elementsSection = (result: TournamentResult) => {
+    const { config, ranking, partial } = result
+    const head = ['## Elements', '']
+    const present = ELEMENTS.filter(element => config.entrants.some(e => elementOf(e) === element))
+    if (present.length < 2)
+        return [
+            ...head,
+            `${present.map(elementName).join(', ') || 'No'} entrants only: no cross-element games. Frost sets play alongside the Fire ones when the version has a Frost table (\`baselines/${baselineFile(config.baselineVersion, 'FROST')}\`) and \`--frost-top\` is not 0.`,
+        ].join('\n')
+    const profiles = config.profiles.map(p => p.name)
+    const played = partial ? new Set(partial.played) : undefined
+    // per element (and per element and profile): wins, draws and games against the other element
+    const cross = new Map<string, { wins: number; draws: number; games: number }>()
+    const add = (key: string, wins: number, draws: number) => {
+        const value = cross.get(key) ?? { wins: 0, draws: 0, games: 0 }
+        value.wins += wins
+        value.draws += draws
+        value.games += config.games
+        cross.set(key, value)
+    }
+    pairList(config.entrants.length).forEach(([i, j], pair) => {
+        if (played && !played.has(pair)) return
+        const a = config.entrants[i]
+        const b = config.entrants[j]
+        if (elementOf(a) === elementOf(b)) return
+        const winsA = result.matrix[a.id][b.id]
+        const winsB = result.matrix[b.id][a.id]
+        const draws = config.games - winsA - winsB
+        add(elementOf(a), winsA, draws)
+        add(elementOf(b), winsB, draws)
+        add(`${elementOf(a)}\n${a.profile}`, winsA, draws)
+        add(`${elementOf(b)}\n${b.profile}`, winsB, draws)
+    })
+    const ci = (wins: number, games: number) => {
+        if (games === 0) return NO_GAMES
+        const { low, high } = wilsonInterval(wins, games)
+        return `${percent(low)}-${percent(high)}`
+    }
+    const versus = (element: SpellElement) =>
+        present
+            .filter(other => other !== element)
+            .map(elementName)
+            .join(', ')
+    return [
+        ...head,
+        `Fire against Frost: every game between a Fire entrant and a Frost one (both sides of the same games, so the two win rates and the draws add up to 100%), with the 95% Wilson interval. Each element's sets are its own table's top sets (\`baselines/${baselineFile(config.baselineVersion)}\`, \`baselines/${baselineFile(config.baselineVersion, 'FROST')}\`), so this compares the field's best of each, played by these profiles.`,
+        '',
+        '### Fire vs Frost',
+        '',
+        table(
+            ['Element', 'Against', 'Entrants', 'Wins', 'Draws', 'Games', 'Win rate', '95% CI'],
+            present.map(element => {
+                const value = cross.get(element) ?? { wins: 0, draws: 0, games: 0 }
+                return [
+                    elementName(element),
+                    versus(element),
+                    String(ranking.filter(r => elementOf(r) === element).length),
+                    String(value.wins),
+                    String(value.draws),
+                    String(value.games),
+                    value.games === 0 ? NO_GAMES : percent(rate(value.wins, value.games)),
+                    ci(value.wins, value.games),
+                ]
+            }),
+            [0, 1],
+        ),
+        '',
+        '### Per profile',
+        '',
+        "Win rate (95% CI) of each profile's entrants of one element against every entrant of the other element.",
+        '',
+        table(
+            ['Profile', ...present.map(element => `${elementName(element)} vs ${versus(element)}`)],
+            profiles.map(profile => [
+                profile,
+                ...present.map(element => {
+                    const value = cross.get(`${element}\n${profile}`)
+                    return value ? rateWithInterval(value.wins, value.games) : '-'
+                }),
+            ]),
+        ),
+        '',
+        '### All games',
+        '',
+        "Each element's win rate over all its entrants' games, those between two entrants of the same element included.",
+        '',
+        table(
+            ['Element', 'Entrants', 'Wins', 'Draws', 'Games', 'Win rate', '95% CI'],
+            present.map(element => {
+                const p = pool(ranking.filter(r => elementOf(r) === element))
+                return [
+                    elementName(element),
+                    String(p.entrants),
+                    String(p.wins),
+                    String(p.draws),
+                    String(p.games),
+                    p.games === 0 ? NO_GAMES : percent(rate(p.wins, p.games)),
+                    ci(p.wins, p.games),
+                ]
+            }),
+        ),
+    ].join('\n')
+}
+
 export const formatReport = (result: TournamentResult, options: ReportOptions): string => {
     const { config, ranking, partial } = result
     const profiles = config.profiles.map(p => p.name)
     const loadoutRanks = config.loadouts.map(l => l.rank)
-    const spells = (rank: number) => {
-        const entrant = config.entrants.find(e => e.loadoutRank === rank)
+    const spells = (loadout: { rank: number; element?: SpellElement }) => {
+        const entrant = config.entrants.find(e => e.loadoutRank === loadout.rank && elementOf(e) === elementOf(loadout))
         return entrant ? entrant.loadout.map(spellName) : []
     }
     const totalDraws = ranking.reduce((sum, r) => sum + r.draws, 0) / 2
@@ -140,6 +254,12 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
             (config.top.used < config.top.requested
                 ? ` (${config.top.requested} requested, the baseline has fewer)`
                 : '') +
+            (config.frost
+                ? ` and top ${config.frost.top.used} Frost sets` +
+                  (config.frost.top.used < config.frost.top.requested
+                      ? ` (${config.frost.top.requested} requested, the Frost table has fewer)`
+                      : '')
+                : '') +
             `, ${config.generalPairs} general pair(s) each`,
         `- **Games:** ${config.games} per pair, ${result.games} played, time cap ${config.maxTicks} ticks`,
     ].join('\n')
@@ -147,14 +267,23 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
     const baseline = [
         '## Dummy baseline',
         '',
-        `The entrants' loadouts with their damage per second on a training dummy (\`baselines/${config.baselineVersion}.json\`, from \`npm run sim:search\`). "Under pressure" is the search's Counterspell-pressure model. L<rank> is the loadout's rank in that table.`,
+        config.frost
+            ? `The entrants' loadouts with their damage per second on a training dummy (\`baselines/${baselineFile(config.baselineVersion)}\` for Fire and \`baselines/${baselineFile(config.baselineVersion, 'FROST')}\` for Frost, from \`npm run sim:search\`). "Under pressure" is the search's Counterspell-pressure model. L<rank> is a Fire loadout's rank in the Fire table, I<rank> a Frost loadout's in the Frost table.`
+            : `The entrants' loadouts with their damage per second on a training dummy (\`baselines/${config.baselineVersion}.json\`, from \`npm run sim:search\`). "Under pressure" is the search's Counterspell-pressure model. L<rank> is the loadout's rank in that table.`,
         '',
         table(
-            ['Loadout', 'Fire set', 'Counterspell', 'General spells', 'DPS', 'DPS under pressure'],
+            [
+                'Loadout',
+                config.frost ? 'Element set' : 'Fire set',
+                'Counterspell',
+                'General spells',
+                'DPS',
+                'DPS under pressure',
+            ],
             config.loadouts.map(l => {
-                const names = spells(l.rank)
+                const names = spells(l)
                 return [
-                    `L${String(l.rank).padStart(2, '0')}`,
+                    loadoutLabel({ loadoutRank: l.rank, element: l.element }),
                     names.slice(0, ELEMENT_SPELL_COUNT).join(', '),
                     names[ELEMENT_SPELL_COUNT] ?? '',
                     names.slice(ELEMENT_SPELL_COUNT + 1).join(', '),
@@ -205,7 +334,7 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
             ['#', 'Loadout', 'Profile', 'Wins', 'Draws', 'Games', 'Win rate', '95% CI'],
             ranking.map(r => [
                 String(r.rank),
-                `L${String(r.loadoutRank).padStart(2, '0')}`,
+                loadoutLabel(r),
                 r.profile,
                 String(r.wins),
                 String(r.draws),
@@ -232,7 +361,7 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
     const general = [
         '## General pairs',
         '',
-        `Win rate by the entrants' general pair (Counterspell is in every loadout), and with ${haste} against without it, pooled over every entrant with that pair (all Fire sets), with the 95% Wilson interval. A group's games include those against entrants of the same group.`,
+        `Win rate by the entrants' general pair (Counterspell is in every loadout), and with ${haste} against without it, pooled over every entrant with that pair (all ${config.frost ? 'Fire and Frost' : 'Fire'} sets), with the 95% Wilson interval. A group's games include those against entrants of the same group.`,
         '',
         '### All profiles',
         '',
@@ -340,6 +469,8 @@ export const formatReport = (result: TournamentResult, options: ReportOptions): 
         baseline,
         '',
         winRates,
+        '',
+        elementsSection(result),
         '',
         general,
         '',

@@ -6,7 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { performance } from 'node:perf_hooks'
 import { ENGINE_VERSION } from '@magus/engine'
-import { parseBaseline } from '../src'
+import { baselineFile, parseBaseline } from '../src'
 import { fromInvocation } from './paths'
 
 export const args = process.argv.slice(2)
@@ -92,23 +92,50 @@ export const writeOut = (value: unknown) => {
 /** The table goes to stdout, unless `--out -` puts the JSON there: then it goes to stderr, so stdout stays parseable. */
 export const printTable = (table: string) => (flag('out') === '-' ? console.error(table) : console.log(table))
 
-export const loadBaseline = () => {
+/** `--baseline`, or the engine's version. */
+const baselineVersion = () => {
     const version = flag('baseline') ?? ENGINE_VERSION
     if (!/^[\w.-]+$/.test(version))
         throw new Error(`--baseline must be a version like ${ENGINE_VERSION}, got ${version}`)
-    const file = fileURLToPath(new URL(`../baselines/${version}.json`, import.meta.url))
-    let raw: unknown
+    return version
+}
+
+/** The raw table at `baselines/<file>`, or undefined when there is none. */
+const readTable = (file: string): unknown => {
     try {
-        raw = JSON.parse(readFileSync(file, 'utf8'))
+        return JSON.parse(readFileSync(fileURLToPath(new URL(`../baselines/${file}`, import.meta.url)), 'utf8'))
     } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-            throw new Error(
-                `no dummy-DPS baseline for version ${version}: expected packages/arena/baselines/${version}.json (npm run arena:baseline)`,
-                { cause: error },
-            )
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
         throw error
     }
-    return parseBaseline(raw, version)
+}
+
+/** The version's Fire table (`baselines/<version>.json`); a missing file fails with a clear error. */
+export const loadBaseline = () => {
+    const version = baselineVersion()
+    const raw = readTable(baselineFile(version))
+    if (raw === undefined)
+        throw new Error(
+            `no dummy-DPS baseline for version ${version}: expected packages/arena/baselines/${version}.json (npm run arena:baseline)`,
+        )
+    return parseBaseline(raw, version, 'FIRE')
+}
+
+/**
+ * The version's Frost table (#150, `baselines/<version>-frost.json`), or undefined when the version has none (the
+ * versions before Frost). `required` turns a missing file into a clear error.
+ */
+export const loadFrostBaseline = (required = false) => {
+    const version = baselineVersion()
+    const file = baselineFile(version, 'FROST')
+    const raw = readTable(file)
+    if (raw === undefined) {
+        if (!required) return undefined
+        throw new Error(
+            `no Frost dummy-DPS baseline for version ${version}: expected packages/arena/baselines/${file} (npm run arena:baseline -- --element frost)`,
+        )
+    }
+    return parseBaseline(raw, version, 'FROST')
 }
 
 /** Every worker still running: when one fails, the others are killed rather than left burning CPU. */
