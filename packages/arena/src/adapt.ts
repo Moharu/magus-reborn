@@ -1,29 +1,78 @@
-import { ELEMENT_SPELL_COUNT, SPELLS, type EffectId, type SpellId } from '@magus/engine'
+import { ELEMENT_SPELL_COUNT, FIXED_SPELL, SPELLS, type EffectId, type SpellId } from '@magus/engine'
 import type { Condition } from './conditions'
 import { checkLoadout, type Profile, type RotationEntry } from './profile'
 
 /**
- * The spell that puts each counted effect on the enemy: a rotation entry waiting for that effect relies on the spell.
- * Public spell data (the effect each spell's description names); no spell math.
+ * The spell that applies each effect, and to whom: `caster` for a buff on its caster, `target` for a debuff on the
+ * caster's opponent. Public spell data (the effect each spell's description names); no spell math. A `Record` over
+ * every effect id, so a new effect without an entry fails typecheck.
  */
-const EFFECT_SOURCES: Partial<Record<EffectId, SpellId>> = {
-    DEBUFF_IGNITE: 'SPELL_IGNITE',
-    DEBUFF_LIVING_BOMB: 'SPELL_LIVING_BOMB',
+const EFFECT_SOURCES: Readonly<Record<EffectId, { readonly spell: SpellId; readonly on: 'caster' | 'target' }>> = {
+    DEBUFF_IGNITE: { spell: 'SPELL_IGNITE', on: 'target' },
+    DEBUFF_LIVING_BOMB: { spell: 'SPELL_LIVING_BOMB', on: 'target' },
+    DEBUFF_COUNTERSPELL: { spell: FIXED_SPELL, on: 'target' },
+    BUFF_HASTE: { spell: 'SPELL_HASTE', on: 'caster' },
+    BUFF_BLUR: { spell: 'SPELL_BLUR', on: 'caster' },
+    BUFF_MAGIC_EATER: { spell: 'SPELL_MAGIC_EATER', on: 'caster' },
+    BUFF_TEMPORAL_SHIELD: { spell: 'SPELL_TEMPORAL_SHIELD', on: 'caster' },
 }
 
 /**
- * Whether `condition` can never hold on `loadout`, because it waits on a spell the loadout lacks. An `anyOf` can never
- * hold when none of its lists can: each holds a condition that waits on a missing spell.
+ * Whether an effect on `whom` can only come from this player's own spell, and the loadout lacks it: a debuff on the
+ * enemy, or a buff on the player itself. (A buff on the enemy or a debuff on the player comes from the enemy's
+ * loadout, which the profile can't know, so it may come.)
+ */
+const effectNeverComes = (effect: EffectId, whom: 'self' | 'enemy', loadout: readonly SpellId[]) => {
+    const { spell, on } = EFFECT_SOURCES[effect]
+    const ours = whom === 'enemy' ? on === 'target' : on === 'caster'
+    return ours && !loadout.includes(spell)
+}
+
+/**
+ * Whether `condition` can never hold on `loadout`, because it waits on a spell the loadout lacks: an effect only that
+ * spell applies, a release of that spell, the lock only our Counterspell puts on the enemy, or a next cast of spells
+ * none of which is held. An `anyOf` can never hold when none of its lists can: each holds such a condition. An
+ * exhaustive switch, so a new condition type without a rule here fails typecheck.
  */
 const needsMissingSpell = (condition: Condition, loadout: readonly SpellId[]): boolean => {
-    if (condition.type === 'anyOf')
-        return condition.of.every(when => when.some(inner => needsMissingSpell(inner, loadout)))
-    if (condition.type === 'enemyEffectsAtLeast' && condition.count > 0) {
-        const source = EFFECT_SOURCES[condition.effect]
-        return source !== undefined && !loadout.includes(source)
+    switch (condition.type) {
+        case 'selfEffectsAtLeast':
+            return condition.count > 0 && effectNeverComes(condition.effect, 'self', loadout)
+        case 'enemyEffectsAtLeast':
+            return condition.count > 0 && effectNeverComes(condition.effect, 'enemy', loadout)
+        case 'selfEffectEndsWithin':
+            return effectNeverComes(condition.effect, 'self', loadout)
+        case 'enemyEffectEndsWithin':
+            return effectNeverComes(condition.effect, 'enemy', loadout)
+        case 'selfCastsAtLeast':
+            return condition.count > 0 && !loadout.includes(condition.spell)
+        case 'enemyLocked':
+            return !loadout.includes(FIXED_SPELL)
+        case 'nextCastIs':
+            return !condition.spells.some(spell => loadout.includes(spell))
+        case 'anyOf':
+            return condition.of.every(when => when.some(inner => needsMissingSpell(inner, loadout)))
+        // no own spell needed: HP, fewer effects than a count, casting states, the enemy's casts, the longest cast
+        // (every loadout has cast-time spells) and the free-cast window (the enemy's own Counterspell opens it too)
+        case 'selfHpBelow':
+        case 'selfHpAtLeast':
+        case 'enemyHpBelow':
+        case 'enemyHpAtLeast':
+        case 'selfEffectsBelow':
+        case 'enemyEffectsBelow':
+        case 'selfCasting':
+        case 'selfNotCasting':
+        case 'enemyCasting':
+        case 'enemyNotCasting':
+        case 'enemyCastEndsWithin':
+        case 'nextCastIsLongest':
+        case 'inLockoutWindow':
+            return false
+        default: {
+            const unhandled: never = condition
+            return unhandled
+        }
     }
-    if (condition.type === 'selfCastsAtLeast') return condition.count > 0 && !loadout.includes(condition.spell)
-    return false
 }
 
 /** The entries whose spell is on the loadout and whose `when` relies on no spell it lacks, in order. */
@@ -36,9 +85,9 @@ const buildRotation = (entries: readonly RotationEntry[], loadout: readonly Spel
  * Builds the profile a loadout plays (#136): a profile's rotation and free-cast window are priority lists over the Fire
  * spells, and the loadout keeps the entries it can play, in order. An entry is dropped when its spell is not on the
  * loadout, or when its `when` waits on a spell the loadout lacks (Combustion at 3+ Ignites with no Ignite, Afterburn
- * after Fireballs with no Fireball), so a rotation never relies on a missing spell. With no entry left, the rotation is
- * the loadout's own Fire spells in slot order, with no conditions; with no window entry left, the window plays the
- * built rotation. When the fake-cast spell is missing, the fake is retargeted to the loadout's longest cast-time spell
+ * after Fireballs with no Fireball; see `needsMissingSpell`), so a rotation never relies on a missing spell. With no
+ * entry left, the rotation is the loadout's own Fire spells in slot order, with no conditions; with no window entry
+ * left, the window plays the built rotation. When the fake-cast spell is missing, the fake is retargeted to the loadout's longest cast-time spell
  * (the first in slot order on a tie), and fake-casting is turned off only if the loadout has no cast-time spell.
  * Everything else is kept. Building a built profile again for the same loadout changes nothing.
  */

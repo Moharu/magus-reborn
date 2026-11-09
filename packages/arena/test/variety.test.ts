@@ -356,4 +356,149 @@ describe('review fixes (#136)', () => {
         expect(() => custom(raw => (raw.intent = 'i'.repeat(600)))).not.toThrow()
         expect(() => custom(raw => (raw.intent = 'i'.repeat(601)))).toThrow(/^intent: must be one line of at most 600/)
     })
+
+    describe('drops an entry waiting on a spell the loadout lacks, for every condition that names an effect or spell', () => {
+        // no Living Bomb, Haste, Temporal Shield or Afterburn: Fireball, Ignite, Combustion, Meteor, Blur, Magic Eater
+        const loadout: SpellId[] = [
+            'SPELL_FIREBALL',
+            'SPELL_IGNITE',
+            'SPELL_COMBUSTION',
+            'SPELL_METEOR',
+            'SPELL_COUNTERSPELL',
+            'SPELL_BLUR',
+            'SPELL_MAGIC_EATER',
+        ]
+        const built = (when: unknown[]) =>
+            adaptProfile(
+                custom(raw => {
+                    raw.rotation = [{ spell: 'SPELL_COMBUSTION', when }, 'SPELL_FIREBALL']
+                }),
+                loadout,
+            ).rotation.map(e => e.spell)
+        const DROPPED = ['SPELL_FIREBALL']
+        const KEPT = ['SPELL_COMBUSTION', 'SPELL_FIREBALL']
+        const cases: [string, unknown, string[]][] = [
+            // a debuff only our spell puts on the enemy
+            [
+                'enemyEffectsAtLeast, a missing debuff',
+                { type: 'enemyEffectsAtLeast', effect: 'DEBUFF_LIVING_BOMB', count: 1 },
+                DROPPED,
+            ],
+            [
+                'enemyEffectsAtLeast, a held debuff',
+                { type: 'enemyEffectsAtLeast', effect: 'DEBUFF_IGNITE', count: 1 },
+                KEPT,
+            ],
+            [
+                'enemyEffectsAtLeast, count 0',
+                { type: 'enemyEffectsAtLeast', effect: 'DEBUFF_LIVING_BOMB', count: 0 },
+                KEPT,
+            ],
+            // a buff on the enemy is the enemy's own
+            [
+                'enemyEffectsAtLeast, an enemy buff',
+                { type: 'enemyEffectsAtLeast', effect: 'BUFF_HASTE', count: 1 },
+                KEPT,
+            ],
+            [
+                'enemyEffectEndsWithin, a missing debuff',
+                { type: 'enemyEffectEndsWithin', effect: 'DEBUFF_LIVING_BOMB', seconds: 1 },
+                DROPPED,
+            ],
+            [
+                'enemyEffectEndsWithin, a held debuff',
+                { type: 'enemyEffectEndsWithin', effect: 'DEBUFF_IGNITE', seconds: 1 },
+                KEPT,
+            ],
+            // a buff only our spell puts on ourselves
+            [
+                'selfEffectsAtLeast, a missing buff',
+                { type: 'selfEffectsAtLeast', effect: 'BUFF_HASTE', count: 1 },
+                DROPPED,
+            ],
+            ['selfEffectsAtLeast, a held buff', { type: 'selfEffectsAtLeast', effect: 'BUFF_BLUR', count: 1 }, KEPT],
+            // a debuff on ourselves comes from the enemy
+            [
+                'selfEffectsAtLeast, an enemy debuff',
+                { type: 'selfEffectsAtLeast', effect: 'DEBUFF_LIVING_BOMB', count: 1 },
+                KEPT,
+            ],
+            [
+                'selfEffectEndsWithin, a missing buff',
+                { type: 'selfEffectEndsWithin', effect: 'BUFF_TEMPORAL_SHIELD', seconds: 1 },
+                DROPPED,
+            ],
+            [
+                'selfEffectEndsWithin, a held buff',
+                { type: 'selfEffectEndsWithin', effect: 'BUFF_MAGIC_EATER', seconds: 1 },
+                KEPT,
+            ],
+            [
+                'selfCastsAtLeast, a missing spell',
+                { type: 'selfCastsAtLeast', spell: 'SPELL_AFTERBURN', count: 1, withinSeconds: 5 },
+                DROPPED,
+            ],
+            [
+                'selfCastsAtLeast, a held spell',
+                { type: 'selfCastsAtLeast', spell: 'SPELL_IGNITE', count: 1, withinSeconds: 5 },
+                KEPT,
+            ],
+            [
+                'nextCastIs, no held spell',
+                { type: 'nextCastIs', spells: ['SPELL_LIVING_BOMB', 'SPELL_AFTERBURN'] },
+                DROPPED,
+            ],
+            ['nextCastIs, a held spell', { type: 'nextCastIs', spells: ['SPELL_LIVING_BOMB', 'SPELL_METEOR'] }, KEPT],
+            ['enemyLocked, Counterspell held', { type: 'enemyLocked' }, KEPT],
+            // nested: an anyOf whose every list waits on a missing spell, and one with a list that can hold
+            [
+                'anyOf, every list impossible',
+                {
+                    type: 'anyOf',
+                    of: [
+                        [{ type: 'enemyEffectEndsWithin', effect: 'DEBUFF_LIVING_BOMB', seconds: 1 }],
+                        [{ type: 'selfEffectsAtLeast', effect: 'BUFF_HASTE', count: 1 }, { type: 'selfNotCasting' }],
+                    ],
+                },
+                DROPPED,
+            ],
+            [
+                'anyOf, one list possible',
+                {
+                    type: 'anyOf',
+                    of: [
+                        [{ type: 'enemyEffectEndsWithin', effect: 'DEBUFF_LIVING_BOMB', seconds: 1 }],
+                        [{ type: 'enemyEffectsAtLeast', effect: 'DEBUFF_IGNITE', count: 2 }],
+                    ],
+                },
+                KEPT,
+            ],
+        ]
+        for (const [name, condition, expected] of cases) it(name, () => expect(built([condition])).toEqual(expected))
+
+        it('enemyLocked without Counterspell on the loadout: only our Counterspell locks the enemy', () => {
+            const noCounter = loadout.map(id => (id === 'SPELL_COUNTERSPELL' ? 'SPELL_HASTE' : id))
+            const profile = custom(raw => {
+                raw.rotation = [{ spell: 'SPELL_COMBUSTION', when: [{ type: 'enemyLocked' }] }, 'SPELL_FIREBALL']
+            })
+            expect(adaptProfile(profile, noCounter).rotation.map(e => e.spell)).toEqual(DROPPED)
+        })
+
+        it("Codex's case: a lone Fireball waiting on a Living Bomb ending gets the fallback rotation and casts", () => {
+            const waiting = custom(raw => {
+                raw.rotation = [
+                    {
+                        spell: 'SPELL_FIREBALL',
+                        when: [{ type: 'enemyEffectEndsWithin', effect: 'DEBUFF_LIVING_BOMB', seconds: 1 }],
+                    },
+                ]
+            })
+            expect(waiting.patience.thresholdGiveUpSeconds).toBeNull()
+            expect(adaptProfile(waiting, loadout).rotation).toEqual(
+                loadout.slice(0, 4).map(spell => ({ spell, when: [] })),
+            )
+            const result = runMatch({ seed: 1, a: profileEntrant(waiting, loadout), b: idler(), maxTicks: 3600 })
+            expect(of(result.log, 'a', 'START_CAST').length).toBeGreaterThan(0)
+        })
+    })
 })
