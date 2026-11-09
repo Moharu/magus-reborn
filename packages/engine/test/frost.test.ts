@@ -362,9 +362,15 @@ describe('Frost Fever', () => {
         expect(b.state.player1.hp).toBe(0)
         expect(b.state.winner).toBe('draw')
 
-        // the next tick makes it final; Fever never ticks a dead player past 0
-        b.tick()
+        // the next tick makes it final, and nothing resolves after the deciding tick: the clock stays, no effect runs
+        const decidingTick = b.state.gameTick
+        const logged = b.state.log.length
+        const effects = JSON.stringify(b.state.player2.effects)
+        advance(b, 3)
         expect(b.finished).toBe(true)
+        expect(b.state.gameTick).toBe(decidingTick)
+        expect(b.state.log).toHaveLength(logged)
+        expect(JSON.stringify(b.state.player2.effects)).toBe(effects)
         expect(b.state.player2.hp).toBe(0)
         expect(b.state.winner).toBe('draw')
     })
