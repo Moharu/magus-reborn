@@ -6,6 +6,7 @@ import {
     RELEASE_HOLD_MAX_SECONDS,
     type Profile,
 } from './profile'
+import { CHILLING_MAX } from './chilling'
 import type { Rng } from './prng'
 
 /**
@@ -87,6 +88,16 @@ export const CONDITION_PARAMETERS: Readonly<Record<'hp' | 'count' | 'seconds' | 
     withinSeconds: num(0, 15, 0.01, 1),
 }
 
+/** The `count` of a Chilling condition (#150): stacks, 0 to the cap. */
+export const CHILLING_COUNT_PARAMETER: NumberParameter = num(0, CHILLING_MAX, 1, 1)
+const CHILLING_CONDITIONS = new Set(['selfChillingAtLeast', 'selfChillingBelow', 'enemyChillingAtLeast'])
+
+/** The parameter of a condition's field: Chilling counts have their own bounds, every other field its shared one. */
+const conditionParameter = (condition: object, key: keyof typeof CONDITION_PARAMETERS) =>
+    key === 'count' && CHILLING_CONDITIONS.has((condition as { type?: string }).type ?? '')
+        ? CHILLING_COUNT_PARAMETER
+        : CONDITION_PARAMETERS[key]
+
 /** One tunable value of a given profile: its path (`rotation[0].when[0].count`) and its parameter. */
 export interface ParameterSlot {
     readonly path: string
@@ -149,7 +160,7 @@ export const parameterSlots = (profile: Profile): ParameterSlot[] => {
                     slots.push({
                         path: `${base}[${j}].${key}`,
                         key,
-                        parameter: CONDITION_PARAMETERS[key],
+                        parameter: conditionParameter(condition, key),
                         condition: true,
                     })
             // an anyOf's lists, in order

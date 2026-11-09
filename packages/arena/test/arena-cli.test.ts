@@ -15,7 +15,8 @@ afterAll(() => rmSync(dir, { recursive: true, force: true }))
 // CI is slower than a laptop: spawning tsx alone can take seconds, so every test that spawns the CLI gets this long
 const TIMEOUT = 120_000
 
-const noDate = ['--top', '2', '--general-pairs', '1', '--games', '2', '--seed', '7']
+// one Frost set beside the 2 Fire ones (#150): 3 loadouts x 4 profiles = 12 entrants, 66 pairs, Fire facing Frost
+const noDate = ['--top', '2', '--frost-top', '1', '--general-pairs', '1', '--games', '2', '--seed', '7']
 const tiny = [...noDate, '--date', '2026-11-09']
 const run = (...args: string[]) =>
     execFileSync('npx', ['tsx', script, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
@@ -79,10 +80,10 @@ describe('arena CLI: --time-budget', () => {
                 '--report',
                 join(dir, 'partial.md'),
             )
-            expect(err).toContain('warning: the time budget ended the run after 0 of 28 pairs')
-            expect(out).toContain('PARTIAL: the time budget ended the run after 0 of 28 pairs')
-            expect(json('partial.json').partial).toEqual({ pairsPlayed: 0, pairsTotal: 28, played: [] })
-            expect(text('partial.md')).toContain('**Status:** PARTIAL: 0 of 28 pairs played')
+            expect(err).toContain('warning: the time budget ended the run after 0 of 66 pairs')
+            expect(out).toContain('PARTIAL: the time budget ended the run after 0 of 66 pairs')
+            expect(json('partial.json').partial).toEqual({ pairsPlayed: 0, pairsTotal: 66, played: [] })
+            expect(text('partial.md')).toContain('**Status:** PARTIAL: 0 of 66 pairs played')
         },
         TIMEOUT,
     )
@@ -102,7 +103,7 @@ describe('arena CLI: --time-budget', () => {
                 '--date',
                 '2026-11-09',
             )
-            expect(text('pm.md')).toContain('**Status:** PARTIAL: 14 of 28 pairs played')
+            expect(text('pm.md')).toContain('**Status:** PARTIAL: 33 of 66 pairs played')
         },
         TIMEOUT,
     )
@@ -270,7 +271,7 @@ describe('arena CLI: file paths and missing shards', () => {
             const files = [join(dir, 'm0.json'), join(dir, 'm2.json')]
             expect(fails('merge', ...files)).toMatch(/missing shard\(s\) 1\/3/)
             run('merge', ...files, '--allow-missing', '--report', join(dir, 'missing.md'), '--date', '2026-11-09')
-            expect(text('missing.md')).toContain('**Status:** PARTIAL: 19 of 28 pairs played, missing shards 1/3')
+            expect(text('missing.md')).toContain('**Status:** PARTIAL: 44 of 66 pairs played, missing shards 1/3')
         },
         TIMEOUT,
     )

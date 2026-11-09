@@ -40,7 +40,8 @@ const result = runMatch({
 // result: { seed, winner: 'a' | 'b' | 'draw', reason: 'death' | 'mutual' | 'timeout', ticks, hp: { a, b }, stats, log }
 ```
 
-`a` plays as the engine's `player1` and `b` as `player2`. Loadouts must pass the engine's `isValidLoadout`.
+`a` plays as the engine's `player1` and `b` as `player2`. Each loadout must be a valid loadout of one element, Fire or
+Frost (the engine's `loadoutElement`, #150); the two players may play different elements.
 
 ### Controllers
 
@@ -58,16 +59,17 @@ one early (a fake cast). Use the shared `start(slot)`/`stop(slot)` helpers to av
 
 - `tick`
 - `self`: `hp`, `casting` (`slot`, `spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `gcdUntil`,
-  `lockedUntil`, `effects`, `spells`, the player's own loadout with `castTime`, `cooldownRemaining`,
-  `lockRemaining` and `ready` per slot, and `log` (#136), the player's own spell log in the same form as `enemy.log`
+  `lockedUntil`, `chilling` (#150, Frost's Chilling stacks, as the HUD shows them), `effects`, `spells`, the player's own
+  loadout with `castTime`, `cooldownRemaining`, `lockRemaining` and `ready` per slot (`ready` also needs the Chilling a
+  spell costs: Icy Touch's one stack), and `log` (#136), the player's own spell log in the same form as `enemy.log`
   (its own casts released, cancelled or interrupted by the opponent), as the client's spell log shows it too. And
   `hpLog` (#146), its floating combat text: one `{ tick, amount, spellId, kind }` per HP change on the player, oldest
   first, from the engine's attributed HP events, which the server streams to both clients (`events` of each `battle`
   message). `spellId` is the spell the change came from, `kind` is `spell` (a release) or `effect` (a tick, a burst, a
   heal). Same timing as the logs: a change on tick `t` shows from tick `t + 1`. `enemy.hpLog` is the same for the
   opponent, the floating combat text over its wizard.
-- `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil`, `effects` and
-  `log`. Never the opponent's loadout, cooldowns or GCD.
+- `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil`, `chilling`
+  (#150: every client gets both players' stacks), `effects` and `log`. Never the opponent's loadout, cooldowns or GCD.
 - `enemy.log` (#126) is the opponent's spell log, what the game client's spell log shows: one `{ tick, type, spellId }`
   per engine log entry about the opponent, oldest first. `type` is `START_CAST`, `STOP_CAST` (the cast it stopped),
   `SPELL_RELEASE` (instants included), `CANCEL_CAST` or `INTERRUPTED` (its cast, by us). These are the entries the server
@@ -99,11 +101,13 @@ is its `ControllerFactory`, `profileEntrant(profile, loadout)` an entrant; both 
 `rotation`), `lockoutWindow.edgeGreedSeconds` (default 0), `fakeCast.realBaitShare` (default 0),
 `counterspell.giveUpSeconds`, `patience` (default: no give-up timers) and `releaseHold` (default: no hold) is required.
 
-**Built from the loadout (#136).** `rotation` and `lockoutWindow.rotation` are priority lists over the Fire spells, and
-`adaptProfile(profile, loadout)` keeps the entries a loadout can play, in order: an entry is dropped when its spell is
-not on the loadout, or when its `when` waits on a spell the loadout lacks (Combustion at 3+ Ignites with no Ignite,
-Afterburn after Fireballs with no Fireball), so a rotation never relies on a missing spell. With nothing left, the
-rotation is the loadout's Fire spells in slot order. A profile may leave out spells it judges weak for its style.
+**Built from the loadout (#136).** `rotation` and `lockoutWindow.rotation` are priority lists over the element spells,
+Fire and Frost entries side by side (#150), and `adaptProfile(profile, loadout)` keeps the entries a loadout can play,
+in order, so a Fire loadout plays the Fire entries and a Frost loadout the Frost ones: an entry is dropped when its
+spell is not on the loadout, or when its `when` waits on a spell the loadout lacks (Combustion at 3+ Ignites with no
+Ignite, Afterburn after Fireballs with no Fireball, Icy Touch on Frost Fever with no Frost Fever, a Chilling threshold
+with no Frostbolt or Glacier), so a rotation never relies on a missing spell. With nothing left, the rotation is the
+loadout's element spells in slot order. A profile may leave out spells it judges weak for its style.
 
 ```jsonc
 {
@@ -175,9 +179,14 @@ From #136: `nextCastIsLongest` (that cast is the loadout's longest by base cast 
 `enemyEffectEndsWithin` (`effect`, `seconds`: an effect ends within that long, e.g. a Living Bomb about to explode),
 `selfCastsAtLeast` (`spell`, `count`, `withinSeconds`: the player's own releases, e.g. Fireballs before Afterburn),
 `inLockoutWindow` (the free-cast window below is open) and `anyOf` (`of`: a list of condition lists, at least one of
-which holds; no `anyOf` inside one). The effect counts include the effect of the cast the player releases this tick
+which holds; no `anyOf` inside one). From #150 (Frost): `selfChillingAtLeast` / `selfChillingBelow` (`count`: the
+player's Chilling stacks), `enemyChillingAtLeast` (`count`: the opponent's, as its HUD shows them) and
+`noChillingSource` (no spell of the loadout grants Chilling, so Ice Spear is a plain nuke). The effect counts include the effect of the cast the player releases this tick
 (#143): the view is built before the tick's actions, so it shows that effect only from the next tick, and a profile
-keeping one Living Bomb up would otherwise start a second one on the release tick, replacing its own.
+keeping one Living Bomb up would otherwise start a second one on the release tick, replacing its own. The same goes
+for Chilling (#150): the Chilling conditions, and whether Icy Touch is ready, read the stacks the release leaves
+(`chillingAfter`: a Frostbolt adds one, an Ice Spear spends them all), measured once per spell and stack count on a
+fresh real-engine battle, so no Chilling rule is reimplemented.
 
 **Each tick** the controller: (1) cancels its fake cast once `cancelAfterSeconds` has passed, or releases a completed
 cast (unless `releaseHold` keeps it, below); (2) lands a committed Counterspell; (3) picks its next cast if it has none in progress, isn't pausing after a
@@ -190,6 +199,12 @@ for `patience.thresholdGiveUpSeconds` (outside the window), the first rotation e
 uses each general spell that is ready and whose rule holds (an instant used mid-cast cancels the cast, so rules that
 must not do that say `selfNotCasting`); (5) starts the cast from (3), after the general spells so Haste applies to it.
 It never assumes a side.
+
+**Frost (#150).** Icy Touch is an instant on the GCD: picked in (3) like a cast, it releases at once, and the GCD it
+starts shows as the other spells' `lockRemaining`, so the next cast waits for it (no action is ever refused). A real
+bait (below) is never an instant: it shows no cast to counter. The threshold give-up never recasts a spell whose own
+unique debuff is still on the enemy (Frost Bomb, Frost Fever, Living Bomb): the recast would replace it and lose the
+pulses it has left. (In a Fire-only field the give-up never meets that case, so Fire play is unchanged.)
 
 **Counterspell targets (#143).** No fixed list: the profile learns what each opponent spell is worth from what a
 client shows (`spellValues`, `src/threat.ts`), so it works for any spell set, future elements included. A spell's value
@@ -278,20 +293,35 @@ window lets the long casts through (bait: a real Combustion, then Meteors). The 
 intent in its file. The file's loadout is the one it shows off; the profile is built for every loadout it plays. Every
 archetype has a rule for each general spell (none is `"never"`) and its intent explains the plan: Haste on its longest
 cast or in the free-cast window, Magic Eater around its own damage, Temporal Shield to rewind an enemy burst, a Living
-Bomb explosion or Ignite build-up, Blur as an enemy Living Bomb or Ignite lands.
+Bomb explosion or Ignite build-up, Blur as an enemy Living Bomb or Ignite lands. Each also plays Frost (#150): Frost
+Bomb and Frost Fever kept up (never recast while up), Ice Spear at high Chilling (4 for aggressive, 5 for the others;
+3 in the free-cast window), Icy Touch only with Frost Fever on the enemy, Glacier while its 3 stacks fit under the
+cap, Frostbolt otherwise; and its general spells answer Frost too (Temporal Shield before an enemy Glacier, a 4-stack
+Ice Spear or a Frost Bomb's last pulse, Blur as a Frost Bomb lands). The bait defaults are the tuned profile of the
+bait-only tuning run 42665449015 (#160: 42.2% to 51.8% on the selection seeds, 52.1% on fresh ones).
 
 ### Tournaments (#103)
 
 `npm run arena` is the tournament command; `npm run arena:tournament` is the same script under its older name.
 
 ```sh
-npm run arena -- [--top N] [--general-pairs K] [--profiles a,b] [--games G] [--seed S] [--max-ticks T] [--baseline VERSION]
+npm run arena -- [--top N] [--frost-top M] [--general-pairs K] [--profiles a,b] [--games G] [--seed S] [--max-ticks T] [--baseline VERSION]
                  [--jobs J] [--time-budget SECONDS] [--shard i/n] [--out FILE] [--report FILE] [--date D] [--commit SHA]
                  [--bracket-best-of N] [--no-bracket]
 npm run arena -- merge SHARD.json... [--allow-missing] [--out FILE] [--report FILE] [--date D] [--commit SHA]
                  [--bracket-best-of N] [--no-bracket]
 npm run arena:baseline -- [--top K] --out baselines/<ENGINE_VERSION>.json
+npm run arena:baseline -- --element frost [--top K] --out baselines/<ENGINE_VERSION>-frost.json
 ```
+
+**Frost (#150).** The tournament takes the top `M` distinct Frost sets (`--frost-top`, default `--top` when the version
+has a Frost table, `baselines/<ENGINE_VERSION>-frost.json`, else 0; `--frost-top 0` is the Fire-only tournament) from
+the Frost table alongside the Fire sets, each with its `K` best general pairs, chosen the same way. They play every
+other entrant, so Fire faces Frost. Their ids are `I<Frost rank>/<profile>` (Ice) beside Fire's `L<rank>/<profile>`,
+and `config.frost` records `M`. Each element has its own table: a table's `element` key (absent: Fire) says which, and
+the parser checks every loadout against it (`parseBaseline(raw, version, element)`). The shipped Frost table is the
+whole Frost search (`--element frost --top 90`: 15 sets x 6 pairs) with the approved numbers. Tuning (#104) stays on
+the Fire field.
 
 An **entrant** is a (loadout, profile) pair. The loadouts (`selectLoadouts`) come from the version's dummy-DPS baseline
 (`baselines/<ENGINE_VERSION>.json`, generated from `sim:search`, best first; a missing file fails with a clear error):
@@ -366,6 +396,9 @@ npm run arena -- --mode strategy --seed 1 --out result.json --report report.md
 npm run arena -- --mode strategy --fire-set fireball,ignite,combustion,meteor --fire-set fireball,living-bomb,ignite,afterburn
 ```
 
+- **Frost sets (#150).** `--fire-set` also takes four Frost spells (`frostbolt,glacier,frost-bomb,ice-spear`), and
+  `--set` is its element-neutral name. A Frost set's setups are `I<n>/<pair>`, its `element` is `FROST`, and its dummy
+  baseline comes from the Frost table. Every game is still a mirror, so a setup plays one element.
 - **Setups.** One Fire set with each of the 6 pairs of the four non-Counterspell general spells (Haste+Blur, Haste+Magic
   Eater, Haste+Temporal Shield, Blur+Magic Eater, Blur+Temporal Shield, Magic Eater+Temporal Shield), Counterspell always
   in: `F<n>/<pair>`. The Fire set defaults to the best set of the dummy baseline (that of its rank 1). `--fire-set`
@@ -391,9 +424,10 @@ npm run arena -- --mode strategy --fire-set fireball,ignite,combustion,meteor --
 **In GitHub Actions** (`.github/workflows/arena.yml`, free on this public repo): _Actions > Arena > Run workflow_, or
 `gh workflow run arena.yml -f seed=1 -f top=8 -f games=2 -f generations=0`. It is `workflow_dispatch` only, has
 `permissions: contents: read`, uses no secrets and writes nothing back (no commits, no wiki). Inputs: `mode`
-(`tournament`, the default, or `strategy`, #137), `seed`, and for the tournament `top` (Fire sets), `games` (per pair,
+(`tournament`, the default, or `strategy`, #137), `seed`, and for the tournament `top` (Fire sets), `frost_top` (Frost
+sets beside them, #150, default 8; 0 is Fire only), `games` (per pair,
 even) and `generations` (0, the default, means no tuning); for the strategy mode `strategy_seeds` (30), `strategy_games`
-(36) and `fire_sets` (`;` between sets, `,` between spells; empty means the baseline's best). The strategy mode shards
+(36) and `fire_sets` (`;` between sets, `,` between spells, Fire or Frost sets; empty means the Fire baseline's best). The strategy mode shards
 and merges the same way (same shard and report files, no bracket, no tuning):
 `gh workflow run arena.yml -f mode=strategy -f seed=1`.
 
@@ -418,8 +452,10 @@ and merges the same way (same shard and report files, no bracket, no tuning):
 **Locally**: `npm run arena -- --top 8 --games 2 --seed 1 --report arena-report.md --out arena-result.json`. Keep local runs
 small while developing (`--top 2 --general-pairs 1 --games 2`, 28 pairs, a second or two); `--jobs` is 4 at most.
 
-**Expected runtime.** The default run is 8 Fire sets x 6 general pairs = 48 loadouts x 4 profiles = 192 entrants (#136),
-18336 pairs x 2 games = 36672 matches (`games x E(E-1)/2` for `E` entrants), then the bracket's few dozen. It was not run in
+**Expected runtime.** The default run is (8 Fire sets + 8 Frost sets, #150) x 6 general pairs = 96 loadouts x 4
+profiles = 384 entrants, 73536 pairs x 2 games = 147072 matches (`games x E(E-1)/2` for `E` entrants), then the
+bracket's few dozen: four times the Fire-only run's 36672 matches (`--frost-top 0`, 192 entrants), so the times below,
+measured on that Fire-only run, are about four times longer by default. It was not run in
 full while writing this: it is extrapolated from a `--top 2` run (48 entrants, 2256 matches) that took 1.3 s with
 `--jobs 2` on a WSL2 machine, start-up and bracket included. The v0.3.0 run's shards (64 entrants) took about 20 s each.
 
@@ -444,14 +480,17 @@ with these sections, in this order, always present:
    DPS under pressure), from `baselines/<version>.json`.
 3. `## Arena win rates`: `### By profile` (entrants, wins, draws, games and win rate over all of a profile's entrants) and
    `### By entrant` (rank, loadout, profile, wins, draws, games, win rate and 95% interval, best first).
-4. `## General pairs` (#136): win rate by general pair (the six, Haste pairs first) and with Haste against without it,
+4. `## Elements` (#150): `### Fire vs Frost`, each element's win rate over the games between a Fire entrant and a Frost
+   one, with the 95% Wilson interval; `### Per profile`, the same for each profile's entrants; `### All games`, each
+   element's win rate over all its games. A Fire-only run says it has no cross-element games.
+5. `## General pairs` (#136): win rate by general pair (the six, Haste pairs first) and with Haste against without it,
    pooled over every entrant with it, with the 95% Wilson interval: `### All profiles`, then `### Per profile` (one
    column per profile).
-5. `## Matchup matrix`: profile against profile, the share of games the row profile won against the column profile, with
+6. `## Matchup matrix`: profile against profile, the share of games the row profile won against the column profile, with
    wins/games (the full entrant matrix is `matrix` in the JSON).
-6. `## Bracket` (#136): the seeds, every set with its score, draws and winner, and the final placements; or why it was
+7. `## Bracket` (#136): the seeds, every set with its score, draws and winner, and the final placements; or why it was
    not run.
-7. `## Caveats`: partial runs, draws, sample size (games per entrant, the widest interval), the first-mover edge, the
+8. `## Caveats`: partial runs, draws, sample size (games per entrant, the widest interval), the first-mover edge, the
    bracket's small sample and what the numbers mean.
 
 For a given seed and inputs the tables are deterministic: the report is a pure function of the result, the date and the
@@ -512,6 +551,7 @@ gameplay (`apps/`) never reads a tuned profile, and `packages/engine` is untouch
     | `patience.thresholdGiveUpSeconds` / `commitGiveUpSeconds` (#136, when set)                 | 0.25-10 / 0.25-15 s       |
     | `releaseHold.giveUpSeconds` (#143, when the profile has `releaseHold`)                     | 0 to 3 s                  |
     | every condition's `hp` / `count` / `seconds` (rotation, window, fake cast, hold, generals) | 0-100 / 0-20 / 0-3 s      |
+    | a Chilling condition's `count` (#150)                                                      | 0 to 5 (the cap)          |
     | every `selfCastsAtLeast`'s `withinSeconds` (#136), `anyOf` lists included                  | 0 to 15 s                 |
 
 - **Overfitting guard.** The final best profile is re-scored on a fresh seed set (a tournament seed derived from `S`

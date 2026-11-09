@@ -270,7 +270,9 @@ describe('mutation and crossover', () => {
                     }
                 }
             }
-    })
+        // 4 archetypes x 60 mutants and their crossovers: about 2 s alone, more under a loaded full run, and the
+        // archetypes' Frost entries (#150) added slots
+    }, 30_000)
 
     it('crossover of two same-shape parents mixes their values', () => {
         const a = aggressive.profile

@@ -1,6 +1,8 @@
 import { FIXED_SPELL, secondsToTicks, SPELLS, toCenti, type SpellId } from '@magus/engine'
 import { adaptProfile } from './adapt'
+import { chillingAfter, hasChillingSource } from './chilling'
 import { allHold, type Condition, type ConditionInput, type OwnRelease } from './conditions'
+import { countAfterRelease, EFFECT_SOURCES } from './effects'
 import { ownHits } from './own-hits'
 import { spellValues } from './threat'
 import { start, stop } from './controllers'
@@ -13,9 +15,14 @@ import {
     type GeneralSpell,
     type Profile,
 } from './profile'
-import type { Action, ArenaView, ControllerFactory, Decision, Entrant, OwnCastView } from './types'
+import type { Action, ArenaView, ControllerFactory, Decision, Entrant, OwnCastView, SpellView } from './types'
 
 const NONE = -1
+
+/** The debuffs a recast replaces (`unique` in `EFFECT_SOURCES`): Living Bomb, Frost Bomb, Frost Fever. */
+const UNIQUE_DEBUFFS = (Object.keys(EFFECT_SOURCES) as (keyof typeof EFFECT_SOURCES)[]).filter(
+    id => EFFECT_SOURCES[id].unique && EFFECT_SOURCES[id].on === 'target',
+)
 
 /**
  * Counterspell's cooldown in ticks, from the public spell data a client shows (not from the opponent's state, which the
@@ -80,6 +87,13 @@ const giveUpTicks = (seconds: number | null | undefined) =>
  * Own releases (`selfCastsAtLeast`) are the SPELL_RELEASEs on the player's own spell log (`self.log`), what the
  * engine did. A release sent this tick counts for this tick's decisions, then gives way to the log on the next view:
  * dropped if the engine rejected it (an enemy Counterspell acting first on that tick interrupted the cast).
+ *
+ * Frost (#150): Chilling is read from the view (`self.chilling`), plus what this tick's release adds or spends
+ * (`chillingAfter`), for the Chilling conditions and for whether Icy Touch, which costs a stack, is ready. Icy Touch is
+ * an instant on the GCD: started in step 5 like a cast, it releases at once and the GCD it starts shows on the view
+ * as the other spells' `lockRemaining`, so the next cast waits for it. A real bait is never an instant (nothing to
+ * counter). The threshold give-up never recasts a spell whose own unique debuff is still on the enemy (Frost Bomb,
+ * Frost Fever, Living Bomb): a recast would replace it and lose what it has left.
  *
  * Nothing here depends on the side: player1 acting first within a tick is the runner's, and tournaments swap sides.
  */
@@ -201,6 +215,31 @@ export const profileController =
                 : NONE
         const hits = ownHits(loadout)
 
+        // Chilling (#150): what each slot's spell costs, and whether the loadout can build stacks at all
+        const costs = loadout.map(id => SPELLS[id].chillingCost ?? 0)
+        const chillingSource = hasChillingSource(loadout)
+        // the stacks after this tick's release, set each tick
+        let chillingNow = 0
+        /**
+         * Whether the engine accepts `slot` this tick: the view's `ready`, except for a spell that costs Chilling, whose
+         * stacks are those this tick's release leaves (the view shows them from before it).
+         */
+        const isReady = (spells: readonly SpellView[], slot: number) => {
+            const spell = spells[slot]
+            if (costs[slot] === 0) return spell.ready
+            return spell.cooldownRemaining === 0 && spell.lockRemaining === 0 && chillingNow >= costs[slot]
+        }
+        /** The unique debuff `slot`'s spell puts on the enemy is on it (this tick's release included): a recast replaces it. */
+        const ownUniqueUp = (enemy: ArenaView['enemy'], slot: number) => {
+            for (const effect of UNIQUE_DEBUFFS) {
+                if (EFFECT_SOURCES[effect].spell !== loadout[slot]) continue
+                let shown = 0
+                for (const e of enemy.effects) if (e.id === effect) shown += 1
+                if (countAfterRelease(shown, effect, 'enemy', input.released) > 0) return true
+            }
+            return false
+        }
+
         const actions: Action[] = []
         const input: {
             view: ArenaView
@@ -210,6 +249,8 @@ export const profileController =
             releases: readonly OwnRelease[]
             window: boolean
             released: SpellId | null
+            chilling: number
+            chillingSource: boolean
         } = {
             view: null as unknown as ArenaView,
             casting: false,
@@ -218,6 +259,8 @@ export const profileController =
             releases,
             window: false,
             released: null,
+            chilling: 0,
+            chillingSource,
         }
         const holds = (when: readonly Condition[]) => allHold(when, input as ConditionInput)
 
@@ -249,7 +292,11 @@ export const profileController =
         /** The first window entry that is ready, whose `when` holds and that releases before `bound`, or NONE. */
         const windowCast = (self: ArenaView['self'], tick: number, bound: number) => {
             for (const entry of windowRotation) {
-                if (self.spells[entry.slot].ready && holds(entry.when) && releaseTick(self, entry.slot, tick) < bound)
+                if (
+                    isReady(self.spells, entry.slot) &&
+                    holds(entry.when) &&
+                    releaseTick(self, entry.slot, tick) < bound
+                )
                     return entry.slot
             }
             return NONE
@@ -313,6 +360,9 @@ export const profileController =
             }
             released = false
             input.released = null
+            // before step 1's release: the stacks the view shows
+            chillingNow = self.chilling ?? 0
+            input.chilling = chillingNow
             let countered = false
 
             // 1. own cast
@@ -333,6 +383,10 @@ export const profileController =
                     provisional = true
                 }
             }
+
+            // Chilling once this tick's release has gone off (#150)
+            chillingNow = released ? chillingAfter(input.released!, self.chilling ?? 0) : (self.chilling ?? 0)
+            input.chilling = chillingNow
 
             // 2. Counterspell
             if (csSlot !== NONE) {
@@ -403,15 +457,17 @@ export const profileController =
                     fakeSlot !== NONE &&
                     fakes < fake.maxPerMatch &&
                     tick - lastFake >= fakeGap &&
-                    self.spells[fakeSlot].ready &&
+                    isReady(self.spells, fakeSlot) &&
                     holds(fake.when)
                 ) {
                     isBait = true
-                    // a real bait: the lowest-priority rotation entry that is ready and whose `when` holds
+                    // a real bait: the lowest-priority rotation entry that is ready and whose `when` holds, a cast
+                    // (an instant such as Icy Touch shows no cast to counter, #150)
                     if (realShare >= 1 || (realShare > 0 && rng.next() < realShare)) {
                         for (let i = rotation.length - 1; i >= 0; i--) {
                             const entry = rotation[i]
-                            if (self.spells[entry.slot].ready && holds(entry.when)) {
+                            if (castSeconds(entry.spell) === 0) continue
+                            if (isReady(self.spells, entry.slot) && holds(entry.when)) {
                                 next = entry.slot
                                 break
                             }
@@ -423,7 +479,7 @@ export const profileController =
                     }
                 } else {
                     for (const entry of rotation) {
-                        if (self.spells[entry.slot].ready && holds(entry.when)) {
+                        if (isReady(self.spells, entry.slot) && holds(entry.when)) {
                             next = entry.slot
                             break
                         }
@@ -442,8 +498,9 @@ export const profileController =
                 thresholdGiveUp !== NONE &&
                 tick - lastBusy >= thresholdGiveUp
             ) {
+                // never a recast that would replace the own unique debuff still on the enemy (#150: Frost Bomb)
                 for (const entry of rotation) {
-                    if (self.spells[entry.slot].ready) {
+                    if (isReady(self.spells, entry.slot) && !ownUniqueUp(enemy, entry.slot)) {
                         next = entry.slot
                         break
                     }

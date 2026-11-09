@@ -31,6 +31,7 @@ export {
     type RotationEntry,
 } from './profile'
 export { countAfterRelease, EFFECT_SOURCES } from './effects'
+export { CHILLING_MAX, chillingAfter, chillingGain, chillingSources, hasChillingSource } from './chilling'
 export { spellValues, type SpellValues } from './threat'
 export { baseHit, ownHits, type OwnHits } from './own-hits'
 export { profileController, profileEntrant } from './profile-controller'
@@ -43,7 +44,7 @@ export {
     type Archetype,
     type ArchetypeName,
 } from './archetypes'
-export { parseBaseline, type Baseline, type BaselineLoadout } from './baseline'
+export { baselineElement, baselineFile, parseBaseline, type Baseline, type BaselineLoadout } from './baseline'
 export { wilsonInterval } from './stats'
 export {
     adaptProfile,
@@ -51,7 +52,9 @@ export {
     DEFAULT_SEED,
     DEFAULT_GENERAL_PAIRS,
     DEFAULT_TOP,
+    elementOf,
     entrantMakers,
+    loadoutLabel,
     mergeShards,
     pairList,
     planTournament,
@@ -97,6 +100,7 @@ export { percent, spellName } from './tournament-format'
 export {
     behaviourKey,
     clampProfile,
+    CHILLING_COUNT_PARAMETER,
     clampValue,
     CONDITION_PARAMETERS,
     crossoverProfiles,
@@ -141,11 +145,13 @@ export {
     matchupList,
     mergeStrategyShards,
     pairName,
+    parseElementSet,
     parseFireSet,
     planStrategy,
     playJobs,
     runStrategy,
     runStrategyShard,
+    setLabel,
     STRATEGY_FORMAT,
     STRATEGY_GENERAL_PAIRS,
     STRATEGY_SHARD_FORMAT,

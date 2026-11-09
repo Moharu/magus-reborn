@@ -2,9 +2,10 @@ import {
     Battle,
     cooldownRemaining,
     fromCenti,
-    isValidLoadout,
+    loadoutElement,
     lockRemaining,
     secondsToTicks,
+    SPELLS,
     toCenti,
     type EffectState,
     type LogEntry,
@@ -53,6 +54,7 @@ interface ViewState {
             casting: OwnCast | null
             gcdUntil: number
             lockedUntil: number
+            chilling: number
             effects: EffectSlot[]
             spells: SpellSlot[]
             log: EnemyLogEntry[]
@@ -62,6 +64,7 @@ interface ViewState {
             hp: number
             casting: Cast | null
             lockedUntil: number
+            chilling: number
             effects: EffectSlot[]
             log: EnemyLogEntry[]
             hpLog: HpLogEntry[]
@@ -109,12 +112,13 @@ const createView = (loadout: readonly SpellId[]): ViewState => ({
             casting: null,
             gcdUntil: 0,
             lockedUntil: 0,
+            chilling: 0,
             effects: [],
             spells: loadout.map(id => ({ id, castTime: 0, cooldownRemaining: 0, lockRemaining: 0, ready: false })),
             log: [],
             hpLog: [],
         },
-        enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [], log: [], hpLog: [] },
+        enemy: { hp: 0, casting: null, lockedUntil: 0, chilling: 0, effects: [], log: [], hpLog: [] },
     },
     ownCast: emptyCast(),
     enemyCast: emptyEnemyCast(),
@@ -152,7 +156,7 @@ const readCast = (player: PlayerState, into: Cast) => {
 
 /**
  * Fills `view` with what `self` may see. Of the enemy it reads only what a client shows (the server's opponent
- * redaction): HP, the spell being cast, the lock and the buff bar (its spell log is `readEnemyLogs`'). Never the
+ * redaction): HP, the spell being cast, the lock, the Chilling stacks (#150) and the buff bar (its spell log is `readEnemyLogs`'). Never the
  * loadout, cooldowns or GCD.
  */
 const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: number) => {
@@ -162,6 +166,7 @@ const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: 
     own.hp = self.hp
     own.gcdUntil = self.gcdUntil
     own.lockedUntil = self.lockedUntil
+    own.chilling = self.chilling
     readEffects(self.effects, own.effects, state.ownEffects)
     // Haste swaps the engine's spell objects, so read them fresh every tick
     for (let i = 0; i < own.spells.length; i++) {
@@ -170,7 +175,11 @@ const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: 
         slot.castTime = spell.castTime
         slot.cooldownRemaining = cooldownRemaining(spell, tick)
         slot.lockRemaining = lockRemaining(self, spell, tick)
-        slot.ready = slot.cooldownRemaining === 0 && slot.lockRemaining === 0
+        // Icy Touch (#150): the engine also rejects it without the Chilling it costs (public spell data)
+        slot.ready =
+            slot.cooldownRemaining === 0 &&
+            slot.lockRemaining === 0 &&
+            self.chilling >= (SPELLS[spell.id].chillingCost ?? 0)
     }
     if (readCast(self, ownCast)) {
         ownCast.slot = self.cast!
@@ -179,6 +188,7 @@ const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: 
 
     view.enemy.hp = enemy.hp
     view.enemy.lockedUntil = enemy.lockedUntil
+    view.enemy.chilling = enemy.chilling
     readEffects(enemy.effects, view.enemy.effects, state.enemyEffects)
     view.enemy.casting = readCast(enemy, enemyCast) ? enemyCast : null
 }
@@ -253,7 +263,9 @@ const validate = ({ seed, a, b, maxTicks }: MatchOptions & { maxTicks: number })
         ['a', a],
         ['b', b],
     ] as const) {
-        if (!isValidLoadout([...entrant.loadout])) throw new Error(`entrant ${side} (${entrant.name}): invalid loadout`)
+        // one element per player, Fire or Frost (#150); the two players may play different elements
+        if (loadoutElement([...entrant.loadout]) === null)
+            throw new Error(`entrant ${side} (${entrant.name}): invalid loadout`)
         if (typeof entrant.controller !== 'function')
             throw new Error(`entrant ${side} (${entrant.name}): controller must be a function`)
     }

@@ -1,5 +1,5 @@
-import { ELEMENT_SPELL_COUNT, type SpellId } from '@magus/engine'
-import type { Baseline, BaselineLoadout } from './baseline'
+import { DEFAULT_ELEMENT, ELEMENT_SPELL_COUNT, type SpellElement, type SpellId } from '@magus/engine'
+import { baselineElement, type Baseline, type BaselineLoadout } from './baseline'
 import { profileEntrant } from './profile-controller'
 import { adaptProfile } from './adapt'
 import type { Profile } from './profile'
@@ -11,8 +11,8 @@ import type { BracketResult } from './bracket'
 
 /**
  * Round-robin tournaments (#103). An entrant is a (loadout, profile) pair: the loadouts are the top N distinct Fire
- * sets of the dummy-DPS baseline, each with its best K general pairs (`selectLoadouts`), crossed with the behaviour
- * profiles. Every unordered pair of distinct entrants plays `games` best-of-1 matches, half
+ * sets of the dummy-DPS baseline, each with its best K general pairs (`selectLoadouts`), and with a Frost table (#150)
+ * as many of its top Frost sets, crossed with the behaviour profiles. Fire entrants meet Frost ones like any others. Every unordered pair of distinct entrants plays `games` best-of-1 matches, half
  * of them with each entrant as `player1` (which acts first within a tick). The score is each entrant's win rate over all
  * its games: only wins count, a draw (time cap or mutual lethal) and a loss are both non-wins.
  *
@@ -36,6 +36,12 @@ export interface TournamentOptions {
     readonly baseline: Baseline
     /** How many distinct Fire sets to take, best first. Clamped to the table's size (reported in `config.top`). */
     readonly top?: number
+    /**
+     * The Frost dummy-DPS table (#150), whose top `frostTop` distinct Frost sets (default `top`) play alongside the Fire
+     * ones, each with its best `generalPairs` general pairs. Absent, or `frostTop` 0: a Fire-only tournament.
+     */
+    readonly frostBaseline?: Baseline
+    readonly frostTop?: number
     /** How many general pairs each Fire set plays with, best first (default 2). Fewer if the table has fewer. */
     readonly generalPairs?: number
     /** The profiles each loadout plays, by distinct `name`. */
@@ -48,9 +54,15 @@ export interface TournamentOptions {
 }
 
 export interface EntrantInfo {
-    /** `L<baseline rank, 2 digits>/<profile name>`: unique, and the last tie-break of the ranking. */
+    /**
+     * `L<baseline rank, 2 digits>/<profile name>` for a Fire loadout, `I<rank>/<profile>` (Ice) for a Frost one (#150):
+     * unique, and the last tie-break of the ranking.
+     */
     readonly id: string
+    /** The loadout's rank in its element's baseline. */
     readonly loadoutRank: number
+    /** `FROST` for a Frost loadout (#150); absent for Fire, so a Fire-only config is as it was. */
+    readonly element?: SpellElement
     readonly loadout: readonly SpellId[]
     readonly profile: string
 }
@@ -67,8 +79,10 @@ export interface TournamentConfig {
     readonly maxTicks: number
     readonly profiles: readonly Profile[]
     readonly entrants: readonly EntrantInfo[]
-    /** Baseline numbers per used loadout, to read the results against. */
-    readonly loadouts: readonly { rank: number; dps: number; dpsUnderPressure: number }[]
+    /** Baseline numbers per used loadout, to read the results against: the Fire ones, then the Frost ones (`element`). */
+    readonly loadouts: readonly { rank: number; dps: number; dpsUnderPressure: number; element?: SpellElement }[]
+    /** Present when Frost sets play (#150): how many were asked for and how many the Frost table had. */
+    readonly frost?: { readonly top: { readonly requested: number; readonly used: number } }
 }
 
 /** The outcome of one pair's games. `a` and `b` are indexes into `config.entrants`, `a < b`. */
@@ -139,7 +153,17 @@ export interface TournamentResult {
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
-/** Spell ids of a loadout's Fire set, in a canonical (sorted) order: slot order does not make a different set. */
+/** The letter of an element's loadouts in ids and tables: `L` for Fire (as before #150), `I` (Ice) for Frost. */
+const LOADOUT_LETTER: Record<SpellElement, string> = { FIRE: 'L', FROST: 'I' }
+
+/** `L01` for Fire rank 1, `I01` for Frost rank 1 (#150): a loadout's label in ids, tables and the report. */
+export const loadoutLabel = ({ loadoutRank, element }: { loadoutRank: number; element?: SpellElement }) =>
+    `${LOADOUT_LETTER[element ?? DEFAULT_ELEMENT]}${pad2(loadoutRank)}`
+
+/** The element of an entrant or a config loadout: its `element`, or Fire. */
+export const elementOf = (entry: { element?: SpellElement }): SpellElement => entry.element ?? DEFAULT_ELEMENT
+
+/** Spell ids of a loadout's element set (Fire or Frost), in a canonical (sorted) order: slot order does not make a different set. */
 const fireKey = (loadout: readonly SpellId[]) => [...loadout.slice(0, ELEMENT_SPELL_COUNT)].sort().join()
 /** The loadout with its Fire set and its general pair each in canonical order, the identity of a full loadout. */
 const loadoutKey = (loadout: readonly SpellId[]) =>
@@ -194,14 +218,41 @@ export const planTournament = (options: TournamentOptions): TournamentPlan => {
         if (names.has(name)) throw new Error(`profile ${JSON.stringify(name)} is listed twice`)
         names.add(name)
     }
+    const { frostBaseline } = options
+    const frostTop = options.frostTop ?? top
+    if (!(Number.isInteger(frostTop) && frostTop >= 0))
+        throw new Error(`frostTop must be a non-negative integer, got ${frostTop}`)
+    if (baselineElement(baseline) !== DEFAULT_ELEMENT)
+        throw new Error(`baseline must be the Fire table, got a ${baselineElement(baseline)} one`)
+    if (frostBaseline && baselineElement(frostBaseline) !== 'FROST')
+        throw new Error(`frostBaseline must be the Frost table, got a ${baselineElement(frostBaseline)} one`)
+    if (frostBaseline && frostBaseline.version !== baseline.version)
+        throw new Error(
+            `the Fire and Frost tables must be of one version, got ${baseline.version} and ${frostBaseline.version}`,
+        )
     const { loadouts: chosen, sets: used } = selectLoadouts(baseline, top, generalPairs)
-    if (chosen.length * profiles.length < 2) throw new Error('a tournament needs at least two entrants')
+    const frost =
+        frostBaseline && frostTop > 0
+            ? selectLoadouts(frostBaseline, frostTop, generalPairs)
+            : { loadouts: [], sets: 0 }
+    const all: (BaselineLoadout & { element?: SpellElement })[] = [
+        ...chosen,
+        ...frost.loadouts.map(l => ({ ...l, element: 'FROST' as const })),
+    ]
+    if (all.length * profiles.length < 2) throw new Error('a tournament needs at least two entrants')
     const entrants: EntrantInfo[] = []
     const make: (() => Entrant)[] = []
-    for (const { rank, loadout } of chosen) {
+    for (const { rank, loadout, element } of all) {
         for (const profile of profiles) {
             const adapted = adaptProfile(profile, loadout)
-            entrants.push({ id: `L${pad2(rank)}/${profile.name}`, loadoutRank: rank, loadout, profile: profile.name })
+            const label = loadoutLabel({ loadoutRank: rank, element })
+            entrants.push({
+                id: `${label}/${profile.name}`,
+                loadoutRank: rank,
+                ...(element ? { element } : {}),
+                loadout,
+                profile: profile.name,
+            })
             make.push(() => profileEntrant(adapted, loadout))
         }
     }
@@ -215,7 +266,13 @@ export const planTournament = (options: TournamentOptions): TournamentPlan => {
             maxTicks,
             profiles,
             entrants,
-            loadouts: chosen.map(({ rank, dps, dpsUnderPressure }) => ({ rank, dps, dpsUnderPressure })),
+            loadouts: all.map(({ rank, dps, dpsUnderPressure, element }) => ({
+                rank,
+                dps,
+                dpsUnderPressure,
+                ...(element ? { element } : {}),
+            })),
+            ...(frost.loadouts.length > 0 ? { frost: { top: { requested: frostTop, used: frost.sets } } } : {}),
         },
         make,
     }

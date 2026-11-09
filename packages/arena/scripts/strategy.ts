@@ -1,5 +1,5 @@
 // Usage:
-//   npm run arena -- --mode strategy [--fire-set a,b,c,d]... [--profiles a,b,...] [--seeds K] [--games G] [--seed S]
+//   npm run arena -- --mode strategy [--fire-set a,b,c,d]... [--set a,b,c,d]... [--profiles a,b,...] [--seeds K] [--games G] [--seed S]
 //                    [--max-ticks T] [--baseline VERSION] [--jobs J] [--time-budget SECONDS] [--shard i/n] [--out FILE]
 //                    [--report FILE] [--date YYYY-MM-DD] [--commit SHA]
 //   npm run arena -- --mode strategy merge SHARD.json... [--allow-missing] [--out FILE] [--report FILE]
@@ -8,7 +8,8 @@
 // get the same loadout, so only the profile varies. A setup is a Fire set with one of the 6 pairs of the four
 // non-Counterspell general spells (Counterspell always in). --fire-set (four Fire spells, ids or short names such as
 // fireball,living-bomb,ignite,meteor) replaces the default, the best Fire set of the dummy baseline, and may be repeated
-// to run several Fire sets. On every setup each profile plays every profile, itself included: K derived seeds (default
+// to run several Fire sets. A set may also be four Frost spells (#150, e.g. frostbolt,glacier,frost-bomb,ice-spear);
+// --set is the element-neutral name of --fire-set, and both may be given (the --fire-set ones first). On every setup each profile plays every profile, itself included: K derived seeds (default
 // 30) x G games each (even, default 36), sides alternating. --out, --jobs, --time-budget, --shard, --report and
 // `merge` work as in the tournament; progress goes to stderr.
 import { writeFileSync } from 'node:fs'
@@ -42,6 +43,7 @@ import {
     intFlag,
     killWorkers,
     loadBaseline,
+    loadFrostBaseline,
     printTable,
     readJson,
     reportOptions,
@@ -65,9 +67,11 @@ const plan = () => {
     for (const name of names)
         if (!(ARCHETYPE_NAMES as string[]).includes(name))
             throw new Error(`--profiles: unknown profile ${name} (one of ${ARCHETYPE_NAMES.join(', ')})`)
-    const fireSets = flagValues('fire-set').map(parseFireSet)
+    const fireSets = [...flagValues('fire-set'), ...flagValues('set')].map(parseFireSet)
+    const frostBaseline = loadFrostBaseline()
     return planStrategy({
         baseline: loadBaseline(),
+        ...(frostBaseline ? { frostBaseline } : {}),
         ...(fireSets.length === 0 ? {} : { fireSets }),
         profiles: names.map(name => ARCHETYPES[name as ArchetypeName].profile),
         seeds: intFlag('seeds', DEFAULT_STRATEGY_SEEDS),

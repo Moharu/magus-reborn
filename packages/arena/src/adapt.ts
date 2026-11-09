@@ -1,5 +1,6 @@
 import { ELEMENT_SPELL_COUNT, FIXED_SPELL, SPELLS, type EffectId, type SpellId } from '@magus/engine'
 import type { Condition } from './conditions'
+import { hasChillingSource } from './chilling'
 import { EFFECT_SOURCES } from './effects'
 import { checkLoadout, type Profile, type RotationEntry } from './profile'
 
@@ -38,8 +39,12 @@ const needsMissingSpell = (condition: Condition, loadout: readonly SpellId[]): b
             return !condition.spells.some(spell => loadout.includes(spell))
         case 'anyOf':
             return condition.of.every(when => when.some(inner => needsMissingSpell(inner, loadout)))
+        // Chilling stacks (#150) only come from the loadout's own Frostbolt or Glacier (`chillingSources`)
+        case 'selfChillingAtLeast':
+            return condition.count > 0 && !hasChillingSource(loadout)
         // no own spell needed: HP, fewer effects than a count, casting states, the enemy's casts, the longest cast
-        // (every loadout has cast-time spells) and the free-cast window (the enemy's own Counterspell opens it too)
+        // (every loadout has cast-time spells), the free-cast window (the enemy's own Counterspell opens it too), and
+        // (#150) fewer stacks than a count, the enemy's stacks (its own spells) and "no source" (it holds without one)
         case 'selfHpBelow':
         case 'selfHpAtLeast':
         case 'enemyHpBelow':
@@ -53,6 +58,9 @@ const needsMissingSpell = (condition: Condition, loadout: readonly SpellId[]): b
         case 'enemyCastEndsWithin':
         case 'nextCastIsLongest':
         case 'inLockoutWindow':
+        case 'selfChillingBelow':
+        case 'enemyChillingAtLeast':
+        case 'noChillingSource':
             return false
         default: {
             const unhandled: never = condition
@@ -68,11 +76,13 @@ const buildRotation = (entries: readonly RotationEntry[], loadout: readonly Spel
     )
 
 /**
- * Builds the profile a loadout plays (#136): a profile's rotation and free-cast window are priority lists over the Fire
- * spells, and the loadout keeps the entries it can play, in order. An entry is dropped when its spell is not on the
- * loadout, or when its `when` waits on a spell the loadout lacks (Combustion at 3+ Ignites with no Ignite, Afterburn
- * after Fireballs with no Fireball; see `needsMissingSpell`), so a rotation never relies on a missing spell. With no
- * entry left, the rotation is the loadout's own Fire spells in slot order, with no conditions; with no window entry
+ * Builds the profile a loadout plays (#136): a profile's rotation and free-cast window are priority lists over the
+ * element spells (Fire and Frost entries side by side, #150), and the loadout keeps the entries it can play, in order:
+ * a Fire loadout keeps the Fire entries, a Frost loadout the Frost ones. An entry is dropped when its spell is not on
+ * the loadout, or when its `when` waits on a spell the loadout lacks (Combustion at 3+ Ignites with no Ignite,
+ * Afterburn after Fireballs with no Fireball, Ice Spear at 4+ Chilling with no Frostbolt or Glacier; see
+ * `needsMissingSpell`), so a rotation never relies on a missing spell. With no entry left, the rotation is the
+ * loadout's own element spells in slot order, with no conditions; with no window entry
  * left, the window plays the built rotation. When the fake-cast spell is missing, the fake is retargeted to the loadout's longest cast-time spell
  * (the first in slot order on a tie), and fake-casting is turned off only if the loadout has no cast-time spell.
  * Everything else is kept. Building a built profile again for the same loadout changes nothing.

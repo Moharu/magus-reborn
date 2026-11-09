@@ -25,6 +25,10 @@ on:
                 description: Tournament mode - top N distinct Fire sets (each plays all 6 general pairs)
                 type: string
                 default: '8'
+            frost_top:
+                description: Tournament mode - top M distinct Frost sets beside the Fire ones, facing them (0 = Fire only)
+                type: string
+                default: '8'
             games:
                 description: Tournament mode - games per pair (even)
                 type: string
@@ -46,7 +50,7 @@ on:
                 type: string
                 default: '36'
             fire_sets:
-                description: 'Strategy mode - Fire sets, ";" between sets and "," between its 4 spells (empty = the baseline best), e.g. fireball,ignite,combustion,meteor'
+                description: 'Strategy mode - Fire or Frost sets, ";" between sets and "," between its 4 spells (empty = the Fire baseline best), e.g. fireball,ignite,combustion,meteor;frostbolt,glacier,frost-bomb,ice-spear'
                 type: string
                 default: ''
 
@@ -76,6 +80,7 @@ jobs:
                   ARENA_MODE: ${{ inputs.mode }}
                   ARENA_SEED: ${{ inputs.seed }}
                   ARENA_TOP: ${{ inputs.top }}
+                  ARENA_FROST_TOP: ${{ inputs.frost_top }}
                   ARENA_GAMES: ${{ inputs.games }}
                   ARENA_GENERATIONS: ${{ inputs.generations }}
                   ARENA_STRATEGY_SEEDS: ${{ inputs.strategy_seeds }}
@@ -87,13 +92,13 @@ jobs:
                       echo "::error::mode must be tournament or strategy, got '$ARENA_MODE'"
                       exit 1
                   fi
-                  for name in ARENA_SEED ARENA_TOP ARENA_GAMES ARENA_GENERATIONS ARENA_STRATEGY_SEEDS ARENA_STRATEGY_GAMES; do
+                  for name in ARENA_SEED ARENA_TOP ARENA_FROST_TOP ARENA_GAMES ARENA_GENERATIONS ARENA_STRATEGY_SEEDS ARENA_STRATEGY_GAMES; do
                       if [[ ! "${!name}" =~ ^[0-9]{1,10}$ ]]; then
                           echo "::error::$name must be a non-negative integer, got '${!name}'"
                           exit 1
                       fi
                   done
-                  # spell names only: the CLI checks them against the spell list
+                  # spell names only, Fire or Frost: the CLI checks them against the spell list
                   fire_pattern='^[A-Za-z_,; -]{0,400}$'
                   if [[ ! "$ARENA_FIRE_SETS" =~ $fire_pattern ]]; then
                       echo "::error::fire_sets must be spell names separated by , and ;"
@@ -132,12 +137,13 @@ jobs:
               env:
                   ARENA_SEED: ${{ inputs.seed }}
                   ARENA_TOP: ${{ inputs.top }}
+                  ARENA_FROST_TOP: ${{ inputs.frost_top }}
                   ARENA_GAMES: ${{ inputs.games }}
                   ARENA_SHARD: ${{ matrix.shard }}
               run: |
                   mkdir -p "$GITHUB_WORKSPACE/arena-out"
                   npm run arena -- \
-                      --seed "$ARENA_SEED" --top "$ARENA_TOP" --games "$ARENA_GAMES" \
+                      --seed "$ARENA_SEED" --top "$ARENA_TOP" --frost-top "$ARENA_FROST_TOP" --games "$ARENA_GAMES" \
                       --jobs 4 --time-budget "$TIME_BUDGET_SECONDS" \
                       --shard "$ARENA_SHARD/$SHARD_COUNT" --out "$GITHUB_WORKSPACE/arena-out/arena-shard-$ARENA_SHARD.json"
             # the strategy tournament (#137): the same shard file name, so the upload and the merge are the same

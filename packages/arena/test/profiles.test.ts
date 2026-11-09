@@ -117,7 +117,7 @@ describe('profile loader', () => {
             const { profile: loaded, loadout } = ARCHETYPES[name]
             expect(loaded.name).toBe(name)
             // the intent explains the general-spell plan too (#136)
-            expect(loaded.intent).toMatch(/^[^\n]{10,600}$/)
+            expect(loaded.intent).toMatch(/^[^\n]{10,1200}$/)
             expect(loaded.intent).toMatch(/Generals: /)
             const reparsed = parseProfile(JSON.parse(JSON.stringify(loaded)))
             expect(reparsed).toEqual(loaded)
@@ -468,12 +468,13 @@ describe('profile controller: fake casts', () => {
             fakeCast: { ...bait.fakeCast, realBaitShare: 0 },
         }
         const result = runMatch({ seed: 1, a: profileEntrant(fakesOnly, loadout), b: idler(), maxTicks: 20 })
-        // the fake Meteor starts on tick 0 and is cancelled on 5; Haste goes with the real Meteor on 13
+        // the fake Meteor starts on tick 0 and is cancelled on 7 (cancelAfterSeconds 0.35, #160); after the 0.4 s
+        // pause, Haste goes with the real Meteor on 15
         expect(result.log.map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
             '0 START_CAST SPELL_METEOR',
-            '5 STOP_CAST SPELL_METEOR',
-            '13 SPELL_RELEASE SPELL_HASTE',
-            '13 START_CAST SPELL_METEOR',
+            '7 STOP_CAST SPELL_METEOR',
+            '15 SPELL_RELEASE SPELL_HASTE',
+            '15 START_CAST SPELL_METEOR',
         ])
     })
 
@@ -864,7 +865,14 @@ describe('profile controller: free-cast window after a Counterspell (#123)', () 
 describe('profile controller: sacrificial bait (#123)', () => {
     const realBait = (share: number) => {
         const { profile: bait, loadout } = ARCHETYPES.bait
-        return profileEntrant({ ...bait, fakeCast: { ...bait.fakeCast, realBaitShare: share } }, loadout, 'bait')
+        // the pre-#160 Counterspell targets: the tuned bait (minValue 9.2) counters the enemy's opening Ignite, which
+        // cancels its own bait; this scenario is about the bait, not about what bait counters
+        const counterspell = { ...bait.counterspell, minValue: 12, unseenValuePerSecond: 6 }
+        return profileEntrant(
+            { ...bait, counterspell, fakeCast: { ...bait.fakeCast, realBaitShare: share } },
+            loadout,
+            'bait',
+        )
     }
 
     for (const side of ['a', 'b'] as const) {
@@ -898,7 +906,7 @@ describe('profile controller: sacrificial bait (#123)', () => {
         })
     }
 
-    it('the shipped bait archetype mixes both kinds of bait (realBaitShare 0.5)', () => {
+    it('the shipped bait archetype mixes both kinds of bait (realBaitShare 0.45, #160)', () => {
         const first = (seed: number) =>
             of(
                 runMatch({ seed, a: archetypeEntrant('bait'), b: archetypeEntrant('aggressive') }).log,
@@ -908,7 +916,7 @@ describe('profile controller: sacrificial bait (#123)', () => {
         // seed 1 draws a real Combustion for its first bait, seed 3 a fake Meteor
         expect(first(1)).toBe('SPELL_COMBUSTION')
         expect(first(3)).toBe('SPELL_METEOR')
-        expect(ARCHETYPES.bait.profile.fakeCast.realBaitShare).toBe(0.5)
+        expect(ARCHETYPES.bait.profile.fakeCast.realBaitShare).toBe(0.45)
     })
 
     it('picks the bait by rotation priority: the last entry that is ready and whose when holds', () => {

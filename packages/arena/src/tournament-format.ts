@@ -1,5 +1,5 @@
 import type { BracketResult } from './bracket'
-import type { TournamentResult } from './tournament'
+import { elementOf, loadoutLabel, type TournamentResult } from './tournament'
 
 /** `SPELL_TEMPORAL_SHIELD` as `Temporal Shield`. */
 export const spellName = (id: string) =>
@@ -15,13 +15,13 @@ export const NO_GAMES = 'no games'
 export const percent = (x: number) => `${(x * 100).toFixed(1)}%`
 
 /**
- * The compact ranked table, then a legend for the loadouts (`L<rank>`: baseline rank, spells, dummy DPS). Columns: rank,
+ * The compact ranked table, then a legend for the loadouts (`L<rank>` Fire, `I<rank>` Frost: baseline rank, spells, dummy DPS). Columns: rank,
  * loadout, profile, wins, games, win rate and its 95% interval. Draws are shown for information; they don't score.
  */
 export const formatTable = (result: TournamentResult) => {
     const rows = result.ranking.map(r => [
         String(r.rank),
-        `L${String(r.loadoutRank).padStart(2, '0')}`,
+        loadoutLabel(r),
         r.profile,
         String(r.wins),
         String(r.draws),
@@ -38,12 +38,12 @@ export const formatTable = (result: TournamentResult) => {
             .trimEnd()
     const { config } = result
     const legend = config.entrants
-        .filter((e, i) => config.entrants.findIndex(o => o.loadoutRank === e.loadoutRank) === i)
+        .filter((e, i) => config.entrants.findIndex(o => loadoutLabel(o) === loadoutLabel(e)) === i)
         .map(e => {
-            const baseline = config.loadouts.find(l => l.rank === e.loadoutRank)
+            const baseline = config.loadouts.find(l => l.rank === e.loadoutRank && elementOf(l) === elementOf(e))
             const spells = e.loadout.map(spellName)
             return (
-                `L${String(e.loadoutRank).padStart(2, '0')}  ${spells.slice(0, 4).join(', ')} | ${spells[4]} | ${spells.slice(5).join(', ')}` +
+                `${loadoutLabel(e)}  ${spells.slice(0, 4).join(', ')} | ${spells[4]} | ${spells.slice(5).join(', ')}` +
                 (baseline
                     ? `  (dps ${baseline.dps.toFixed(1)}, under pressure ${baseline.dpsUnderPressure.toFixed(1)})`
                     : '')

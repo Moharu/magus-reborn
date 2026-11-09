@@ -13,7 +13,10 @@ export interface SpellView {
     readonly cooldownRemaining: number
     /** Ticks the GCD or a Counterspell lock still blocks it (engine `lockRemaining`), 0 if free. */
     readonly lockRemaining: number
-    /** Both of the above are 0: the engine would accept `startCast` for it this tick. */
+    /**
+     * Both of the above are 0, and the player holds the Chilling the spell costs (Icy Touch, #150; the public
+     * `chillingCost`): the engine would accept `startCast` for it this tick.
+     */
     readonly ready: boolean
 }
 
@@ -49,6 +52,11 @@ export interface SelfView {
     readonly casting: OwnCastView | null
     readonly gcdUntil: number
     readonly lockedUntil: number
+    /**
+     * Frost's Chilling stacks on the player (#150), 0 to the cap, as the client's HUD shows them. The runner always
+     * sets it; hand-built views may leave it out (0).
+     */
+    readonly chilling?: number
     /** The player's own buffs and debuffs, in the order the engine applied them. */
     readonly effects: readonly EffectView[]
     /** The player's own loadout, in slot order. */
@@ -103,6 +111,11 @@ export interface EnemyView {
     readonly hp: number
     readonly casting: CastView | null
     readonly lockedUntil: number
+    /**
+     * The opponent's Chilling stacks (#150): every client gets both players' stacks (the HUD shows the opponent's once
+     * it is seen playing Frost). The runner always sets it; hand-built views may leave it out (0).
+     */
+    readonly chilling?: number
     /** The opponent's buffs and debuffs (for example the Ignites on them, Haste, Blur, Temporal Shield). */
     readonly effects: readonly EffectView[]
     /**
@@ -152,7 +165,7 @@ export type ControllerFactory = (init: ControllerInit) => Controller
 
 export interface Entrant {
     readonly name: string
-    /** A valid loadout for the default element (engine `isValidLoadout`). */
+    /** A valid loadout of one element, Fire or Frost (engine `loadoutElement`, #150). */
     readonly loadout: readonly SpellId[]
     readonly controller: ControllerFactory
 }
