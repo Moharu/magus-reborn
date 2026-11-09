@@ -1,5 +1,5 @@
 import 'pixi.js/accessibility'
-import { Container, Graphics, Sprite, Text } from 'pixi.js'
+import { Container, Graphics, Rectangle, Sprite, Text } from 'pixi.js'
 import {
     cooldownRemaining,
     HOTKEYS,
@@ -232,8 +232,7 @@ export class ActionBar extends Container {
         feedback: Text
         blockedReason: string
         feedbackUntil: number
-        scaleX: number
-        scaleY: number
+        scale: number
         spellId: string
     }[] = []
     private readonly panel = new Graphics()
@@ -342,8 +341,7 @@ export class ActionBar extends Container {
                 feedback,
                 blockedReason: '',
                 feedbackUntil: 0,
-                scaleX: 1,
-                scaleY: 1,
+                scale: 1,
                 spellId: '',
             })
         }
@@ -360,14 +358,29 @@ export class ActionBar extends Container {
             .stroke({ width: 1, color: 0x756585 })
         this.buttons.forEach((b, i) => {
             const slot = layout.slots[i]
-            b.scaleX = slot.width / BUTTON
-            b.scaleY = compact ? 60 / BUTTON : 1
-            b.root.position.set(slot.x + slot.width / 2, slot.y + (compact ? 30 : BUTTON / 2))
-            b.root.scale.set(b.scaleX, b.scaleY)
+            // Uniform scale keeps icons undistorted; the touch target is the full slot via hitArea.
+            const s = compact ? slot.height / BUTTON : 1
+            b.scale = s
+            b.root.position.set(slot.x + slot.width / 2, slot.y + (compact ? slot.height / 2 : BUTTON / 2))
+            b.root.scale.set(s)
+            b.root.hitArea = compact
+                ? new Rectangle(
+                      BUTTON / 2 - slot.width / s / 2,
+                      BUTTON / 2 - slot.height / s / 2,
+                      slot.width / s,
+                      slot.height / s,
+                  )
+                : null
             b.key.visible = keybindsVisible()
-            b.name.style.fontSize = compact ? 16 : 10
+            // Labels keep their on-screen size: counter-scale so text stays legible.
+            for (const text of [b.name, b.feedback]) text.scale.set(1 / s)
+            b.name.style.fontSize = compact ? 11 : 10
+            b.name.style.lineHeight = compact ? 11 : 12
             b.name.style.wordWrap = compact
-            b.name.style.wordWrapWidth = BUTTON
+            b.name.style.wordWrapWidth = compact ? slot.width : BUTTON + BATTLE_BAR.gap - 2
+            b.name.position.set(BUTTON / 2, BUTTON + 2 / s)
+            b.feedback.style.fontSize = 14
+            b.feedback.position.set(BUTTON / 2, -6 / s)
         })
     }
 
@@ -461,7 +474,7 @@ export class ActionBar extends Container {
                 color: casting ? 0xffd43b : 0xffffff,
                 alpha: casting || b.spellId === 'SPELL_COUNTERSPELL' ? 1 : 0.55,
             })
-        b.root.scale.set(b.scaleX * (down ? 0.94 : 1), b.scaleY * (down ? 0.94 : 1))
+        b.root.scale.set(b.scale * (down ? 0.94 : 1))
     }
 }
 

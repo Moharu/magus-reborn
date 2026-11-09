@@ -107,14 +107,22 @@ export const battleLayout = (width: number, height: number) => {
 }
 
 /** Phone presentation only; all values are CSS pixels in the safe-area content box. */
-export const phoneLandscape = (width: number, height: number) => width <= 900 && width > height
+export const PHONE_MAX_HEIGHT = 500
+/** Landscape phones, including 932x430 Pro Max class; keyed on height so wide phones are not missed. */
+export const phoneLandscape = (width: number, height: number) => height <= PHONE_MAX_HEIGHT && width > height
+
+/** Uniform world transform for phones: never stretches fighters or VFX; the backdrop fills the rest. */
+export const mobileWorldTransform = (width: number, height: number) => {
+    const scale = Math.min(width / WIDTH, (height - 100) / GROUND_Y)
+    return { scale, x: (width - WIDTH * scale) / 2, y: height - 100 - GROUND_Y * scale }
+}
 
 export const mobileBattleLayout = (width: number, height: number) => {
     const gap = width < 844 ? 4 : 6
     const panelWidth = width * (width < 844 ? 0.96 : 0.92)
     const left = (width - panelWidth) / 2
     const button = (panelWidth - 10 - gap * 6) / 7
-    const bar = { x: left, y: height - 92, width: panelWidth, height: 86 }
+    const bar = { x: left, y: height - 96, width: panelWidth, height: 90 }
     return {
         bar,
         slots: Array.from({ length: 7 }, (_, i) => ({
@@ -123,6 +131,6 @@ export const mobileBattleLayout = (width: number, height: number) => {
             width: button,
             height: 60,
         })),
-        log: { x: width / 2, y: bar.y - 22 },
+        log: { x: width / 2, y: bar.y - 28 },
     }
 }

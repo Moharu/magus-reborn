@@ -21,6 +21,7 @@ import {
     type Side,
     phoneLandscape,
     mobileBattleLayout,
+    mobileWorldTransform,
 } from './layout'
 import { interruptTells, type InterruptTell } from './interrupt-tell'
 import { backdropTexture, particleTexture } from './textures'
@@ -70,6 +71,7 @@ export class BattleView {
     private backdrop!: Sprite
     private top!: Graphics
     private readonly world = new Container()
+    private worldOrigin = { x: 0, y: 0 }
     private readonly vfx = new Vfx()
     private readonly wizards: Record<Side, Wizard> = { left: new Wizard('left'), right: new Wizard('right') }
     private readonly huds: Record<Side, PlayerHud>
@@ -303,7 +305,10 @@ export class BattleView {
         this.app.stage.scale.set(scale)
         this.backdrop.width = width
         this.backdrop.height = height
-        this.world.scale.set(width / WIDTH, compact ? (height - 100) / GROUND_Y : 1)
+        const world = compact ? mobileWorldTransform(width, height) : { scale: 1, x: 0, y: 0 }
+        this.world.scale.set(world.scale)
+        this.worldOrigin = { x: world.x, y: world.y }
+        this.world.position.set(world.x, world.y)
         this.top
             .clear()
             .rect(0, 0, width, compact ? 90 : 136)
@@ -321,7 +326,9 @@ export class BattleView {
         const log = compact ? mobileBattleLayout(width, height).log : { x: 480, y: 434 }
         this.spellLog.position.set(log.x, log.y)
         this.actionBar?.fitPhone(width, height, compact)
-        this.overlay.scale.set(width / WIDTH, height / HEIGHT)
+        const fit = Math.min(width / WIDTH, height / HEIGHT)
+        this.overlay.scale.set(fit)
+        this.overlay.position.set((width - WIDTH * fit) / 2, (height - HEIGHT * fit) / 2)
     }
 
     private displayTick(snap: SnapshotView) {
@@ -391,7 +398,7 @@ export class BattleView {
 
         this.vfx.update(dt)
         // Split Console keeps the arena stationary, including on heavy hits.
-        this.world.position.set(0, 0)
+        this.world.position.set(this.worldOrigin.x, this.worldOrigin.y)
     }
 
     private persistentEffects(side: Side, player: SnapshotView['player1'], tick: number, dt: number) {

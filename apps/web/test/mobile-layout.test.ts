@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Battle, DEFAULT_SPELLS, secondsToTicks } from '@magus/engine'
 import { EventBoundary, FederatedPointerEvent } from 'pixi.js'
-import { mobileBattleLayout, phoneLandscape } from '../src/game/layout'
+import { GROUND_Y, mobileBattleLayout, mobileWorldTransform, phoneLandscape, WIDTH } from '../src/game/layout'
 import { keybindsVisible } from '../src/game/hotkeys'
 import { ActionBar } from '../src/game/hud'
 
@@ -36,8 +36,9 @@ describe('phone presentation', () => {
         expect(phoneLandscape(844, 390)).toBe(true)
         expect(phoneLandscape(667, 375)).toBe(true)
         expect(phoneLandscape(390, 844)).toBe(false)
-        expect(phoneLandscape(900, 500)).toBe(true)
-        expect(phoneLandscape(901, 500)).toBe(false)
+        expect(phoneLandscape(932, 430)).toBe(true)
+        expect(phoneLandscape(915, 412)).toBe(true)
+        expect(phoneLandscape(1024, 768)).toBe(false)
         expect(phoneLandscape(600, 600)).toBe(false)
     })
 
@@ -71,6 +72,27 @@ describe('phone presentation', () => {
         bar.fitPhone(960, 600, false)
         expect(root.scale.x).toBe(1)
         expect(root.scale.y).toBe(1)
+    })
+
+    it.each([
+        [844, 390],
+        [667, 375],
+        [932, 430],
+    ])('scales world and buttons uniformly at %ix%i and keeps feedback legible', (width, height) => {
+        const world = mobileWorldTransform(width, height)
+        expect(world.scale).toBeGreaterThan(0)
+        expect(world.x).toBeGreaterThanOrEqual(0)
+        expect(world.scale * WIDTH).toBeLessThanOrEqual(width + 1e-9)
+        expect(world.y + GROUND_Y * world.scale).toBeLessThanOrEqual(height - 100 + 1e-9)
+        const bar = new ActionBar(vi.fn(), vi.fn())
+        bar.fitPhone(width, height, true)
+        const root = bar.children[1]
+        expect(root.scale.x).toBe(root.scale.y)
+        const slot = mobileBattleLayout(width, height).slots[0]
+        // the touch target is the whole slot, even though the visual is a uniform square
+        expect(root.hitArea).toMatchObject({ width: slot.width / root.scale.x, height: slot.height / root.scale.y })
+        const feedback = root.children.at(-1)!
+        expect(feedback.scale.x * root.scale.x * 14).toBeGreaterThanOrEqual(12)
     })
 
     it('clears the local blocked reason after a second of engine time', () => {
