@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { DEFAULT_SPELLS } from '@magus/engine'
+import { DEFAULT_SPELLS, SPELLBOOKS, SPELLS, loadoutElement } from '@magus/engine'
 import { battleLayout, HEIGHT, WIDTH } from '../src/game/layout'
 import { spellPicker } from '../src/ui/spell-picker'
 import { FakeElement, FakeNode } from './fake-dom'
@@ -39,20 +39,43 @@ it('Ready clears selection and prevents further changes', () => {
     expect(root.textContent).not.toContain('Edit loadout')
 })
 
-it('shows disabled teaser cards only before the match', () => {
+it('selects Frost with four of six spells, while Lightning stays locked', () => {
     const save = vi.fn()
-    const picker = spellPicker([...DEFAULT_SPELLS], save)
-    const root = picker.el as unknown as FakeElement
-    for (const name of ['Frost', 'Lightning']) {
-        const card = root.find(el => el.tag === 'button' && el.textContent.includes(name))!
-        expect((card as unknown as HTMLButtonElement).disabled).toBe(true)
-        expect(card.textContent).toContain('Locked · coming later')
+    const root = spellPicker([...DEFAULT_SPELLS], save, { overlayDetails: true }).el as unknown as FakeElement
+    root.button('Frost')!.click()
+    expect(loadoutElement(save.mock.calls[0][0])).toBe('FROST')
+    expect(save.mock.calls[0][0].slice(0, 4)).toEqual(SPELLBOOKS.FROST.elementSpells.slice(0, 4))
+    for (const id of SPELLBOOKS.FROST.elementSpells) {
+        const card = target(root, `spell:${id}`)
+        expect(card).not.toBeNull()
+        expect(card.attrs.get('title')).toBe(SPELLS[id].description)
+        card.click()
+        expect(root.querySelector('.header-details')!.textContent).toContain(SPELLS[id].label)
         card.click()
     }
-    expect(save).not.toHaveBeenCalled()
-    const swap = spellPicker([...DEFAULT_SPELLS], save, { elementLocked: true }).el as unknown as FakeElement
-    expect(swap.textContent).not.toContain('Frost')
-    expect(swap.textContent).toContain('locked for the match')
+    target(root, 'spell:SPELL_ICY_TOUCH').click()
+    target(root, 'slot:0').click()
+    expect(save.mock.lastCall![0].slice(0, 4)).toContain('SPELL_ICY_TOUCH')
+    expect(loadoutElement(save.mock.lastCall![0])).toBe('FROST')
+    const teaser = root.find(el => el.tag === 'button' && el.textContent.includes('Lightning'))!
+    expect((teaser as unknown as HTMLButtonElement).disabled).toBe(true)
+    expect(teaser.textContent).toContain('Locked · coming later')
+})
+
+it('locks the Frost element between rounds but allows same-element swaps until Ready', () => {
+    const frost = [...SPELLBOOKS.FROST.elementSpells.slice(0, 4), ...DEFAULT_SPELLS.slice(4)]
+    const save = vi.fn()
+    const picker = spellPicker(frost, save, { elementLocked: true })
+    const root = picker.el as unknown as FakeElement
+    expect(root.button('Fire')).toBeNull()
+    expect(root.textContent).toContain('Frost · locked for the match')
+    target(root, 'spell:SPELL_FROST_FEVER').click()
+    target(root, 'slot:0').click()
+    expect(loadoutElement(save.mock.lastCall![0])).toBe('FROST')
+    picker.setLocked(true)
+    target(root, 'spell:SPELL_ICY_TOUCH').click()
+    target(root, 'slot:0').click()
+    expect(save).toHaveBeenCalledTimes(1)
 })
 
 it('places all seven editable bar icons at the battle coordinates and size', () => {

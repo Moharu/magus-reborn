@@ -257,6 +257,7 @@ export class BattleView {
                 this.combatActive() && fresh,
             )
         if (fresh) this.reconcileReleases()
+        for (const side of SIDES) this.huds[side].observeCasts(newLog)
         this.spellLog?.update(newLog, logFrom, fresh, round, snap)
         if (!fresh) return
         for (const entry of newLog) if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(entry.caster, entry.spellId)
@@ -497,6 +498,16 @@ export class BattleView {
         const color = SPELL_COLOR[spellId]
 
         switch (spellId) {
+            case 'SPELL_FROSTBOLT':
+            case 'SPELL_GLACIER':
+            case 'SPELL_ICE_SPEAR':
+            case 'SPELL_FROST_BOMB':
+            case 'SPELL_FROST_FEVER':
+                this.vfx.projectile(from, to, color, { size: 1.2, trail: color })
+                break
+            case 'SPELL_ICY_TOUCH':
+                this.vfx.burst(to, color, 0.7)
+                break
             case 'SPELL_FIREBALL':
                 this.vfx.projectile(from, to, color, { size: 1.5 })
                 break
@@ -604,8 +615,8 @@ export class BattleView {
         }
         const damage = event.amount < 0
         this.vfx.floatText(wizard.headPoint, formatAmount(event.amount), damage ? 0xff6b6b : 0x8ce99a, damage ? 26 : 22)
-        if (event.source === 'SPELL_LIVING_BOMB' && event.kind === 'effect') {
-            this.vfx.burst(wizard.chestPoint, SPELL_COLOR.SPELL_LIVING_BOMB, 2)
+        if ((event.source === 'SPELL_LIVING_BOMB' || event.source === 'SPELL_FROST_BOMB') && event.kind === 'effect') {
+            this.vfx.burst(wizard.chestPoint, SPELL_COLOR[event.source], 2)
             this.vfx.shake = 10
         }
         if (event.source === 'SPELL_TEMPORAL_SHIELD')
