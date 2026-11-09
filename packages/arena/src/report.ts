@@ -42,7 +42,7 @@ const pool = (entrants: readonly RankedEntrant[]) => ({
     games: entrants.reduce((sum, r) => sum + r.games, 0),
 })
 
-const rateWithInterval = (wins: number, games: number) => {
+export const rateWithInterval = (wins: number, games: number) => {
     if (games === 0) return NO_GAMES
     const { low, high } = wilsonInterval(wins, games)
     return `${percent(wins / games)} (${percent(low)}-${percent(high)})`
@@ -103,13 +103,13 @@ export interface ReportOptions {
     readonly bracketSkipped?: string
 }
 
-const table = (header: string[], rows: string[][], left: number[] = [0]) => {
+export const table = (header: string[], rows: string[][], left: number[] = [0]) => {
     const line = (cells: string[]) => `| ${cells.join(' | ')} |`
     const rule = header.map((_, i) => (left.includes(i) ? ':---' : '---:'))
     return [line(header), line(rule), ...rows.map(line)].join('\n')
 }
 
-const rate = (wins: number, games: number) => (games === 0 ? 0 : wins / games)
+export const rate = (wins: number, games: number) => (games === 0 ? 0 : wins / games)
 
 export const formatReport = (result: TournamentResult, options: ReportOptions): string => {
     const { config, ranking, partial } = result

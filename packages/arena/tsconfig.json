@@ -5,6 +5,7 @@
         "test/match-cli.test.ts",
         "test/tournament-cli.test.ts",
         "test/tune-cli.test.ts",
-        "test/arena-cli.test.ts"
+        "test/arena-cli.test.ts",
+        "test/strategy-cli.test.ts"
     ]
 }

@@ -9,6 +9,7 @@ npm run arena:match -- --seed 1          # summary of one match between the two 
 npm run arena:match -- --seed 1 --log    # the full match log, then the summary
 npm run arena:match -- --seed 1 --max-ticks 600
 npm run arena:match -- --seed 1 --a bait --b patient-counter   # two archetypes from profiles/
+npm run arena -- --mode strategy --seed 1 --report report.md  # strategy tournament on mirror setups (#137)
 npm run arena -- --top 8 --games 2 --seed 1 --report report.md  # round-robin, ranked by win rate; the report (#103, #105)
 npm run arena:tune -- --top 2 --general-pairs 1 --population 6 --generations 4 --seed 1 --out best.json   # self-tuning (#104)
 ```
@@ -307,12 +308,47 @@ It is 14 or 15 sets, a few dozen games.
 From code: `planTournament({ baseline, profiles, top, generalPairs, games, seed })`, then `runTournament(plan)`, or `runShard(plan, i, n)`
 and `mergeShards(shards)` (`runTournament` and `runShard` take an optional `stop` callback, the time budget's hook). `profiles` are plain `Profile` objects, so a tuner (#104) can pass its own.
 
+### Strategy tournament (#137)
+
+The round-robin above changes the loadout and the profile together, so a win rate mixes loadout strength and strategy.
+`--mode strategy` (or `npm run arena:strategy`, the same command) plays every game as a **mirror**: both players get the
+same loadout, so only the profile varies.
+
+```sh
+npm run arena -- --mode strategy --seed 1 --out result.json --report report.md
+npm run arena -- --mode strategy --fire-set fireball,ignite,combustion,meteor --fire-set fireball,living-bomb,ignite,afterburn
+```
+
+- **Setups.** One Fire set with each of the 6 pairs of the four non-Counterspell general spells (Haste+Blur, Haste+Magic
+  Eater, Haste+Temporal Shield, Blur+Magic Eater, Blur+Temporal Shield, Magic Eater+Temporal Shield), Counterspell always
+  in: `F<n>/<pair>`. The Fire set defaults to the best set of the dummy baseline (that of its rank 1). `--fire-set`
+  (four distinct Fire spells, ids or short names) replaces it and may be repeated to run several Fire sets.
+- **Matchups.** On every setup each profile plays every profile, itself included. A cell is `--seeds` derived seeds
+  (default 30, `deriveSeed(seed, setup, matchup, k)`) x `--games` games each (even, default 36), sides alternating game
+  by game: 1080 games a cell, so the widest 95% Wilson interval (at 50%) is about +/-3%. A full default run is 64,800
+  games on one Fire set, about 2 minutes on one machine. `--profiles`, `--seed`, `--max-ticks`, `--baseline`, `--jobs`,
+  `--time-budget`, `--shard i/n`, `--out`, `--report`, `--date`, `--commit` and `merge` work as in the tournament.
+- **Result and report.** The JSON holds the raw counts per cell (`cells`: wins of each side, draws, first-mover wins),
+  the profile ranking of each setup and the best profile per general pair. The report has a profile-against-profile
+  win-rate matrix per setup, each profile's rank on each setup, and a table of which profile does best with each
+  general pair (pooled over the Fire sets, with whether its interval is clear of the runner-up's). All rates are 95%
+  Wilson intervals and draws are non-wins. The diagonal of a matrix is the share of games won by whoever moved first.
+- **Ranking** is a profile's win rate over its games against the _other_ profiles: mirror games say nothing about which
+  profile is better, so they are in the diagonal cells only.
+- **Work units** are jobs (one setup, matchup and derived seed, `--games` games), sharded by `job % n`; merging all
+  shards equals the unsharded run. From code: `planStrategy`, `runStrategy`, `runStrategyShard`, `mergeStrategyShards`,
+  `formatStrategyReport`.
+
 ### Workflow, local runs and the report (#105)
 
 **In GitHub Actions** (`.github/workflows/arena.yml`, free on this public repo): _Actions > Arena > Run workflow_, or
 `gh workflow run arena.yml -f seed=1 -f top=8 -f games=2 -f generations=0`. It is `workflow_dispatch` only, has
-`permissions: contents: read`, uses no secrets and writes nothing back (no commits, no wiki). Inputs: `seed`, `top`
-(Fire sets), `games` (per pair, even) and `generations` (0, the default, means no tuning).
+`permissions: contents: read`, uses no secrets and writes nothing back (no commits, no wiki). Inputs: `mode`
+(`tournament`, the default, or `strategy`, #137), `seed`, and for the tournament `top` (Fire sets), `games` (per pair,
+even) and `generations` (0, the default, means no tuning); for the strategy mode `strategy_seeds` (30), `strategy_games`
+(36) and `fire_sets` (`;` between sets, `,` between spells; empty means the baseline's best). The strategy mode shards
+and merges the same way (same shard and report files, no bracket, no tuning):
+`gh workflow run arena.yml -f mode=strategy -f seed=1`.
 
 - A `plan` job checks the inputs (non-negative integers; `generations` is read numerically, so `00` means no tuning) and
   decides whether `tune` runs.

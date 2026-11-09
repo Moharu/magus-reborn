@@ -1173,3 +1173,43 @@ describe('archetypes in play', () => {
         expect(Date.now() - began).toBeLessThan(10_000)
     })
 })
+
+describe('profile controller: commit wait and a lock inside the free-cast window (#137)', () => {
+    it('a Counterspell lock on the last tick of the window does not push the end of the commit wait', () => {
+        const waiter = loadProfile(
+            {
+                ...quietProfile(),
+                rotation: ['SPELL_FIREBALL'],
+                patience: { thresholdGiveUpSeconds: null, commitGiveUpSeconds: 3 },
+            },
+            METEOR_LOADOUT,
+        )
+        const fireball = slotOf(METEOR_LOADOUT, 'SPELL_FIREBALL')
+        const firstCast = (selfLockedUntil: number) => {
+            const decide = controllerFor(waiter, METEOR_LOADOUT)
+            // the enemy is locked until tick 100: ticks 90-99 are the window, the wait for it to commit runs from 100
+            for (let tick = 90; tick < 200; tick++) {
+                const view = freeView(METEOR_LOADOUT, tick, { enemyLockedUntil: 100 })
+                const locked = tick < selfLockedUntil
+                const seen = locked
+                    ? {
+                          ...view,
+                          self: {
+                              ...view.self,
+                              lockedUntil: selfLockedUntil,
+                              spells: view.self.spells.map(s => ({ ...s, lockRemaining: 1, ready: false })),
+                          },
+                      }
+                    : view
+                if (actionsOf(decide(seen)).some(a => a.type === 'start' && a.slot === fireball)) return tick
+            }
+            return undefined
+        }
+        // no lock: the 3 s (60 ticks) wait ends on 160
+        expect(firstCast(0)).toBe(160)
+        // locked for the window's last tick only: that tick is inside the window, so the wait still ends on 160
+        expect(firstCast(100)).toBe(160)
+        // locked ticks after the window do push it, one for one
+        expect(firstCast(102)).toBe(162)
+    })
+})
