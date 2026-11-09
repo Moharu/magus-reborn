@@ -163,7 +163,7 @@ describe('arena:tournament CLI', () => {
             )
             expect(fails(...small.slice(0, 2), '--profiles', 'nope')).toMatch(/unknown profile nope/)
             expect(fails('--games', '3')).toMatch(/even/)
-            expect(fails('--jobs', '9')).toMatch(/--jobs must be between 1 and 4/)
+            expect(fails('--jobs', '0')).toMatch(/--jobs must be at least 1/)
             expect(fails(...small, '--shard', '0/2')).toMatch(/--out/)
             const baselineScript = fileURLToPath(new URL('../scripts/baseline.ts', import.meta.url))
             try {

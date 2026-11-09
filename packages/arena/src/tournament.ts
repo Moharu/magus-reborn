@@ -90,7 +90,17 @@ export interface ShardResult {
     readonly format: typeof SHARD_FORMAT
     readonly config: TournamentConfig
     readonly shard: { readonly index: number; readonly count: number }
+    /** Present (`true`) only when the time budget stopped the shard before it played all its pairs. */
+    readonly partial?: true
     readonly pairs: readonly PairResult[]
+}
+
+/** What a partial result (a run stopped by its time budget) played. */
+export interface PartialInfo {
+    readonly pairsPlayed: number
+    readonly pairsTotal: number
+    /** The indexes of the pairs that were played, ascending. */
+    readonly played: readonly number[]
 }
 
 export interface RankedEntrant extends EntrantInfo {
@@ -114,6 +124,8 @@ export interface TournamentResult {
     /** Games won by `player1` over all games, for information on the first-mover edge. */
     readonly firstWins: number
     readonly games: number
+    /** Only on a partial result: the pairs that were not all played. Win rates then cover the played pairs only. */
+    readonly partial?: PartialInfo
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -277,29 +289,58 @@ const playPairOf = (plan: TournamentPlan, pair: number, a: number, b: number, ru
     return { pair, a, b, games, winsA, winsB, draws, firstWins }
 }
 
-/** Plays the given pair indexes (for example one shard, or one worker's share of it), in order. */
-export const playPairs = (plan: TournamentPlan, pairs: readonly number[], run: MatchFn = runMatch): PairResult[] => {
+/**
+ * Plays the given pair indexes (for example one shard, or one worker's share of it), in order. `stop`, checked before
+ * each pair, ends the run early (the time budget, #105): the pairs played so far are returned. A pair is never
+ * interrupted halfway, so a result always holds whole pairs.
+ */
+export const playPairs = (
+    plan: TournamentPlan,
+    pairs: readonly number[],
+    run: MatchFn = runMatch,
+    stop?: () => boolean,
+): PairResult[] => {
     const list = pairList(plan.config.entrants.length)
-    return pairs.map(pair => {
+    const played: PairResult[] = []
+    for (const pair of pairs) {
+        if (stop?.()) break
         const [a, b] = list[pair] ?? []
         if (a === undefined) throw new Error(`no pair ${pair}`)
-        return playPairOf(plan, pair, a, b, run)
-    })
+        played.push(playPairOf(plan, pair, a, b, run))
+    }
+    return played
 }
 
-/** Plays one shard: the pairs with `pair % count === index`. */
-export const runShard = (plan: TournamentPlan, index: number, count: number, run: MatchFn = runMatch): ShardResult => {
+/** Plays one shard: the pairs with `pair % count === index`. With `stop`, a shard that is stopped early is `partial`. */
+export const runShard = (
+    plan: TournamentPlan,
+    index: number,
+    count: number,
+    run: MatchFn = runMatch,
+    stop?: () => boolean,
+): ShardResult => {
     const total = pairList(plan.config.entrants.length).length
+    const mine = shardPairs(total, index, count)
+    const pairs = playPairs(plan, mine, run, stop)
     return {
         format: SHARD_FORMAT,
         config: plan.config,
         shard: { index, count },
-        pairs: playPairs(plan, shardPairs(total, index, count), run),
+        ...(pairs.length < mine.length ? { partial: true as const } : {}),
+        pairs,
     }
 }
 
-/** Scores a complete set of pair results: win rates, ranking and the matchup matrix. */
-export const summarize = (config: TournamentConfig, pairs: readonly PairResult[]): TournamentResult => {
+/**
+ * Scores a set of pair results: win rates, ranking and the matchup matrix. Every pair must be present, unless
+ * `allowPartial` is set (a run stopped by its time budget): the result then covers the pairs given and says so in
+ * `partial`; with all pairs present it is complete either way.
+ */
+export const summarize = (
+    config: TournamentConfig,
+    pairs: readonly PairResult[],
+    allowPartial = false,
+): TournamentResult => {
     const n = config.entrants.length
     const list = pairList(n)
     const byPair = new Map<number, PairResult>()
@@ -325,7 +366,7 @@ export const summarize = (config: TournamentConfig, pairs: readonly PairResult[]
         byPair.set(result.pair, result)
     }
     const missing = list.findIndex((_, pair) => !byPair.has(pair))
-    if (missing !== -1) throw new Error(`pair ${missing} of ${list.length} is missing`)
+    if (missing !== -1 && !allowPartial) throw new Error(`pair ${missing} of ${list.length} is missing`)
 
     const wins = new Array<number>(n).fill(0)
     const draws = new Array<number>(n).fill(0)
@@ -364,12 +405,32 @@ export const summarize = (config: TournamentConfig, pairs: readonly PairResult[]
         matrix[row.id] = {}
         config.entrants.forEach((column, j) => (matrix[row.id][column.id] = grid[i][j]))
     })
-    return { format: TOURNAMENT_FORMAT, config, ranking, matrix, firstWins, games: total }
+    return {
+        format: TOURNAMENT_FORMAT,
+        config,
+        ranking,
+        matrix,
+        firstWins,
+        games: total,
+        ...(missing === -1
+            ? {}
+            : {
+                  partial: {
+                      pairsPlayed: byPair.size,
+                      pairsTotal: list.length,
+                      played: [...byPair.keys()].sort((x, y) => x - y),
+                  },
+              }),
+    }
 }
 
-/** The whole round-robin, unsharded. */
-export const runTournament = (plan: TournamentPlan, run: MatchFn = runMatch): TournamentResult =>
-    summarize(plan.config, playPairs(plan, shardPairs(pairList(plan.config.entrants.length).length, 0, 1), run))
+/** The whole round-robin, unsharded. With `stop` (the time budget) it may end early and then returns a partial result. */
+export const runTournament = (plan: TournamentPlan, run: MatchFn = runMatch, stop?: () => boolean): TournamentResult =>
+    summarize(
+        plan.config,
+        playPairs(plan, shardPairs(pairList(plan.config.entrants.length).length, 0, 1), run, stop),
+        stop !== undefined,
+    )
 
 /**
  * Combines the shards of one tournament into its result, the same one `runTournament` gives. They must share a
@@ -391,7 +452,12 @@ export const mergeShards = (shards: readonly ShardResult[]): TournamentResult =>
         seen.add(shard.shard.index)
         const total = pairList(first.config.entrants.length).length
         const expected = shardPairs(total, shard.shard.index, count)
-        if (shard.pairs.length !== expected.length || shard.pairs.some(p => p.pair % count !== shard.shard.index))
+        const own = shard.pairs.every(p => p.pair % count === shard.shard.index)
+        if (
+            shard.partial === true
+                ? shard.pairs.length > expected.length || !own
+                : shard.pairs.length !== expected.length || !own
+        )
             throw new Error(`shard ${shard.shard.index}/${count} does not hold exactly its pairs`)
     }
     if (seen.size !== count) {
@@ -401,5 +467,6 @@ export const mergeShards = (shards: readonly ShardResult[]): TournamentResult =>
     return summarize(
         first.config,
         shards.flatMap(shard => shard.pairs),
+        shards.some(shard => shard.partial === true),
     )
 }

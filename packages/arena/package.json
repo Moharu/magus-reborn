@@ -10,6 +10,7 @@
         "typecheck": "tsc -p . && tsc -p tsconfig.scripts.json",
         "match": "tsx scripts/match.ts",
         "tournament": "tsx scripts/tournament.ts",
+        "arena": "tsx scripts/tournament.ts",
         "baseline": "tsx scripts/baseline.ts",
         "tune": "tsx scripts/tune.ts"
     },

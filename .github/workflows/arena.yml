@@ -1,0 +1,146 @@
+name: Arena
+
+# The AI-vs-AI tournament (#103) on the real engine, run for free on this public repo: sharded across jobs, capped in
+# time, with the raw results and the Markdown report uploaded as artifacts and shown in the run's summary.
+# The only trigger is a manual dispatch. It uses no secrets and writes nothing back (no commits, no wiki): publishing a
+# report to the wiki is a separate, manual step.
+
+on:
+    workflow_dispatch:
+        inputs:
+            seed:
+                description: Master seed (integer)
+                type: string
+                default: '1'
+            top:
+                description: Top N distinct Fire sets (each plays its best 2 general pairs)
+                type: string
+                default: '8'
+            games:
+                description: Games per pair (even)
+                type: string
+                default: '2'
+            generations:
+                description: Self-tuning generations (0 = no tuning)
+                type: string
+                default: '0'
+
+permissions:
+    contents: read
+
+env:
+    # Shards stop themselves at this budget (a partial result is still merged and marked), well before the job timeout.
+    SHARD_COUNT: 4
+    TIME_BUDGET_SECONDS: 1200
+
+jobs:
+    shard:
+        name: shard ${{ matrix.shard }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [0, 1, 2, 3]
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 22
+                  cache: npm
+            - run: npm ci
+            # Inputs go through env, never into the script text. The CLI rejects anything that is not an integer.
+            - name: Play this shard
+              env:
+                  ARENA_SEED: ${{ inputs.seed }}
+                  ARENA_TOP: ${{ inputs.top }}
+                  ARENA_GAMES: ${{ inputs.games }}
+                  ARENA_SHARD: ${{ matrix.shard }}
+              run: |
+                  npm run arena -- \
+                      --seed "$ARENA_SEED" --top "$ARENA_TOP" --games "$ARENA_GAMES" \
+                      --jobs 4 --time-budget "$TIME_BUDGET_SECONDS" \
+                      --shard "$ARENA_SHARD/$SHARD_COUNT" --out "arena-shard-$ARENA_SHARD.json"
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: arena-shard-${{ matrix.shard }}
+                  path: arena-shard-${{ matrix.shard }}.json
+                  retention-days: 14
+                  if-no-files-found: error
+
+    merge:
+        name: merge
+        needs: shard
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 22
+                  cache: npm
+            - run: npm ci
+            - uses: actions/download-artifact@v8
+              with:
+                  pattern: arena-shard-*
+                  path: shards
+                  merge-multiple: true
+            - name: Merge the shards into one result and one report
+              run: |
+                  npm run arena -- merge shards/arena-shard-*.json \
+                      --out arena-result.json --report arena-report.md --commit "$GITHUB_SHA" > /dev/null
+                  cat arena-report.md >> "$GITHUB_STEP_SUMMARY"
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: arena-report
+                  path: |
+                      arena-report.md
+                      arena-result.json
+                  retention-days: 30
+                  if-no-files-found: error
+
+    # Optional self-tuning (#104). Runs alone in one process, on the same seed and loadouts as the tournament.
+    tune:
+        name: tune
+        if: ${{ inputs.generations != '0' }}
+        runs-on: ubuntu-latest
+        timeout-minutes: 60
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  persist-credentials: false
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 22
+                  cache: npm
+            - run: npm ci
+            - name: Tune
+              env:
+                  ARENA_SEED: ${{ inputs.seed }}
+                  ARENA_TOP: ${{ inputs.top }}
+                  ARENA_GAMES: ${{ inputs.games }}
+                  ARENA_GENERATIONS: ${{ inputs.generations }}
+              run: |
+                  npm run arena:tune -- \
+                      --seed "$ARENA_SEED" --top "$ARENA_TOP" --games "$ARENA_GAMES" \
+                      --generations "$ARENA_GENERATIONS" --max-matches 1500000 \
+                      --out arena-tuned-profile.json > arena-tuning.txt
+                  {
+                      echo '## Arena self-tuning'
+                      echo
+                      echo '```'
+                      cat arena-tuning.txt
+                      echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: arena-tuning
+                  path: |
+                      arena-tuning.txt
+                      arena-tuned-profile.json
+                  retention-days: 30
+                  if-no-files-found: error

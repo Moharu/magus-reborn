@@ -47,6 +47,11 @@ export const formatTable = (result: TournamentResult) => {
         })
     return [
         `${result.games} matches, ${config.entrants.length} entrants, ${config.games} games per pair, seed ${config.seed}, baseline ${config.baselineVersion}. Only wins score.`,
+        ...(result.partial
+            ? [
+                  `PARTIAL: the time budget ended the run after ${result.partial.pairsPlayed} of ${result.partial.pairsTotal} pairs; these rates cover the played pairs only.`,
+              ]
+            : []),
         line(header),
         ...rows.map(line),
         '',

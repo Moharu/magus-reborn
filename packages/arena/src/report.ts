@@ -1,0 +1,197 @@
+import { ELEMENT_SPELL_COUNT } from '@magus/engine'
+import { pairList, type TournamentResult } from './tournament'
+import { percent, spellName } from './tournament-format'
+
+/**
+ * The arena report (#105): the Markdown a run publishes (workflow step summary, artifact, the release balance report).
+ * A pure function of the result and the two options, so the tables are the same for a given seed and inputs; the
+ * date is the one thing that changes between runs, and it is in the header only.
+ *
+ * Fixed sections, in this order: Header, Dummy baseline, Arena win rates, Matchup matrix, Caveats.
+ */
+export const REPORT_SECTIONS = ['Header', 'Dummy baseline', 'Arena win rates', 'Matchup matrix', 'Caveats'] as const
+
+export interface ReportOptions {
+    /** The report date, `YYYY-MM-DD` (UTC). Given by the caller: the report itself reads no clock. */
+    readonly date: string
+    /** The commit the run was built from, shown when given. */
+    readonly commit?: string
+}
+
+const table = (header: string[], rows: string[][], left: number[] = [0]) => {
+    const line = (cells: string[]) => `| ${cells.join(' | ')} |`
+    const rule = header.map((_, i) => (left.includes(i) ? ':---' : '---:'))
+    return [line(header), line(rule), ...rows.map(line)].join('\n')
+}
+
+const rate = (wins: number, games: number) => (games === 0 ? 0 : wins / games)
+
+export const formatReport = (result: TournamentResult, options: ReportOptions): string => {
+    const { config, ranking, partial } = result
+    const profiles = config.profiles.map(p => p.name)
+    const loadoutRanks = config.loadouts.map(l => l.rank)
+    const spells = (rank: number) => {
+        const entrant = config.entrants.find(e => e.loadoutRank === rank)
+        return entrant ? entrant.loadout.map(spellName) : []
+    }
+    const totalDraws = ranking.reduce((sum, r) => sum + r.draws, 0) / 2
+    const decided = result.games - totalDraws
+
+    const header = [
+        '## Header',
+        '',
+        `- **Version:** \`${config.baselineVersion}\``,
+        `- **Seed:** ${config.seed}`,
+        `- **Date:** ${options.date} (UTC)`,
+        ...(options.commit === undefined ? [] : [`- **Commit:** \`${options.commit}\``]),
+        `- **Status:** ${
+            partial
+                ? `PARTIAL: ${partial.pairsPlayed} of ${partial.pairsTotal} pairs played`
+                : `complete: ${(config.entrants.length * (config.entrants.length - 1)) / 2} pairs played`
+        }`,
+        `- **Entrants:** ${config.entrants.length} (${loadoutRanks.length} loadouts x ${profiles.length} profiles: ${profiles.join(', ')})`,
+        `- **Loadouts:** top ${config.top.used} Fire sets` +
+            (config.top.used < config.top.requested
+                ? ` (${config.top.requested} requested, the baseline has fewer)`
+                : '') +
+            `, ${config.generalPairs} general pair(s) each`,
+        `- **Games:** ${config.games} per pair, ${result.games} played, time cap ${config.maxTicks} ticks`,
+    ].join('\n')
+
+    const baseline = [
+        '## Dummy baseline',
+        '',
+        `The entrants' loadouts with their damage per second on a training dummy (\`baselines/${config.baselineVersion}.json\`, from \`npm run sim:search\`). "Under pressure" is the search's Counterspell-pressure model. L<rank> is the loadout's rank in that table.`,
+        '',
+        table(
+            ['Loadout', 'Fire set', 'Counterspell', 'General spells', 'DPS', 'DPS under pressure'],
+            config.loadouts.map(l => {
+                const names = spells(l.rank)
+                return [
+                    `L${String(l.rank).padStart(2, '0')}`,
+                    names.slice(0, ELEMENT_SPELL_COUNT).join(', '),
+                    names[ELEMENT_SPELL_COUNT] ?? '',
+                    names.slice(ELEMENT_SPELL_COUNT + 1).join(', '),
+                    l.dps.toFixed(1),
+                    l.dpsUnderPressure.toFixed(1),
+                ]
+            }),
+            [0, 1, 2, 3],
+        ),
+    ].join('\n')
+
+    const byProfile = profiles
+        .map(name => {
+            const own = ranking.filter(r => r.profile === name)
+            const wins = own.reduce((sum, r) => sum + r.wins, 0)
+            const draws = own.reduce((sum, r) => sum + r.draws, 0)
+            const games = own.reduce((sum, r) => sum + r.games, 0)
+            return { name, entrants: own.length, wins, draws, games }
+        })
+        .sort((x, y) => y.wins * x.games - x.wins * y.games || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0))
+    const winRates = [
+        '## Arena win rates',
+        '',
+        'Only wins score: a draw (time cap or both players dead on the same tick) and a loss are both non-wins. Intervals are 95% Wilson.',
+        '',
+        '### By profile',
+        '',
+        table(
+            ['Profile', 'Entrants', 'Wins', 'Draws', 'Games', 'Win rate'],
+            byProfile.map(p => [
+                p.name,
+                String(p.entrants),
+                String(p.wins),
+                String(p.draws),
+                String(p.games),
+                percent(rate(p.wins, p.games)),
+            ]),
+        ),
+        '',
+        '### By entrant',
+        '',
+        table(
+            ['#', 'Loadout', 'Profile', 'Wins', 'Draws', 'Games', 'Win rate', '95% CI'],
+            ranking.map(r => [
+                String(r.rank),
+                `L${String(r.loadoutRank).padStart(2, '0')}`,
+                r.profile,
+                String(r.wins),
+                String(r.draws),
+                String(r.games),
+                percent(r.winRate),
+                `${percent(r.ci95.low)}-${percent(r.ci95.high)}`,
+            ]),
+            [1, 2],
+        ),
+    ].join('\n')
+
+    // profile against profile, over the pairs that were played: wins of the row's entrants against the column's
+    const cell = new Map<string, { wins: number; games: number }>()
+    const get = (row: string, column: string) => {
+        const key = `${row}\n${column}`
+        let value = cell.get(key)
+        if (!value) cell.set(key, (value = { wins: 0, games: 0 }))
+        return value
+    }
+    const played = partial ? new Set(partial.played) : undefined
+    pairList(config.entrants.length).forEach(([i, j], pair) => {
+        if (played && !played.has(pair)) return
+        const a = config.entrants[i]
+        const b = config.entrants[j]
+        if (a.profile === b.profile) return
+        const forward = get(a.profile, b.profile)
+        const backward = get(b.profile, a.profile)
+        forward.wins += result.matrix[a.id][b.id]
+        backward.wins += result.matrix[b.id][a.id]
+        forward.games += config.games
+        backward.games += config.games
+    })
+    const matrix = [
+        '## Matchup matrix',
+        '',
+        'Profile against profile: the share of games the row profile won against the column profile, over every pair of their entrants (all loadouts), with wins/games. Row and column rates add to less than 100% by the draws. The diagonal is empty: two entrants of one profile differ only by loadout. The full entrant-by-entrant matrix is in the result JSON (`matrix`).',
+        '',
+        table(
+            ['Row \\ column', ...profiles],
+            profiles.map(row => [
+                row,
+                ...profiles.map(column => {
+                    const value = row === column ? undefined : cell.get(`${row}\n${column}`)
+                    return value ? `${percent(rate(value.wins, value.games))} (${value.wins}/${value.games})` : '-'
+                }),
+            ]),
+        ),
+    ].join('\n')
+
+    const gameCounts = ranking.map(r => r.games)
+    const minGames = Math.min(...gameCounts)
+    const maxGames = Math.max(...gameCounts)
+    const widest = Math.max(...ranking.map(r => (r.ci95.high - r.ci95.low) / 2))
+    const caveats = [
+        '## Caveats',
+        '',
+        partial
+            ? `- **Partial run.** The time budget ended the run after ${partial.pairsPlayed} of ${partial.pairsTotal} pairs. The pairs are played in a fixed order, so entrants late in it played fewer games: compare the Games column before the win rates. A partial run is not reproducible, because where it stops depends on the machine's speed.`
+            : '- **Partial runs.** This run is complete: every pair was played.',
+        `- **Draws.** ${totalDraws} of ${result.games} games (${percent(rate(totalDraws, result.games))}) were draws (time cap or both players dead on one tick). They score no win for either entrant.`,
+        `- **Sample size.** Each entrant played ${minGames === maxGames ? minGames : `${minGames} to ${maxGames}`} games (${config.games} per opponent pair). The widest 95% interval is +/- ${percent(widest)}; entrants whose intervals overlap are not reliably different, and one seed is one sample of each matchup.`,
+        `- **First mover.** \`player1\` acts first within a tick and won ${percent(rate(result.firstWins, decided))} of the ${decided} decided games; sides alternate, so each entrant had it in half its games.`,
+        '- **Meaning.** Win rates describe these profiles on these loadouts against each other, not human play, and they depend on the profiles: a stronger profile for a loadout can change its rank.',
+    ].join('\n')
+
+    return [
+        `# Arena report: ${config.baselineVersion}`,
+        '',
+        header,
+        '',
+        baseline,
+        '',
+        winRates,
+        '',
+        matrix,
+        '',
+        caveats,
+        '',
+    ].join('\n')
+}

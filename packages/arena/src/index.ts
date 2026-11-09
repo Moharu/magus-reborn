@@ -51,6 +51,7 @@ export {
     TOURNAMENT_FORMAT,
     type EntrantInfo,
     type MatchFn,
+    type PartialInfo,
     type PairResult,
     type RankedEntrant,
     type ShardResult,
@@ -60,6 +61,8 @@ export {
     type TournamentResult,
 } from './tournament'
 export { formatTable } from './tournament-format'
+export { clampJobs, DEFAULT_JOBS, MAX_JOBS } from './jobs'
+export { formatReport, REPORT_SECTIONS, type ReportOptions } from './report'
 export { percent, spellName } from './tournament-format'
 export {
     behaviourKey,
