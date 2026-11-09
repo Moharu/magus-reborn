@@ -178,6 +178,7 @@ beforeEach(() => {
     reload = vi.fn()
     sockets = new Map()
     lobby = newLobby()
+    vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
     vi.stubGlobal('Node', FakeNode)
     vi.stubGlobal('document', { createElement: (tag: string) => new FakeElement(tag) })
     vi.stubGlobal('location', { origin: 'https://game.example', reload })

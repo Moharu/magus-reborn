@@ -1,6 +1,7 @@
 import { Battle, DamageMeter, DEFAULT_SPELLS, GAME_TICK_INTERVAL } from '@magus/engine'
 import { h } from '../dom'
 import type { BattleView } from '../game/battle-view'
+import { phoneLandscape } from '../game/layout'
 import { iconUrl } from '../game/icons'
 import { getLoadout, getName, setLoadout } from '../identity'
 import { spellPicker } from '../ui/spell-picker'
@@ -27,7 +28,7 @@ export const trainingScreen = (root: HTMLElement) => {
     const stage = h('div', { class: 'stage' })
     const totals = h('div', { class: 'meter-totals' })
     const rows = h('ol', { class: 'meter-rows' })
-    const modal = h('dialog', { class: 'modal' })
+    const modal = h('dialog', { class: 'modal training-picker' })
 
     const restart = () => {
         battle = new Battle(
@@ -96,11 +97,21 @@ export const trainingScreen = (root: HTMLElement) => {
         view?.update(battle.snapshot(), newLog, events, true, logFrom, session)
     }
 
+    let picker: ReturnType<typeof spellPicker> | null = null
+    const updatePickerPresentation = () => {
+        picker?.setOverlayDetails(phoneLandscape(window.innerWidth, window.innerHeight))
+    }
+    window.addEventListener('resize', updatePickerPresentation)
+
     const openPicker = () => {
-        const picker = spellPicker(loadout, next => {
-            loadout = next
-            setLoadout(next)
-        })
+        picker = spellPicker(
+            loadout,
+            next => {
+                loadout = next
+                setLoadout(next)
+            },
+            { overlayDetails: phoneLandscape(window.innerWidth, window.innerHeight) },
+        )
         modal.replaceChildren(
             h('h2', null, 'Choose your spells'),
             picker.el,
@@ -108,6 +119,7 @@ export const trainingScreen = (root: HTMLElement) => {
         )
         const before = loadout.join()
         modal.onclose = () => {
+            picker = null
             if (loadout.join() !== before) restart()
         }
         modal.showModal()
@@ -124,6 +136,22 @@ export const trainingScreen = (root: HTMLElement) => {
                 h('a', { class: 'btn small', href: '/', 'data-link': true }, '← Back'),
                 h('h2', null, 'Training room'),
                 h('span', { class: 'muted' }, 'The dummy never fights back.'),
+                h(
+                    'button',
+                    {
+                        class: 'btn small training-meter-toggle',
+                        'aria-expanded': 'false',
+                        onclick: (event: Event) => {
+                            const button = event.currentTarget as HTMLButtonElement
+                            const open = button.getAttribute('aria-expanded') !== 'true'
+                            button.setAttribute('aria-expanded', String(open))
+                            root.querySelector('.meter')?.classList.toggle('meter-open', open)
+                        },
+                    },
+                    'Damage meter',
+                ),
+                h('button', { class: 'btn small training-phone-action', onclick: restart }, 'Restart'),
+                h('button', { class: 'btn small training-phone-action', onclick: openPicker }, 'Change spells'),
             ),
             h(
                 'div',
@@ -192,6 +220,7 @@ export const trainingScreen = (root: HTMLElement) => {
 
     return () => {
         disposed = true
+        window.removeEventListener('resize', updatePickerPresentation)
         cancelAnimationFrame(raf)
         view?.destroy()
     }

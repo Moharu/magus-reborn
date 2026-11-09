@@ -55,6 +55,7 @@ const box = (x: number, y: number, w: number, hgt: number) =>
 
 export interface SpellPicker {
     el: HTMLElement
+    setOverlayDetails(value: boolean): void
     setLoadout(loadout: SpellId[]): void
     /** Makes the picker read-only. `reason` replaces the hint line. */
     setLocked(locked: boolean, reason?: string): void
@@ -235,7 +236,8 @@ export const spellPicker = (
                     {
                         class: `spell${spellSelected(id) ? ' selected' : ''}${equipped !== -1 ? ' equipped' : ''}${lit(target) ? ' target' : ''}`,
                         style:
-                            box(boxes[n].x, boxes[n].y, boxes[n].w, boxes[n].h) + `;--row:${Math.floor(n / columns)}`,
+                            box(boxes[n].x, boxes[n].y, boxes[n].w, boxes[n].h) +
+                            `;--row:${Math.floor(n / columns)};--column:${n % columns};--book-start:${firstSlot === 0 ? 2 : 62};--book-width:${firstSlot === 0 ? 56 : 36};--columns:${columns}`,
                         disabled: locked,
                         'aria-pressed': String(spellSelected(id)),
                         title: advanced ? SPELLS[id].advancedDescription : SPELLS[id].description,
@@ -322,7 +324,7 @@ export const spellPicker = (
                 ...spellCards(book.elementSpells, 0, 3),
                 h(
                     'h3',
-                    { class: 'book-label', style: labelBox(generalX, 2 * button + gap) },
+                    { class: 'book-label general-book-label', style: labelBox(generalX, 2 * button + gap) },
                     'General',
                     keys(HOTKEYS.slice(5).join(' ')),
                 ),
@@ -351,6 +353,11 @@ export const spellPicker = (
     render()
     return {
         el,
+        setOverlayDetails(value: boolean) {
+            if (value === !!options.overlayDetails) return
+            options.overlayDetails = value
+            render()
+        },
         setLoadout(next) {
             if (next.join() === loadout.join()) return
             loadout = [...next]
