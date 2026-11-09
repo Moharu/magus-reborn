@@ -58,3 +58,41 @@ export {
     type TournamentResult,
 } from './tournament'
 export { formatTable } from './tournament-format'
+export { percent, spellName } from './tournament-format'
+export {
+    behaviourKey,
+    clampProfile,
+    clampValue,
+    CONDITION_PARAMETERS,
+    crossoverProfiles,
+    getAt,
+    mutateProfile,
+    parameterChanges,
+    parameterSlots,
+    PROFILE_PARAMETERS,
+    shapeKey,
+    type ChoiceParameter,
+    type NumberParameter,
+    type Parameter,
+    type ParameterSlot,
+} from './profile-params'
+export {
+    breedSeed,
+    CANDIDATE_NAME,
+    CROSSOVER_RATE,
+    DEFAULT_ELITE,
+    DEFAULT_GENERATIONS,
+    DEFAULT_POPULATION,
+    MUTATION_RATE,
+    scorer,
+    tune,
+    tunedProfile,
+    TUNING_FORMAT,
+    type GenerationSummary,
+    type Score,
+    type ScoredProfile,
+    type TuningConfig,
+    type TuningOptions,
+    type TuningResult,
+} from './tuning'
+export { formatTuning } from './tuning-format'

@@ -1,14 +1,14 @@
 import type { TournamentResult } from './tournament'
 
 /** `SPELL_TEMPORAL_SHIELD` as `Temporal Shield`. */
-const spellName = (id: string) =>
+export const spellName = (id: string) =>
     id
         .replace(/^SPELL_/, '')
         .split('_')
         .map(word => word[0] + word.slice(1).toLowerCase())
         .join(' ')
 
-const percent = (x: number) => `${(x * 100).toFixed(1)}%`
+export const percent = (x: number) => `${(x * 100).toFixed(1)}%`
 
 /**
  * The compact ranked table, then a legend for the loadouts (`L<rank>`: baseline rank, spells, dummy DPS). Columns: rank,
