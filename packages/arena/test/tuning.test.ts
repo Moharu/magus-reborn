@@ -476,4 +476,79 @@ describe('tune', () => {
         expect(tiny({ maxMatches: 31 }).stopped).toEqual({ generation: 0, scored: 2 })
         expect(() => tiny({ maxMatches: 15 })).toThrow(/below 16/)
     })
+
+    describe('tuning one archetype (#156)', () => {
+        const one = (extra: Partial<TuningOptions> = {}) =>
+            tiny({ seeds: [bait.profile], compareToStart: true, population: 4, generations: 2, ...extra })
+
+        it('seeds and breeds only that archetype: every candidate descends from it', () => {
+            const result = one()
+            const everyone = [...result.generations.flatMap(g => g.ranking), ...result.population]
+            expect(everyone.length).toBeGreaterThan(4)
+            expect(new Set(everyone.map(c => c.origin))).toEqual(new Set(['bait']))
+            // generation 0 is the untouched archetype, then its mutants
+            expect(result.generations[0].ranking.some(c => c.profile.name === 'bait')).toBe(true)
+            expect(result.config.seeds).toEqual(['bait'])
+            expect(result.config.tunedProfile).toBe('bait')
+            expect(result.best.origin).toBe('bait')
+            // without the restriction the same run seeds all four
+            const all = tiny({ population: 4, generations: 1 })
+            expect(new Set(all.generations[0].ranking.map(c => c.origin)).size).toBeGreaterThan(1)
+            expect(all.config.tunedProfile).toBeNull()
+        })
+
+        it('keeps the same scoring field: the field is not restricted to the tuned profile', () => {
+            const result = one({ field: archetypes })
+            expect(result.config.field).toEqual(archetypes.map(p => p.name))
+        })
+
+        it('scores the untuned archetype on the selection and holdout seeds and reports the improvement', () => {
+            const result = one()
+            const options = { baseline, field: [aggressive.profile], top: 2, generalPairs: 1, games: 2, maxTicks: 600 }
+            const selection = scorer({ ...options, run: runMatch }, result.config.selectionSeed)
+            const holdout = scorer({ ...options, run: runMatch }, result.config.holdoutSeed)
+            expect(result.start).not.toBeNull()
+            expect(result.start!.profile.name).toBe('bait')
+            expect(result.start!.score).toEqual(selection.score(clampProfile(bait.profile)))
+            expect(result.start!.holdout).toEqual(holdout.score(clampProfile(bait.profile)))
+            // elitism keeps the start's score as the floor of the search
+            expect(result.best.score.wins * result.start!.score.games).toBeGreaterThanOrEqual(
+                result.start!.score.wins * result.best.score.games,
+            )
+            const pp = (from: number, to: number) => {
+                const d = Math.round((to - from) * 1000) / 10
+                return `${d > 0 ? '+' : ''}${d.toFixed(1)} pp`
+            }
+            const text = formatTuning(result)
+            const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+            expect(text).toContain('Self-tuning of bait only')
+            expect(text).toContain(
+                `selection seeds: ${pct(result.start!.score.winRate)} (${result.start!.score.wins}/${result.start!.score.games} wins), tuned ${pp(result.start!.score.winRate, result.best.score.winRate)}`,
+            )
+            expect(text).toContain(
+                `fresh seeds (holdout): ${pct(result.start!.holdout.winRate)} (${result.start!.holdout.wins}/${result.start!.holdout.games} wins), tuned ${pp(result.start!.holdout.winRate, result.best.holdout.winRate)}`,
+            )
+            expect(text).toContain('Changed parameters:')
+        })
+
+        it('counts the start holdout re-score in the matches, and in the budget', () => {
+            const result = one()
+            const cost = result.config.matchesPerProfile
+            const plain = tiny({ seeds: [bait.profile], population: 4, generations: 2 })
+            // the same search; one more holdout re-score unless the best is the start itself
+            const same = result.best.profile.name === 'bait'
+            expect(result.matches).toBe(plain.matches + (same ? 0 : cost))
+            expect(() => one({ maxMatches: 2 * cost })).toThrow(/below 24/)
+        })
+
+        it('without compareToStart nothing changes: no start comparison, same result and text', () => {
+            const plain = tiny({ seeds: [bait.profile], population: 4, generations: 2 })
+            expect(plain.start).toBeNull()
+            expect(formatTuning(plain)).not.toContain('Untuned starting point')
+            expect(tiny({ generations: 1 }).start).toBeNull()
+            const withStart = one()
+            expect(withStart.best).toEqual(plain.best)
+            expect(withStart.generations).toEqual(plain.generations)
+        })
+    })
 })

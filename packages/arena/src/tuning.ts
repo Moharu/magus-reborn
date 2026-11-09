@@ -69,6 +69,12 @@ export interface TuningOptions {
     readonly elite?: number
     /** Match budget, the holdout re-score included. Reaching it stops the search early (`partial`). */
     readonly maxMatches?: number
+    /**
+     * Also scores the untuned starting profile that the best one descends from, on the selection seeds and on the holdout
+     * seeds, so the result can report the improvement over it (#156). Costs one more holdout re-score of the budget
+     * (the start itself is scored in generation 0). Off by default.
+     */
+    readonly compareToStart?: boolean
     /** Called after each fully scored generation, for progress output. */
     readonly onGeneration?: (generation: GenerationSummary) => void
     /** Only for tests. */
@@ -125,6 +131,8 @@ export interface TuningConfig {
     readonly selectionSeed: number
     readonly holdoutSeed: number
     readonly matchesPerProfile: number
+    /** The one starting profile being tuned when the search was limited to it (`--profile`), otherwise null. */
+    readonly tunedProfile: string | null
 }
 
 export interface TuningResult {
@@ -140,6 +148,8 @@ export interface TuningResult {
         /** Tunable values that differ from the starting profile it descends from. */
         readonly changes: readonly { readonly path: string; readonly from: unknown; readonly to: unknown }[]
     }
+    /** With `compareToStart`: the untuned starting profile `best` descends from, and its scores on both seed sets. */
+    readonly start: { readonly profile: Profile; readonly score: Score; readonly holdout: Score } | null
     readonly matches: number
     /** True when `maxMatches` stopped the search before its last generation was scored. */
     readonly partial: boolean
@@ -251,6 +261,7 @@ export const tune = (options: TuningOptions): TuningResult => {
         seed = DEFAULT_SEED,
         generations = DEFAULT_GENERATIONS,
         population = DEFAULT_POPULATION,
+        compareToStart = false,
         run = runMatch,
     } = options
     const elite = options.elite ?? Math.min(DEFAULT_ELITE, population - 1)
@@ -271,9 +282,11 @@ export const tune = (options: TuningOptions): TuningResult => {
     const selection = scorer(scoring, selectionSeed)
     const holdoutSeed = holdoutSeedFor(seed, s => scorer(scoring, s).seeds(), selection.seeds())
     const cost = selection.matches
-    if (maxMatches < 2 * cost)
+    // the selection score of the profile being tried, then the holdout re-scores of the best (and of the start)
+    const reserve = (compareToStart ? 3 : 2) * cost
+    if (maxMatches < reserve)
         throw new Error(
-            `maxMatches ${maxMatches} is below ${2 * cost}: scoring one profile and its holdout re-score takes ${cost} matches each`,
+            `maxMatches ${maxMatches} is below ${reserve}: scoring one profile and its holdout re-score${compareToStart ? 's' : ''} takes ${cost} matches each`,
         )
     const starts = seeds.map(clampProfile)
     const config: TuningConfig = {
@@ -296,6 +309,7 @@ export const tune = (options: TuningOptions): TuningResult => {
         selectionSeed,
         holdoutSeed,
         matchesPerProfile: cost,
+        tunedProfile: seeds.length === 1 ? seeds[0].name : null,
     }
 
     const rngFor = (generation: number, index: number) => new Rng(breedSeed(seed, generation, index))
@@ -322,8 +336,8 @@ export const tune = (options: TuningOptions): TuningResult => {
             const key = behaviourKey(member.profile)
             let score = cache.get(key)
             if (!score) {
-                if (matches + 2 * cost > maxMatches) {
-                    // keep room for the holdout re-score
+                if (matches + reserve > maxMatches) {
+                    // keep room for the holdout re-score(s)
                     stopped = { generation, scored: scored.length }
                     break
                 }
@@ -373,15 +387,29 @@ export const tune = (options: TuningOptions): TuningResult => {
     }
 
     if (!best) throw new Error('the match budget ran out before any profile was scored')
-    const holdout = scorer(scoring, holdoutSeed).score(best.profile)
+    const holdoutScorer = scorer(scoring, holdoutSeed)
+    const holdout = holdoutScorer.score(best.profile)
     matches += cost
     const start = starts.find(p => p.name === best!.origin)!
+    let compared: TuningResult['start'] = null
+    if (compareToStart) {
+        // the start is always scored: it is a generation 0 member, and mutants only come after all the starts
+        const startKey = behaviourKey(start)
+        const sameAsBest = startKey === behaviourKey(best.profile)
+        compared = {
+            profile: start,
+            score: cache.get(startKey) ?? best.score,
+            holdout: sameAsBest ? holdout : holdoutScorer.score(start),
+        }
+        if (!sameAsBest) matches += cost
+    }
     return {
         format: TUNING_FORMAT,
         config,
         generations: summaries,
         population: ranked,
         best: { ...best, holdout, changes: parameterChanges(start, best.profile) },
+        start: compared,
         matches,
         partial: stopped !== null,
         stopped,

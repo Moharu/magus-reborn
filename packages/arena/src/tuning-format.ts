@@ -4,9 +4,16 @@ import type { Score, TuningResult } from './tuning'
 const loadoutLabel = (rank: number) => `L${String(rank).padStart(2, '0')}`
 const record = (score: Score) => `${score.wins}/${score.games} wins`
 
+/** A change in win rate in percentage points, signed: `+3.1 pp`. */
+const points = (from: Score, to: Score) => {
+    const delta = Math.round((to.winRate - from.winRate) * 1000) / 10
+    return `${delta > 0 ? '+' : ''}${delta.toFixed(1)} pp`
+}
+
 /**
  * The run as readable text: one row per generation (population best, median and worst win rate, the best profile and
  * its win rate on each loadout), then the best profile's selection and holdout win rates, the parameters it changed,
+ * (with `compareToStart`, the improvement over the untuned starting profile on both seed sets),
  * whether the budget cut the run short, and the loadout legend.
  */
 export const formatTuning = (result: TuningResult) => {
@@ -38,7 +45,7 @@ export const formatTuning = (result: TuningResult) => {
         return `${loadoutLabel(rank)}  ${spells.slice(0, 4).join(', ')} | ${spells[4]} | ${spells.slice(5).join(', ')}`
     })
     return [
-        `Self-tuning, seed ${config.seed}: population ${config.population}, ${config.generations} generation(s), elite ${config.elite}. ` +
+        `Self-tuning${config.tunedProfile ? ` of ${config.tunedProfile} only` : ''}, seed ${config.seed}: population ${config.population}, ${config.generations} generation(s), elite ${config.elite}. ` +
             `Each profile plays ${config.matchesPerProfile} matches against ${config.field.join(', ')} on ${loadouts.length} loadout(s), ` +
             `${config.games} games per pair, baseline ${config.baselineVersion}. Only wins score.`,
         line(header),
@@ -47,6 +54,13 @@ export const formatTuning = (result: TuningResult) => {
         `Best profile: ${best.profile.name} (from ${best.origin})`,
         `  selection seeds: ${percent(best.score.winRate)} (${record(best.score)})`,
         `  fresh seeds (holdout, not used for selection): ${percent(best.holdout.winRate)} (${record(best.holdout)})`,
+        ...(result.start
+            ? [
+                  `Untuned starting point (${result.start.profile.name}), same seeds:`,
+                  `  selection seeds: ${percent(result.start.score.winRate)} (${record(result.start.score)}), tuned ${points(result.start.score, best.score)}`,
+                  `  fresh seeds (holdout): ${percent(result.start.holdout.winRate)} (${record(result.start.holdout)}), tuned ${points(result.start.holdout, best.holdout)}`,
+              ]
+            : []),
         'Changed parameters:',
         ...changes,
         ...(result.partial && result.stopped

@@ -33,6 +33,10 @@ on:
                 description: Tournament mode - self-tuning generations (0 = no tuning)
                 type: string
                 default: '0'
+            tune_profile:
+                description: 'Tournament mode - tune only this archetype (aggressive, patient-counter, bait or defensive); empty tunes the whole population'
+                type: string
+                default: ''
             strategy_seeds:
                 description: Strategy mode - derived seeds per cell
                 type: string
@@ -77,6 +81,7 @@ jobs:
                   ARENA_STRATEGY_SEEDS: ${{ inputs.strategy_seeds }}
                   ARENA_STRATEGY_GAMES: ${{ inputs.strategy_games }}
                   ARENA_FIRE_SETS: ${{ inputs.fire_sets }}
+                  ARENA_TUNE_PROFILE: ${{ inputs.tune_profile }}
               run: |
                   if [[ "$ARENA_MODE" != "tournament" && "$ARENA_MODE" != "strategy" ]]; then
                       echo "::error::mode must be tournament or strategy, got '$ARENA_MODE'"
@@ -92,6 +97,12 @@ jobs:
                   fire_pattern='^[A-Za-z_,; -]{0,400}$'
                   if [[ ! "$ARENA_FIRE_SETS" =~ $fire_pattern ]]; then
                       echo "::error::fire_sets must be spell names separated by , and ;"
+                      exit 1
+                  fi
+                  # an archetype name only: the CLI checks it against the archetype list
+                  profile_pattern='^[a-z-]{0,30}$'
+                  if [[ ! "$ARENA_TUNE_PROFILE" =~ $profile_pattern ]]; then
+                      echo "::error::tune_profile must be an archetype name (lowercase letters and -), got '$ARENA_TUNE_PROFILE'"
                       exit 1
                   fi
                   # 10# so '00' and '007' are read as decimal numbers; the tuning belongs to the tournament mode
@@ -228,9 +239,13 @@ jobs:
                   ARENA_TOP: ${{ inputs.top }}
                   ARENA_GAMES: ${{ inputs.games }}
                   ARENA_GENERATIONS: ${{ inputs.generations }}
+                  ARENA_TUNE_PROFILE: ${{ inputs.tune_profile }}
               run: |
                   mkdir -p "$GITHUB_WORKSPACE/arena-out"
-                  npm run arena:tune -- \
+                  # empty tune_profile: the whole population; otherwise only that archetype (#156)
+                  profile=()
+                  if [[ -n "$ARENA_TUNE_PROFILE" ]]; then profile+=(--profile "$ARENA_TUNE_PROFILE"); fi
+                  npm run arena:tune -- "${profile[@]}" \
                       --seed "$ARENA_SEED" --top "$ARENA_TOP" --games "$ARENA_GAMES" \
                       --generations "$((10#$ARENA_GENERATIONS))" --max-matches 1500000 \
                       --out "$GITHUB_WORKSPACE/arena-out/arena-tuned-profile.json" > arena-out/arena-tuning.txt
