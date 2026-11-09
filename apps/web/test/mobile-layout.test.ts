@@ -12,6 +12,10 @@ vi.mock('../src/game/textures', async () => {
 
 describe('phone presentation', () => {
     it.each([
+        [640, 316, 83],
+        [740, 316, 97],
+        [844, 346, 101],
+        [932, 386, 116],
         [844, 390, 101],
         [667, 375, 84],
     ])('fits seven targets at %ix%i', (width, height, expected) => {

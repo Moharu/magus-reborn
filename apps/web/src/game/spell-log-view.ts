@@ -1,7 +1,7 @@
 import { Container, Graphics, Text } from 'pixi.js'
 import type { LogEntry, PlayerKey, SnapshotView } from '@magus/engine'
 import { battleLayout, HEIGHT, TEXT_FONT, WIDTH } from './layout'
-import { emptySpellLog, logRowY, mapSpellLog, type SpellLogRow } from './spell-log'
+import { emptySpellLog, logFloat, logRowY, mapSpellLog, type SpellLogRow } from './spell-log'
 
 /** Four preallocated rows; frame work only updates positions/visibility. */
 export class SpellLogView extends Container {
@@ -119,12 +119,15 @@ export class SpellLogView extends Container {
             if (!slot.root.visible) continue
             const target = (index++ - count + 1) * 30
             if (slot.target !== target) {
-                slot.from = slot.root.y
+                slot.from = logRowY(slot.from, slot.target, slot.elapsed, this.motion?.matches ?? false)
                 slot.target = target
                 slot.elapsed = 0
             }
             slot.elapsed += dt
-            slot.root.y = logRowY(slot.from, target, slot.elapsed, this.motion?.matches ?? false)
+            const reduced = this.motion?.matches ?? false
+            const float = logFloat(this.time - slot.expires + 4, reduced)
+            slot.root.y = logRowY(slot.from, target, slot.elapsed, reduced) + float.offset
+            slot.root.alpha = float.alpha
         }
     }
 }

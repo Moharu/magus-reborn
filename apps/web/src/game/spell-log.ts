@@ -63,3 +63,9 @@ export function mapSpellLog(state: SpellLogState, entries: readonly LogEntry[], 
 /** Fixed destinations for reduced motion; ordinary rows approach their new slot in 150ms. */
 export const logRowY = (current: number, target: number, dt: number, reduced: boolean) =>
     reduced ? target : current + (target - current) * Math.min(1, dt / 0.15)
+
+/** Continuous render-clock presentation over the row's existing four-second lifetime. */
+export const logFloat = (age: number, reduced: boolean) => {
+    const progress = Math.max(0, Math.min(1, age / 4))
+    return { offset: reduced ? 0 : -24 * progress, alpha: 1 - progress }
+}

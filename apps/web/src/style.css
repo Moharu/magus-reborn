@@ -1095,7 +1095,7 @@ footer {
     flex-wrap: nowrap;
 }
 
-.setup .details:popover-open {
+:is(.setup, .training-picker) .details:popover-open {
     display: grid;
     position: fixed;
     inset: 0;
@@ -1150,16 +1150,6 @@ footer {
     .battle-canvas {
         border-radius: 0;
     }
-    .training {
-        min-height: calc(100dvh - var(--inset-y));
-    }
-    .training-body {
-        flex: none;
-    }
-    .training .stage {
-        height: calc(100dvh - 64px - var(--inset-y));
-        flex: none;
-    }
     .setup-viewport {
         width: 100%;
     }
@@ -1183,47 +1173,184 @@ footer {
 }
 
 @media (max-height: 500px) and (orientation: landscape) {
-    .setup .picker {
+    :is(.setup, .training-picker) .picker {
         --phone-bar: 92cqw;
         --phone-edge: 4cqw;
         --phone-gap: 6px;
         --phone-slot: calc((var(--phone-bar) - 10px - 6 * var(--phone-gap)) / 7);
     }
-    .setup .bar-panel {
+    :is(.setup, .training-picker) .bar-panel {
         left: var(--phone-edge) !important;
         top: auto !important;
         bottom: 6px;
         width: var(--phone-bar) !important;
         height: 86px !important;
     }
-    .setup .slot-wrap {
+    :is(.setup, .training-picker) .slot-wrap {
         left: calc(var(--phone-edge) + 5px + var(--slot) * (var(--phone-slot) + var(--phone-gap))) !important;
         top: auto !important;
         bottom: 27px;
         width: var(--phone-slot) !important;
         height: 60px !important;
     }
-    .setup .slot-wrap > .name {
+    :is(.setup, .training-picker) .slot-wrap > .name {
         font-size: 10px;
     }
-    .setup .spell {
+    :is(.setup, .training-picker) .spell {
         top: calc(100% - 214px + var(--row) * 58px) !important;
         height: 54px !important;
         flex-direction: row;
         font-size: 10px;
     }
-    .setup .book-label {
+    :is(.setup, .training-picker) .book-label {
         top: calc(100% - 236px) !important;
     }
-    .setup .book-divider {
+    :is(.setup, .training-picker) .book-divider {
         top: calc(100% - 236px) !important;
         height: 134px !important;
     }
 }
 @media (max-width: 843px) and (orientation: landscape) {
-    .setup .picker {
+    :is(.setup, .training-picker) .picker {
         --phone-bar: 96cqw;
         --phone-edge: 2cqw;
         --phone-gap: 4px;
+    }
+}
+
+.training-meter-toggle,
+.training-phone-action {
+    display: none;
+}
+
+@media (max-height: 500px) and (orientation: landscape) {
+    .training {
+        flex: none;
+        height: calc(100dvh - var(--inset-y));
+        min-height: 0;
+        overflow: hidden;
+    }
+    .training > .bar {
+        height: 44px;
+        flex-shrink: 0;
+        padding: 0 6px;
+        gap: 8px;
+    }
+    .training > .bar h2 {
+        font-size: 14px;
+    }
+    .training > .bar .muted {
+        display: none;
+    }
+    .training-meter-toggle,
+    .training-phone-action {
+        display: inline-block;
+    }
+    .training-body {
+        position: relative;
+        flex: 1;
+        padding: 0;
+        min-width: 0;
+    }
+    .training .stage {
+        flex: 1;
+        height: 100%;
+        width: 100%;
+    }
+    .training .meter {
+        display: none;
+    }
+    .training .meter.meter-open {
+        display: flex;
+        position: absolute;
+        z-index: 5;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: min(300px, 100%);
+        background: #191426;
+    }
+    .training-picker {
+        width: 100%;
+        max-width: 100%;
+        max-height: calc(100dvh - var(--inset-y));
+        padding: 6px;
+        overflow: auto;
+    }
+    .training-picker > h2 {
+        display: none;
+    }
+    .training-picker .picker {
+        width: 100%;
+        min-width: 0;
+        gap: 4px;
+    }
+    .training-picker .picker-top {
+        gap: 6px;
+        font-size: 11px;
+        height: 44px;
+    }
+    .training-picker .element {
+        gap: 4px;
+    }
+    .training-picker .chip {
+        padding: 4px;
+    }
+    .training-picker .teaser {
+        max-width: 120px;
+    }
+    .training-picker .toggle {
+        white-space: nowrap;
+    }
+    .training-picker .picker-stage {
+        aspect-ratio: auto;
+        height: calc(100dvh - var(--inset-y) - 124px);
+    }
+    .training-picker .hint {
+        font-size: 10px;
+    }
+    .training-picker > .actions {
+        margin-top: 4px;
+    }
+    .training-picker .bar-panel {
+        height: 90px !important;
+    }
+    .training-picker .key,
+    .training-picker .desktop-only {
+        display: none;
+    }
+    .training-picker .details {
+        display: none;
+    }
+    .training-picker .details:popover-open {
+        display: grid;
+    }
+    .training-picker .spell {
+        padding: 3px;
+        gap: 3px;
+    }
+    .training-picker .spell img {
+        width: 26px;
+        height: 26px;
+        flex-shrink: 0;
+    }
+    .training-picker .spell .name {
+        overflow-wrap: normal;
+        min-width: 0;
+    }
+    .training-picker .spell {
+        left: calc(var(--book-start) * 1% + var(--column) * (var(--book-width) * 1% / var(--columns))) !important;
+        width: calc(var(--book-width) * 1% / var(--columns) - 4px) !important;
+    }
+    .training-picker .book-divider {
+        left: 60% !important;
+    }
+    .training-picker .book-label {
+        left: 2% !important;
+        width: 56% !important;
+    }
+    .training-picker .general-book-label {
+        left: 62% !important;
+        width: 36% !important;
     }
 }

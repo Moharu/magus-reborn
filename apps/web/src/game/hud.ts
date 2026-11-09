@@ -109,7 +109,9 @@ export class PlayerHud extends Container {
     }
 
     update(player: PlayerView, tick: number, dt: number) {
-        const name = player.name.slice(0, 12) || (this.seat === 'player1' ? 'Player 1' : 'Player 2')
+        const name =
+            (player.name.length > 20 ? player.name.slice(0, 19) + '…' : player.name) ||
+            (this.seat === 'player1' ? 'Player 1' : 'Player 2')
         setText(this.nameText, this.me ? `${this.seat === this.me ? 'YOU' : 'OPPONENT'} · ${name}` : name)
         const infinite = player.hp >= INFINITE_HP
         const hp = infinite ? 100 : player.hp
