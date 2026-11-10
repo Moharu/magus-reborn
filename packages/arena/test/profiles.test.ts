@@ -13,6 +13,8 @@ import {
     profileController,
     profileEntrant,
     ProfileError,
+    reactionTicks,
+    REACTION_MIN_SECONDS,
     Rng,
     runMatch,
     start,
@@ -117,7 +119,7 @@ describe('profile loader', () => {
             const { profile: loaded, loadout } = ARCHETYPES[name]
             expect(loaded.name).toBe(name)
             // the intent explains the general-spell plan too (#136)
-            expect(loaded.intent).toMatch(/^[^\n]{10,600}$/)
+            expect(loaded.intent).toMatch(/^[^\n]{10,1200}$/)
             expect(loaded.intent).toMatch(/Generals: /)
             const reparsed = parseProfile(JSON.parse(JSON.stringify(loaded)))
             expect(reparsed).toEqual(loaded)
@@ -212,7 +214,7 @@ describe('profile loader', () => {
         rejects(raw => (raw.counterspell.reaction.spreadSeconds = 0.5), 'counterspell.reaction.spreadSeconds')
         rejects(raw => (raw.counterspell.lateWindowSeconds = Number.NaN), 'counterspell.lateWindowSeconds')
         rejects(raw => ((raw.counterspell as { timing: string }).timing = 'whenever'), 'counterspell.timing')
-        rejects(raw => (raw.counterspell.targets = ['SPELL_HASTE']), 'counterspell.targets[0]')
+        rejects(raw => (raw.counterspell.bestShare = 2), 'counterspell.bestShare')
         rejects(raw => (raw.fakeCast.cancelAfterSeconds = 0.01), 'fakeCast.cancelAfterSeconds')
         rejects(raw => (raw.fakeCast.maxPerMatch = 1.5), 'fakeCast.maxPerMatch')
         rejects(raw => ((raw.fakeCast as { enabled: unknown }).enabled = 'yes'), 'fakeCast.enabled')
@@ -335,7 +337,7 @@ describe('profile controller: Counterspell policy', () => {
                 return view.self.casting && view.tick >= view.self.casting.completesAt ? stop(METEOR) : null
             }
             const seen: ArenaView[] = []
-            const counter = counterer('late', 0, 1)
+            const counter = counterer('late', REACTION_MIN_SECONDS, 1)
             const result = runMatch({
                 seed: 1,
                 [side]: { ...counter, controller: recording(counter.controller, seen) },
@@ -344,8 +346,9 @@ describe('profile controller: Counterspell policy', () => {
             } as unknown as Parameters<typeof runMatch>[0])
             expect(seen[1199].enemy.casting?.completesAt).toBe(1226)
             expect(seen[1200].enemy.casting?.completesAt).toBe(1262)
-            // the 1 s (20-tick) window opens on 1262 - 20 = 1242, not on the stale 1206
-            expect(of(result.log, enemy, 'INTERRUPTED').map(e => e.tick)).toEqual([1242])
+            // the 1 s (20-tick) window opens on 1262 - 20 = 1242, not on the stale 1206 (1226 - 20), and the Counterspell
+            // lands one reaction later (0.25 s, 5 ticks, the floor of every draw)
+            expect(of(result.log, enemy, 'INTERRUPTED').map(e => e.tick)).toEqual([1247])
         })
     }
 
@@ -401,6 +404,47 @@ describe('profile controller: Counterspell policy', () => {
         expect(new Set(first).size).toBeGreaterThan(5)
         expect(offsets(1)).toEqual(first)
         expect(offsets(2)).not.toEqual(first)
+    })
+
+    it('floors every single reaction draw at 0.25 s, not only the mean (bait: 0.3 +- 0.1, #163)', () => {
+        const floor = secondsToTicks(REACTION_MIN_SECONDS)
+        expect(floor).toBe(5)
+        // through the controller: the tick it presses Counterspell, counted from the first tick the cast is visible
+        const COUNTER = slotOf(METEOR_LOADOUT, 'SPELL_COUNTERSPELL')
+        const { meanSeconds, spreadSeconds } = ARCHETYPES.bait.profile.counterspell.reaction
+        expect([meanSeconds, spreadSeconds]).toEqual([0.3, 0.1])
+        const loaded = profile(raw => {
+            raw.counterspell = { ...raw.counterspell, enabled: true, reaction: { meanSeconds, spreadSeconds } }
+        })
+        const found: number[] = []
+        for (const seed of [1, 2, 3, 4]) {
+            const decide = profileController(loaded)({ loadout: METEOR_LOADOUT, rng: new Rng(seed) })
+            for (let cast = 0; cast < 30; cast++) {
+                const startTick = cast * 40
+                for (let tick = startTick + 1; tick < startTick + 40; tick++) {
+                    const view = handView(METEOR_LOADOUT, tick, { startTick, completesAt: startTick + 72 })
+                    if (actionsOf(decide(view)).some(a => a.type === 'start' && a.slot === COUNTER)) {
+                        found.push(tick - (startTick + 1))
+                        break
+                    }
+                }
+            }
+        }
+        expect(found).toHaveLength(120)
+        expect(Math.min(...found)).toBe(floor)
+        // the draws still vary above the floor (0.3 +- 0.1 s is 4 to 8 ticks, the lowest raised to 5)
+        expect(Math.max(...found)).toBeGreaterThan(floor)
+        // and the sampler itself: 0.2 s draws are raised to 0.25 s, the stream is read the same way
+        const rng = new Rng(9)
+        const draws = Array.from({ length: 2000 }, () => reactionTicks(rng, meanSeconds, spreadSeconds))
+        expect(Math.min(...draws)).toBe(floor)
+        expect(Math.max(...draws)).toBeLessThanOrEqual(secondsToTicks(0.4))
+        const again = new Rng(9)
+        expect(draws).toEqual(Array.from({ length: 2000 }, () => reactionTicks(again, meanSeconds, spreadSeconds)))
+        // no spread: no draw (the stream is untouched) and the mean below the floor is raised to it
+        const untouched = new Rng(5)
+        expect(reactionTicks(untouched, 0.1, 0)).toBe(floor)
+        expect(untouched.next()).toBe(new Rng(5).next())
     })
 })
 
@@ -468,12 +512,13 @@ describe('profile controller: fake casts', () => {
             fakeCast: { ...bait.fakeCast, realBaitShare: 0 },
         }
         const result = runMatch({ seed: 1, a: profileEntrant(fakesOnly, loadout), b: idler(), maxTicks: 20 })
-        // the fake Meteor starts on tick 0 and is cancelled on 5; Haste goes with the real Meteor on 13
+        // the fake Meteor starts on tick 0 and is cancelled on 7 (cancelAfterSeconds 0.35, #160); after the 0.4 s
+        // pause, Haste goes with the real Meteor on 15
         expect(result.log.map(e => `${e.tick} ${e.type} ${e.spellId}`)).toEqual([
             '0 START_CAST SPELL_METEOR',
-            '5 STOP_CAST SPELL_METEOR',
-            '13 SPELL_RELEASE SPELL_HASTE',
-            '13 START_CAST SPELL_METEOR',
+            '7 STOP_CAST SPELL_METEOR',
+            '15 SPELL_RELEASE SPELL_HASTE',
+            '15 START_CAST SPELL_METEOR',
         ])
     })
 
@@ -864,7 +909,14 @@ describe('profile controller: free-cast window after a Counterspell (#123)', () 
 describe('profile controller: sacrificial bait (#123)', () => {
     const realBait = (share: number) => {
         const { profile: bait, loadout } = ARCHETYPES.bait
-        return profileEntrant({ ...bait, fakeCast: { ...bait.fakeCast, realBaitShare: share } }, loadout, 'bait')
+        // the pre-#160 Counterspell targets: the tuned bait (minValue 9.2) counters the enemy's opening Ignite, which
+        // cancels its own bait; this scenario is about the bait, not about what bait counters
+        const counterspell = { ...bait.counterspell, minValue: 12, unseenValuePerSecond: 6 }
+        return profileEntrant(
+            { ...bait, counterspell, fakeCast: { ...bait.fakeCast, realBaitShare: share } },
+            loadout,
+            'bait',
+        )
     }
 
     for (const side of ['a', 'b'] as const) {
@@ -898,7 +950,7 @@ describe('profile controller: sacrificial bait (#123)', () => {
         })
     }
 
-    it('the shipped bait archetype mixes both kinds of bait (realBaitShare 0.5)', () => {
+    it('the shipped bait archetype mixes both kinds of bait (realBaitShare 0.45, #160)', () => {
         const first = (seed: number) =>
             of(
                 runMatch({ seed, a: archetypeEntrant('bait'), b: archetypeEntrant('aggressive') }).log,
@@ -908,7 +960,7 @@ describe('profile controller: sacrificial bait (#123)', () => {
         // seed 1 draws a real Combustion for its first bait, seed 3 a fake Meteor
         expect(first(1)).toBe('SPELL_COMBUSTION')
         expect(first(3)).toBe('SPELL_METEOR')
-        expect(ARCHETYPES.bait.profile.fakeCast.realBaitShare).toBe(0.5)
+        expect(ARCHETYPES.bait.profile.fakeCast.realBaitShare).toBe(0.45)
     })
 
     it('picks the bait by rotation priority: the last entry that is ready and whose when holds', () => {
@@ -1175,6 +1227,32 @@ describe('archetypes in play', () => {
 })
 
 describe('profile controller: commit wait and a lock inside the free-cast window (#137)', () => {
+    it('commitGiveUpSeconds: 0 allows an immediate cast: the reaction floor does not touch give-up timers (#163)', () => {
+        const fireball = slotOf(METEOR_LOADOUT, 'SPELL_FIREBALL')
+        const firstCast = (commitGiveUpSeconds: number) => {
+            const waiter = loadProfile(
+                {
+                    ...quietProfile(),
+                    rotation: ['SPELL_FIREBALL'],
+                    patience: { thresholdGiveUpSeconds: null, commitGiveUpSeconds },
+                },
+                METEOR_LOADOUT,
+            )
+            const decide = controllerFor(waiter, METEOR_LOADOUT)
+            for (let tick = 0; tick < 100; tick++)
+                if (
+                    actionsOf(decide(freeView(METEOR_LOADOUT, tick))).some(
+                        a => a.type === 'start' && a.slot === fireball,
+                    )
+                )
+                    return tick
+            return undefined
+        }
+        expect(firstCast(0)).toBe(0)
+        // a real wait still waits its length: 0.25 s is 5 ticks
+        expect(firstCast(0.25)).toBe(5)
+    })
+
     it('a Counterspell lock on the last tick of the window does not push the end of the commit wait', () => {
         const waiter = loadProfile(
             {

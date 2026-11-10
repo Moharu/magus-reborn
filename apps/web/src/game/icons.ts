@@ -5,6 +5,7 @@ type Ctx = CanvasRenderingContext2D
 
 const SCHOOL_COLORS: Record<School, [string, string, string]> = {
     FIRE: ['#ff9a3c', '#8a1c0c', '#2a0805'],
+    FROST: ['#9ee7ff', '#1c5a8a', '#05182a'],
     GENERAL: ['#7c8cff', '#2b2a7a', '#0c0b26'],
 }
 
@@ -45,6 +46,71 @@ const orb = (ctx: Ctx, x: number, y: number, r: number, stops: [number, string][
     ctx.beginPath()
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.fill()
+}
+
+/** Distinct ice silhouettes, drawn in the same square canvas as the existing icon set. */
+const frostIcon = (ctx: Ctx, kind: 'bolt' | 'glacier' | 'bomb' | 'spear' | 'touch' | 'fever') => {
+    glow(ctx, '#bdf0ff')
+    ctx.strokeStyle = '#e8fbff'
+    ctx.fillStyle = '#79ceff'
+    ctx.lineWidth = 5
+    ctx.lineCap = 'round'
+    if (kind === 'bomb') {
+        orb(ctx, 64, 72, 29, [
+            [0, '#ffffff'],
+            [0.5, '#79ceff'],
+            [1, '#164d85'],
+        ])
+        ctx.beginPath()
+        ctx.moveTo(69, 42)
+        ctx.lineTo(83, 22)
+        ctx.lineTo(102, 28)
+        ctx.stroke()
+    } else if (kind === 'glacier' || kind === 'spear' || kind === 'bolt') {
+        const shards =
+            kind === 'glacier'
+                ? [
+                      [29, 52],
+                      [63, 25],
+                      [96, 62],
+                  ]
+                : [[64, kind === 'spear' ? 12 : 30]]
+        for (const [x, y] of shards) {
+            ctx.beginPath()
+            ctx.moveTo(x, y)
+            ctx.lineTo(x + 16, 91)
+            ctx.lineTo(x, 110)
+            ctx.lineTo(x - 16, 91)
+            ctx.closePath()
+            ctx.fill()
+            ctx.stroke()
+        }
+        if (kind === 'bolt') {
+            ctx.beginPath()
+            ctx.moveTo(26, 26)
+            ctx.lineTo(43, 59)
+            ctx.moveTo(96, 22)
+            ctx.lineTo(85, 55)
+            ctx.stroke()
+        }
+    } else {
+        const centers =
+            kind === 'fever'
+                ? [
+                      [35, 40, 18],
+                      [86, 80, 24],
+                  ]
+                : [[64, 64, 40]]
+        for (const [x, y, r] of centers) {
+            for (let i = 0; i < 6; i++) {
+                const a = (i * Math.PI) / 3
+                ctx.beginPath()
+                ctx.moveTo(x, y)
+                ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r)
+                ctx.stroke()
+            }
+        }
+    }
 }
 
 const DRAW: Record<SpellId, (ctx: Ctx) => void> = {
@@ -267,6 +333,12 @@ const DRAW: Record<SpellId, (ctx: Ctx) => void> = {
         }
         ctx.globalAlpha = 1
     },
+    SPELL_FROSTBOLT: ctx => frostIcon(ctx, 'bolt'),
+    SPELL_GLACIER: ctx => frostIcon(ctx, 'glacier'),
+    SPELL_FROST_BOMB: ctx => frostIcon(ctx, 'bomb'),
+    SPELL_ICE_SPEAR: ctx => frostIcon(ctx, 'spear'),
+    SPELL_ICY_TOUCH: ctx => frostIcon(ctx, 'touch'),
+    SPELL_FROST_FEVER: ctx => frostIcon(ctx, 'fever'),
 }
 
 const canvases = new Map<SpellId, HTMLCanvasElement>()

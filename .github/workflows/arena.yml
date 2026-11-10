@@ -25,6 +25,10 @@ on:
                 description: Tournament mode - top N distinct Fire sets (each plays all 6 general pairs)
                 type: string
                 default: '8'
+            frost_top:
+                description: Tournament mode - top M distinct Frost sets beside the Fire ones, facing them (0 = Fire only)
+                type: string
+                default: '8'
             games:
                 description: Tournament mode - games per pair (even)
                 type: string
@@ -33,6 +37,10 @@ on:
                 description: Tournament mode - self-tuning generations (0 = no tuning)
                 type: string
                 default: '0'
+            tune_profile:
+                description: 'Tournament mode - tune only this archetype (aggressive, patient-counter, bait or defensive); empty tunes the whole population'
+                type: string
+                default: ''
             strategy_seeds:
                 description: Strategy mode - derived seeds per cell
                 type: string
@@ -42,7 +50,7 @@ on:
                 type: string
                 default: '36'
             fire_sets:
-                description: 'Strategy mode - Fire sets, ";" between sets and "," between its 4 spells (empty = the baseline best), e.g. fireball,ignite,combustion,meteor'
+                description: 'Strategy mode - Fire or Frost sets, ";" between sets and "," between its 4 spells (empty = the Fire baseline best), e.g. fireball,ignite,combustion,meteor;frostbolt,glacier,frost-bomb,ice-spear'
                 type: string
                 default: ''
 
@@ -72,26 +80,34 @@ jobs:
                   ARENA_MODE: ${{ inputs.mode }}
                   ARENA_SEED: ${{ inputs.seed }}
                   ARENA_TOP: ${{ inputs.top }}
+                  ARENA_FROST_TOP: ${{ inputs.frost_top }}
                   ARENA_GAMES: ${{ inputs.games }}
                   ARENA_GENERATIONS: ${{ inputs.generations }}
                   ARENA_STRATEGY_SEEDS: ${{ inputs.strategy_seeds }}
                   ARENA_STRATEGY_GAMES: ${{ inputs.strategy_games }}
                   ARENA_FIRE_SETS: ${{ inputs.fire_sets }}
+                  ARENA_TUNE_PROFILE: ${{ inputs.tune_profile }}
               run: |
                   if [[ "$ARENA_MODE" != "tournament" && "$ARENA_MODE" != "strategy" ]]; then
                       echo "::error::mode must be tournament or strategy, got '$ARENA_MODE'"
                       exit 1
                   fi
-                  for name in ARENA_SEED ARENA_TOP ARENA_GAMES ARENA_GENERATIONS ARENA_STRATEGY_SEEDS ARENA_STRATEGY_GAMES; do
+                  for name in ARENA_SEED ARENA_TOP ARENA_FROST_TOP ARENA_GAMES ARENA_GENERATIONS ARENA_STRATEGY_SEEDS ARENA_STRATEGY_GAMES; do
                       if [[ ! "${!name}" =~ ^[0-9]{1,10}$ ]]; then
                           echo "::error::$name must be a non-negative integer, got '${!name}'"
                           exit 1
                       fi
                   done
-                  # spell names only: the CLI checks them against the spell list
+                  # spell names only, Fire or Frost: the CLI checks them against the spell list
                   fire_pattern='^[A-Za-z_,; -]{0,400}$'
                   if [[ ! "$ARENA_FIRE_SETS" =~ $fire_pattern ]]; then
                       echo "::error::fire_sets must be spell names separated by , and ;"
+                      exit 1
+                  fi
+                  # an archetype name only: the CLI checks it against the archetype list
+                  profile_pattern='^[a-z-]{0,30}$'
+                  if [[ ! "$ARENA_TUNE_PROFILE" =~ $profile_pattern ]]; then
+                      echo "::error::tune_profile must be an archetype name (lowercase letters and -), got '$ARENA_TUNE_PROFILE'"
                       exit 1
                   fi
                   # 10# so '00' and '007' are read as decimal numbers; the tuning belongs to the tournament mode
@@ -121,12 +137,13 @@ jobs:
               env:
                   ARENA_SEED: ${{ inputs.seed }}
                   ARENA_TOP: ${{ inputs.top }}
+                  ARENA_FROST_TOP: ${{ inputs.frost_top }}
                   ARENA_GAMES: ${{ inputs.games }}
                   ARENA_SHARD: ${{ matrix.shard }}
               run: |
                   mkdir -p "$GITHUB_WORKSPACE/arena-out"
                   npm run arena -- \
-                      --seed "$ARENA_SEED" --top "$ARENA_TOP" --games "$ARENA_GAMES" \
+                      --seed "$ARENA_SEED" --top "$ARENA_TOP" --frost-top "$ARENA_FROST_TOP" --games "$ARENA_GAMES" \
                       --jobs 4 --time-budget "$TIME_BUDGET_SECONDS" \
                       --shard "$ARENA_SHARD/$SHARD_COUNT" --out "$GITHUB_WORKSPACE/arena-out/arena-shard-$ARENA_SHARD.json"
             # the strategy tournament (#137): the same shard file name, so the upload and the merge are the same
@@ -228,9 +245,13 @@ jobs:
                   ARENA_TOP: ${{ inputs.top }}
                   ARENA_GAMES: ${{ inputs.games }}
                   ARENA_GENERATIONS: ${{ inputs.generations }}
+                  ARENA_TUNE_PROFILE: ${{ inputs.tune_profile }}
               run: |
                   mkdir -p "$GITHUB_WORKSPACE/arena-out"
-                  npm run arena:tune -- \
+                  # empty tune_profile: the whole population; otherwise only that archetype (#156)
+                  profile=()
+                  if [[ -n "$ARENA_TUNE_PROFILE" ]]; then profile+=(--profile "$ARENA_TUNE_PROFILE"); fi
+                  npm run arena:tune -- "${profile[@]}" \
                       --seed "$ARENA_SEED" --top "$ARENA_TOP" --games "$ARENA_GAMES" \
                       --generations "$((10#$ARENA_GENERATIONS))" --max-matches 1500000 \
                       --out "$GITHUB_WORKSPACE/arena-out/arena-tuned-profile.json" > arena-out/arena-tuning.txt

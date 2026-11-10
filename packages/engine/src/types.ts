@@ -1,5 +1,5 @@
 export type PlayerKey = 'player1' | 'player2'
-export type School = 'FIRE' | 'GENERAL'
+export type School = 'FIRE' | 'FROST' | 'GENERAL'
 export type EffectType = 'positive' | 'negative'
 
 export type SpellId =
@@ -9,6 +9,12 @@ export type SpellId =
     | 'SPELL_AFTERBURN'
     | 'SPELL_LIVING_BOMB'
     | 'SPELL_METEOR'
+    | 'SPELL_FROSTBOLT'
+    | 'SPELL_GLACIER'
+    | 'SPELL_FROST_BOMB'
+    | 'SPELL_ICE_SPEAR'
+    | 'SPELL_ICY_TOUCH'
+    | 'SPELL_FROST_FEVER'
     | 'SPELL_HASTE'
     | 'SPELL_COUNTERSPELL'
     | 'SPELL_TEMPORAL_SHIELD'
@@ -34,6 +40,16 @@ export interface LivingBombDebuff extends EffectBase {
     id: 'DEBUFF_LIVING_BOMB'
     damage: number
     expirationDamage: number
+}
+export interface FrostFeverDebuff extends EffectBase {
+    id: 'DEBUFF_FROST_FEVER'
+    /** Total damage over the whole duration, dealt a share per tick. */
+    damage: number
+}
+export interface FrostBombDebuff extends EffectBase {
+    id: 'DEBUFF_FROST_BOMB'
+    /** Damage of each pulse. The bomb pulses every `tickInterval` ticks, the last pulse on its expiry tick. */
+    pulseDamage: number
 }
 export interface CounterspellDebuff extends EffectBase {
     id: 'DEBUFF_COUNTERSPELL'
@@ -66,7 +82,15 @@ export interface TemporalShieldBuff extends EffectBase {
 }
 
 export type EffectState =
-    IgniteDebuff | LivingBombDebuff | CounterspellDebuff | HasteBuff | BlurBuff | MagicEaterBuff | TemporalShieldBuff
+    | IgniteDebuff
+    | LivingBombDebuff
+    | FrostFeverDebuff
+    | FrostBombDebuff
+    | CounterspellDebuff
+    | HasteBuff
+    | BlurBuff
+    | MagicEaterBuff
+    | TemporalShieldBuff
 export type EffectId = EffectState['id']
 
 export interface SpellState {
@@ -92,6 +116,11 @@ export interface PlayerState {
     gcdUntil: number
     /** Tick until which a Counterspell lock blocks every spell. Independent of effects: cleansing does not clear it. */
     lockedUntil: number
+    /**
+     * Frost's Chilling stacks, a resource on the caster: 0 to `FROST_NUMBERS.chillingMaxStacks`, no duration. Gained when a Frost
+     * cast completes, spent by Ice Spear and Icy Touch. Starts at 0 in every battle, so it resets each round.
+     */
+    chilling: number
     spells: SpellState[]
 }
 
@@ -173,6 +202,11 @@ export interface SpellDefinition {
     offGlobalCooldown?: boolean
     /** Instants only: if true, using it mid-cast keeps the current cast going. Default false (cancels it). */
     usableWhileCasting?: boolean
+    /**
+     * Instants only: Chilling stacks the spell needs and spends on release. `startCast` rejects it with fewer stacks,
+     * before it would cancel the current cast, like a GCD or cooldown rejection.
+     */
+    chillingCost?: number
     reducer: (state: BattleState, ctx: CastContext) => void
 }
 

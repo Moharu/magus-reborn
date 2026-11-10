@@ -1,11 +1,39 @@
-import { FIXED_SPELL, secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
+import { FIXED_SPELL, secondsToTicks, SPELLS, toCenti, type SpellId } from '@magus/engine'
 import { adaptProfile } from './adapt'
+import { chillingAfter, hasChillingSource } from './chilling'
 import { allHold, type Condition, type ConditionInput, type OwnRelease } from './conditions'
+import { countAfterRelease, EFFECT_SOURCES } from './effects'
+import { ownHits } from './own-hits'
+import { spellValues } from './threat'
 import { start, stop } from './controllers'
-import { EDGE_GREED_MAX_SECONDS, GENERAL_SPELLS, GIVE_UP_MAX_SECONDS, type GeneralSpell, type Profile } from './profile'
-import type { Action, ArenaView, ControllerFactory, Decision, Entrant } from './types'
+import {
+    EDGE_GREED_MAX_SECONDS,
+    GENERAL_SPELLS,
+    GIVE_UP_MAX_SECONDS,
+    LETHAL_MARGIN_MAX_HP,
+    RELEASE_HOLD_MAX_SECONDS,
+    type GeneralSpell,
+    type Profile,
+} from './profile'
+import { REACTION_MIN_SECONDS } from './profile-params'
+import type { Rng } from './prng'
+import type { Action, ArenaView, ControllerFactory, Decision, Entrant, OwnCastView, SpellView } from './types'
 
 const NONE = -1
+
+/**
+ * One sampled Counterspell reaction time, in ticks: uniform in mean +- spread (one `rng` draw when there is a spread,
+ * none otherwise), and never below `REACTION_MIN_SECONDS`. Every single draw is floored, not only the mean (owner, #163).
+ */
+export const reactionTicks = (rng: Rng, meanSeconds: number, spreadSeconds: number) => {
+    const seconds = spreadSeconds > 0 ? meanSeconds + spreadSeconds * (2 * rng.next() - 1) : meanSeconds
+    return secondsToTicks(Math.max(REACTION_MIN_SECONDS, seconds))
+}
+
+/** The debuffs a recast replaces (`unique` in `EFFECT_SOURCES`): Living Bomb, Frost Bomb, Frost Fever. */
+const UNIQUE_DEBUFFS = (Object.keys(EFFECT_SOURCES) as (keyof typeof EFFECT_SOURCES)[]).filter(
+    id => EFFECT_SOURCES[id].unique && EFFECT_SOURCES[id].on === 'target',
+)
 
 /**
  * Counterspell's cooldown in ticks, from the public spell data a client shows (not from the opponent's state, which the
@@ -22,12 +50,14 @@ const giveUpTicks = (seconds: number | null | undefined) =>
 /**
  * The controller a profile plays, on the profile built for its loadout (`adaptProfile`, #136). Each tick, from that
  * player's `ArenaView` only (and its own memory and seeded stream), it decides in this order:
- *   1. its own cast: cancel a fake cast once `fakeCast.cancelAfterSeconds` has passed, or release a completed cast;
+ *   1. its own cast: cancel a fake cast once `fakeCast.cancelAfterSeconds` has passed, or release a completed cast
+ *      (unless `releaseHold` keeps it on the bar, #143);
  *   2. Counterspell: land a committed interrupt (see below);
  *   3. the next cast, if it has none in progress, isn't pausing after a fake and didn't press Counterspell this tick
  *      (it waits one tick to see on the view whether the lock landed): in the free-cast window (below), the first
  *      `lockoutWindow.rotation` entry that is ready, whose `when` holds and that fits the window (or its edge-greed
- *      bound), or none; else nothing while it waits for the opponent to commit (`patience.commitGiveUpSeconds`);
+ *      bound), or none; else nothing while it waits for the opponent to commit (`patience.commitGiveUpSeconds`, only
+ *      while its own Counterspell is off cooldown, see `waitingForCommit`);
  *      else a bait when `fakeCast` allows one (a fake, or a real low-priority cast, see `realBaitShare`), else the
  *      first rotation entry whose spell is ready and whose `when` holds. With none (outside the window), once it has
  *      had no cast in progress or started for `patience.thresholdGiveUpSeconds`, it gives up waiting: the first
@@ -36,6 +66,11 @@ const giveUpTicks = (seconds: number | null | undefined) =>
  *   5. starts the cast chosen in step 3, after the general spells, so Haste applies to it.
  * A general spell used while a cast is in progress cancels that cast, like any instant: rules that must not do that
  * say `selfNotCasting`.
+ *
+ * Counterspell targets (#143): an enemy cast is a target when its spell's value, learned from the view by
+ * `spellValues` (the damage its casts have dealt this player so far, or for a spell not yet seen to deal any, its
+ * public base cast time times `counterspell.unseenValuePerSecond`), is at least `counterspell.minValue` and at least
+ * `counterspell.bestShare` times the best value among the spells the opponent has been seen casting.
  *
  * Counterspell model: for each targeted enemy cast it sees, the player samples a reaction time and picks a decision
  * tick (`early`: the first tick the cast is visible; `late`: the first tick the cast is within `lateWindowSeconds` of
@@ -57,9 +92,19 @@ const giveUpTicks = (seconds: number | null | undefined) =>
  * the next enemy cast it sees is planned for as if it were a target. Ticks under an enemy Counterspell lock, when the
  * player can't act, count toward none of the give-up timers.
  *
+ * A cast released in step 1 counts in this tick's effect conditions (#143): its effect is not on the view until the
+ * next tick, so the effect counts add it (`countAfterRelease`), and a Living Bomb just released is not cast again.
+ *
  * Own releases (`selfCastsAtLeast`) are the SPELL_RELEASEs on the player's own spell log (`self.log`), what the
  * engine did. A release sent this tick counts for this tick's decisions, then gives way to the log on the next view:
  * dropped if the engine rejected it (an enemy Counterspell acting first on that tick interrupted the cast).
+ *
+ * Frost (#150): Chilling is read from the view (`self.chilling`), plus what this tick's release adds or spends
+ * (`chillingAfter`), for the Chilling conditions and for whether Icy Touch, which costs a stack, is ready. Icy Touch is
+ * an instant on the GCD: started in step 5 like a cast, it releases at once and the GCD it starts shows on the view
+ * as the other spells' `lockRemaining`, so the next cast waits for it. A real bait is never an instant (nothing to
+ * counter). The threshold give-up never recasts a spell whose own unique debuff is still on the enemy (Frost Bomb,
+ * Frost Fever, Living Bomb): a recast would replace it and lose what it has left.
  *
  * Nothing here depends on the side: player1 acting first within a tick is the runner's, and tournaments swap sides.
  */
@@ -101,13 +146,20 @@ export const profileController =
         const counterGiveUp = giveUpTicks(profile.counterspell.giveUpSeconds)
 
         const cs = profile.counterspell
-        const csSlot = cs.enabled && (cs.targets.length > 0 || counterGiveUp !== NONE) ? slotOf(FIXED_SPELL) : NONE
+        const csSlot = cs.enabled ? slotOf(FIXED_SPELL) : NONE
+        // what each opponent spell is worth to counter, learned from the view (#143)
+        const values = spellValues(cs.unseenValuePerSecond)
+        /**
+         * Whether an enemy cast of `spell` is worth a Counterspell (#143): see `CounterspellPolicy.minValue`. Compared
+         * in centi-HP (AGENTS.md invariant 8), so a tie with the best value is a tie.
+         */
+        const isTarget = (spell: SpellId) => {
+            const value = toCenti(values.valueOf(spell))
+            return value >= toCenti(cs.minValue) && value >= Math.round(cs.bestShare * toCenti(values.best(spell)))
+        }
         const lateWindow = secondsToTicks(cs.lateWindowSeconds)
         const { meanSeconds, spreadSeconds } = cs.reaction
-        const sampleReaction = () => {
-            const seconds = spreadSeconds > 0 ? meanSeconds + spreadSeconds * (2 * rng.next() - 1) : meanSeconds
-            return secondsToTicks(Math.max(0, seconds))
-        }
+        const sampleReaction = () => reactionTicks(rng, meanSeconds, spreadSeconds)
 
         const fake = profile.fakeCast
         const fakeSlot = fake.enabled && fake.maxPerMatch > 0 ? slotOf(fake.spell) : NONE
@@ -140,6 +192,61 @@ export const profileController =
         let commitWaitFrom = 0
         // since when our Counterspell has been off cooldown and unused (NONE: on cooldown), for its give-up
         let counterHeldSince = NONE
+        // the tick our Counterspell was last seen come off cooldown (the match start until then), and whether it was
+        // on cooldown on the last view: the commit wait runs from then too (#143)
+        let counterBackAt = 0
+        let counterCooling = false
+
+        /**
+         * Whether the wait for the opponent to commit still runs (#143). It runs only while the player's own
+         * Counterspell is off cooldown, ready to answer the commit (a wait with it on cooldown only hands the enemy
+         * free time), and lasts `commitGiveUp` from the later of the end of the last window (or the match start) and
+         * the tick its Counterspell was seen come off cooldown. A profile that never counters waits from the window's
+         * end.
+         */
+        const waitingForCommit = (self: ArenaView['self'], tick: number) => {
+            if (csSlot === NONE) return tick - commitWaitFrom < commitGiveUp
+            if (self.spells[csSlot].cooldownRemaining > 0) return false
+            return tick - Math.max(commitWaitFrom, counterBackAt) < commitGiveUp
+        }
+
+        // holding a completed cast (#143): while `releaseHold.when` holds, for at most this many ticks past completion
+        const hold = profile.releaseHold
+        const holdTicks =
+            hold && Number.isFinite(hold.giveUpSeconds)
+                ? secondsToTicks(Math.min(RELEASE_HOLD_MAX_SECONDS, Math.max(0, hold.giveUpSeconds)))
+                : 0
+        // the lethal check's margin in centi-HP (NONE: off), and the expected hits of the own casts
+        const lethalMargin =
+            hold?.lethalMarginHp !== undefined && Number.isFinite(hold.lethalMarginHp)
+                ? toCenti(Math.min(LETHAL_MARGIN_MAX_HP, Math.max(0, hold.lethalMarginHp)))
+                : NONE
+        const hits = ownHits(loadout)
+
+        // Chilling (#150): what each slot's spell costs, and whether the loadout can build stacks at all
+        const costs = loadout.map(id => SPELLS[id].chillingCost ?? 0)
+        const chillingSource = hasChillingSource(loadout)
+        // the stacks after this tick's release, set each tick
+        let chillingNow = 0
+        /**
+         * Whether the engine accepts `slot` this tick: the view's `ready`, except for a spell that costs Chilling, whose
+         * stacks are those this tick's release leaves (the view shows them from before it).
+         */
+        const isReady = (spells: readonly SpellView[], slot: number) => {
+            const spell = spells[slot]
+            if (costs[slot] === 0) return spell.ready
+            return spell.cooldownRemaining === 0 && spell.lockRemaining === 0 && chillingNow >= costs[slot]
+        }
+        /** The unique debuff `slot`'s spell puts on the enemy is on it (this tick's release included): a recast replaces it. */
+        const ownUniqueUp = (enemy: ArenaView['enemy'], slot: number) => {
+            for (const effect of UNIQUE_DEBUFFS) {
+                if (EFFECT_SOURCES[effect].spell !== loadout[slot]) continue
+                let shown = 0
+                for (const e of enemy.effects) if (e.id === effect) shown += 1
+                if (countAfterRelease(shown, effect, 'enemy', input.released) > 0) return true
+            }
+            return false
+        }
 
         const actions: Action[] = []
         const input: {
@@ -149,6 +256,9 @@ export const profileController =
             longest: readonly SpellId[]
             releases: readonly OwnRelease[]
             window: boolean
+            released: SpellId | null
+            chilling: number
+            chillingSource: boolean
         } = {
             view: null as unknown as ArenaView,
             casting: false,
@@ -156,6 +266,9 @@ export const profileController =
             longest,
             releases,
             window: false,
+            released: null,
+            chilling: 0,
+            chillingSource,
         }
         const holds = (when: readonly Condition[]) => allHold(when, input as ConditionInput)
 
@@ -172,10 +285,26 @@ export const profileController =
             const unhasted = hasteEnds !== NONE && (released || hasteEnds <= tick + castTime)
             return tick + (unhasted ? baseCast[slot] : castTime)
         }
+        /**
+         * Whether to keep the own cast that completed on `completesAt` on the bar this tick rather than release it
+         * (#143): within `holdTicks` of the completion, while `releaseHold.when` holds (read as still casting), unless
+         * the cast would kill (`releaseHold.lethalMarginHp`).
+         */
+        const holding = (own: OwnCastView, enemyHp: number, tick: number) => {
+            if (!hold || tick - own.completesAt >= holdTicks) return false
+            // a lethal hit needs no hold (#146 review): death is final, a rewind can't undo it
+            if (lethalMargin !== NONE && toCenti(enemyHp) <= hits.predict(own.slot) + lethalMargin) return false
+            input.casting = true
+            return holds(hold.when)
+        }
         /** The first window entry that is ready, whose `when` holds and that releases before `bound`, or NONE. */
         const windowCast = (self: ArenaView['self'], tick: number, bound: number) => {
             for (const entry of windowRotation) {
-                if (self.spells[entry.slot].ready && holds(entry.when) && releaseTick(self, entry.slot, tick) < bound)
+                if (
+                    isReady(self.spells, entry.slot) &&
+                    holds(entry.when) &&
+                    releaseTick(self, entry.slot, tick) < bound
+                )
                     return entry.slot
             }
             return NONE
@@ -184,6 +313,8 @@ export const profileController =
         return (view): Decision => {
             const { tick, self, enemy } = view
             actions.length = 0
+            values.observe(view)
+            hits.observe(view)
             input.view = view
             input.nextCast = null
             let casting = self.casting !== null
@@ -219,15 +350,27 @@ export const profileController =
             // the window is open: a new wait for the opponent to commit starts when it ends
             if (tick < safeUntil) commitWaitFrom = safeUntil
             if (self.casting || lastBusy === NONE) lastBusy = tick
+            if (csSlot !== NONE) {
+                const cooling = self.spells[csSlot].cooldownRemaining > 0
+                if (counterCooling && !cooling) counterBackAt = tick
+                counterCooling = cooling
+            }
             // under a Counterspell lock the player can't act: those ticks don't count toward its give-up timers
             if (self.lockedUntil > tick) {
                 lastBusy += 1
                 // inside a safe window the wait is already set to start when the window ends: only locked ticks from
                 // then on postpone it (counting the window's own locked ticks too would start it one tick late)
-                if (tick >= safeUntil) commitWaitFrom += 1
+                if (tick >= safeUntil) {
+                    commitWaitFrom += 1
+                    counterBackAt += 1
+                }
                 if (counterHeldSince !== NONE) counterHeldSince += 1
             }
             released = false
+            input.released = null
+            // before step 1's release: the stacks the view shows
+            chillingNow = self.chilling ?? 0
+            input.chilling = chillingNow
             let countered = false
 
             // 1. own cast
@@ -239,14 +382,19 @@ export const profileController =
                         casting = false
                         pauseUntil = tick + fakePause
                     }
-                } else if (tick >= own.completesAt) {
+                } else if (tick >= own.completesAt && !holding(own, enemy.hp, tick)) {
                     actions.push(stop(own.slot))
                     casting = false
                     released = true
+                    input.released = own.spellId
                     releases.push({ spellId: own.spellId, tick })
                     provisional = true
                 }
             }
+
+            // Chilling once this tick's release has gone off (#150)
+            chillingNow = released ? chillingAfter(input.released!, self.chilling ?? 0) : (self.chilling ?? 0)
+            input.chilling = chillingNow
 
             // 2. Counterspell
             if (csSlot !== NONE) {
@@ -259,7 +407,7 @@ export const profileController =
                 if (seen && seen.startTick !== planFor) {
                     planFor = seen.startTick
                     planReaction = NONE
-                    if (anyCast || cs.targets.includes(seen.spellId)) {
+                    if (anyCast || isTarget(seen.spellId)) {
                         planReaction = sampleReaction()
                         planCompletesAt = seen.completesAt
                         decideAt = cs.timing === 'early' ? tick : Math.max(tick, seen.completesAt - lateWindow)
@@ -310,22 +458,24 @@ export const profileController =
                     next = windowCast(self, tick, safeUntil)
                     // edge greed (#126): with nothing safe, a cast that releases up to `edgeGreed` ticks later
                     if (next === NONE && edgeGreed > 0) next = windowCast(self, tick, safeUntil + edgeGreed)
-                } else if (commitGiveUp !== NONE && tick - commitWaitFrom < commitGiveUp) {
+                } else if (commitGiveUp !== NONE && waitingForCommit(self, tick)) {
                     // waiting for the opponent to commit: no cast, no bait, until the window opens or the timer ends
                     waiting = true
                 } else if (
                     fakeSlot !== NONE &&
                     fakes < fake.maxPerMatch &&
                     tick - lastFake >= fakeGap &&
-                    self.spells[fakeSlot].ready &&
+                    isReady(self.spells, fakeSlot) &&
                     holds(fake.when)
                 ) {
                     isBait = true
-                    // a real bait: the lowest-priority rotation entry that is ready and whose `when` holds
+                    // a real bait: the lowest-priority rotation entry that is ready and whose `when` holds, a cast
+                    // (an instant such as Icy Touch shows no cast to counter, #150)
                     if (realShare >= 1 || (realShare > 0 && rng.next() < realShare)) {
                         for (let i = rotation.length - 1; i >= 0; i--) {
                             const entry = rotation[i]
-                            if (self.spells[entry.slot].ready && holds(entry.when)) {
+                            if (castSeconds(entry.spell) === 0) continue
+                            if (isReady(self.spells, entry.slot) && holds(entry.when)) {
                                 next = entry.slot
                                 break
                             }
@@ -337,7 +487,7 @@ export const profileController =
                     }
                 } else {
                     for (const entry of rotation) {
-                        if (self.spells[entry.slot].ready && holds(entry.when)) {
+                        if (isReady(self.spells, entry.slot) && holds(entry.when)) {
                             next = entry.slot
                             break
                         }
@@ -356,8 +506,9 @@ export const profileController =
                 thresholdGiveUp !== NONE &&
                 tick - lastBusy >= thresholdGiveUp
             ) {
+                // never a recast that would replace the own unique debuff still on the enemy (#150: Frost Bomb)
                 for (const entry of rotation) {
-                    if (self.spells[entry.slot].ready) {
+                    if (isReady(self.spells, entry.slot) && !ownUniqueUp(enemy, entry.slot)) {
                         next = entry.slot
                         break
                     }

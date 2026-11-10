@@ -478,7 +478,7 @@ describe('parseBaseline', () => {
         expect(() => parseBaseline(file([]))).toThrow(/loadouts/)
         expect(() => parseBaseline(file([entry(2)]))).toThrow(/loadouts\[0\]\.rank/)
         expect(() => parseBaseline(file([entry(1), entry(2)]))).toThrow(/listed twice/)
-        expect(() => parseBaseline(file([entry(1, ['SPELL_FIREBALL'])]))).toThrow(/valid loadout/)
+        expect(() => parseBaseline(file([entry(1, ['SPELL_FIREBALL'])]))).toThrow(/valid FIRE loadout/)
         expect(() => parseBaseline({ ...file([entry(1)]), extra: 1 })).toThrow(/unknown key/)
     })
 })

@@ -1,4 +1,4 @@
-import { isValidLoadout, LOADOUT_SIZE } from './catalog'
+import { isValidLoadout, loadoutElement, LOADOUT_SIZE } from './catalog'
 import { BEST_OF_OPTIONS, type BestOf, type ClientMessage, type LobbySettings } from './protocol'
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -33,8 +33,12 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
         case 'ready':
         case 'unready':
             return { t: raw.t }
-        case 'set_spells':
-            return isValidLoadout(raw.spells) ? { t: raw.t, spells: [...raw.spells] } : null
+        case 'set_spells': {
+            // one element per player: four spells of one element, Counterspell, two general spells; never mixed
+            const element = loadoutElement(raw.spells)
+            // loadoutElement already validated it; this second call only narrows `raw.spells` to SpellId[] for the type
+            return element && isValidLoadout(raw.spells, element) ? { t: raw.t, spells: [...raw.spells] } : null
+        }
         case 'start_cast':
         case 'stop_cast':
             return isSpellIndex(raw.i) ? { t: raw.t, i: raw.i } : null

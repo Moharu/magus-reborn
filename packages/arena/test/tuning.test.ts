@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { SPELLBOOKS, type SpellId } from '@magus/engine'
+import { describe, expect, it, vi } from 'vitest'
 import {
     ARCHETYPES,
     breedSeed,
@@ -22,6 +23,7 @@ import {
     scorer,
     shapeKey,
     tune,
+    tunableSlots,
     tunedProfile,
     type Baseline,
     type MatchFn,
@@ -30,6 +32,10 @@ import {
     type TuningOptions,
 } from '../src'
 import { METEOR_LOADOUT, OTHER_LOADOUT } from './helpers'
+
+// The tuner tests run real mutation and scoring loops and timed out under local load (#140, #163): the 120 s the CLI
+// tests use, for every test of the file.
+vi.setConfig({ testTimeout: 120_000 })
 
 const baseline: Baseline = {
     version: 'test',
@@ -270,6 +276,8 @@ describe('mutation and crossover', () => {
                     }
                 }
             }
+        // 4 archetypes x 60 mutants and their crossovers: about 2 s alone, more under a loaded full run, and the
+        // archetypes' Frost entries (#150) added slots
     })
 
     it('crossover of two same-shape parents mixes their values', () => {
@@ -290,6 +298,106 @@ describe('mutation and crossover', () => {
         expect(mutateProfile(bait.profile, new Rng(5), MUTATION_RATE)).not.toEqual(
             mutateProfile(bait.profile, new Rng(6), MUTATION_RATE),
         )
+    })
+})
+
+describe('parameters with no fitness signal (#163)', () => {
+    // a Fire-only run: Frost rotation entries (and their conditions) are dropped from every loadout by adaptProfile
+    const fireOnly = [METEOR_LOADOUT, OTHER_LOADOUT]
+    const frostEntries = (profile: Profile) =>
+        [
+            ...profile.rotation.map((entry, i) => [`rotation[${i}].when`, entry.spell] as const),
+            ...profile.lockoutWindow.rotation.map(
+                (entry, i) => [`lockoutWindow.rotation[${i}].when`, entry.spell] as const,
+            ),
+        ].filter(([, spell]) => (SPELLBOOKS.FROST.elementSpells as readonly SpellId[]).includes(spell))
+    const frostSlots = (profile: Profile) =>
+        parameterSlots(profile).filter(({ path, condition }) =>
+            frostEntries(profile).some(([base]) => condition && path.startsWith(`${base}[`)),
+        )
+
+    it('leaves out the condition values of rotation entries no scored loadout plays', () => {
+        // bait has Frost entries with conditions: otherwise this test would prove nothing
+        expect(frostSlots(bait.profile).length).toBeGreaterThan(0)
+        for (const profile of archetypes) {
+            const dead = frostSlots(profile)
+            const paths = tunableSlots(profile, fireOnly).map(slot => slot.path)
+            for (const { path } of dead) expect(paths, `${profile.name} ${path}`).not.toContain(path)
+            // everything else stays, and no loadouts means every slot
+            expect(paths).toHaveLength(parameterSlots(profile).length - dead.length)
+            expect(tunableSlots(profile)).toEqual(parameterSlots(profile))
+        }
+    })
+
+    it('keeps the Frost values when a Frost loadout is scored', () => {
+        const frost: SpellId[] = [
+            'SPELL_FROSTBOLT',
+            'SPELL_ICE_SPEAR',
+            'SPELL_ICY_TOUCH',
+            'SPELL_GLACIER',
+            'SPELL_COUNTERSPELL',
+            'SPELL_HASTE',
+            'SPELL_BLUR',
+        ]
+        const profile = bait.profile
+        const withFrost = tunableSlots(profile, [METEOR_LOADOUT, frost]).map(slot => slot.path)
+        const without = tunableSlots(profile, [METEOR_LOADOUT]).map(slot => slot.path)
+        const played = frostSlots(profile).filter(({ path }) => withFrost.includes(path))
+        expect(played.length).toBeGreaterThan(0)
+        for (const { path } of played) expect(without).not.toContain(path)
+    })
+
+    it('mutation and crossover never change them in a Fire-only run, but do without the loadouts', () => {
+        let moved = 0
+        for (const profile of [bait.profile])
+            for (let seed = 0; seed < 40; seed++) {
+                const dead = frostSlots(profile)
+                const other = mutateProfile(profile, new Rng(seed + 1000), 0.5)
+                const mutant = mutateProfile(profile, new Rng(seed), 0.5, fireOnly)
+                const child = crossoverProfiles(profile, other, new Rng(seed), fireOnly)
+                for (const { path } of dead) {
+                    expect(getAt(mutant, path), `${profile.name} ${path}`).toBe(getAt(clampProfile(profile), path))
+                    expect(getAt(child, path), `${profile.name} ${path}`).toBe(getAt(profile, path))
+                }
+                const free = mutateProfile(profile, new Rng(seed), 0.5)
+                if (dead.some(({ path }) => getAt(free, path) !== getAt(profile, path))) moved++
+            }
+        expect(moved).toBeGreaterThan(0)
+    })
+
+    it('reads the stream the same whether a slot is skipped or not, so live values match an unfiltered run', () => {
+        const profile = bait.profile
+        const dead = frostSlots(profile).map(slot => slot.path)
+        expect(dead.length).toBeGreaterThan(0)
+        for (let seed = 0; seed < 30; seed++) {
+            // rate 0.5: a mutation is always made, so the retry loop (which depends on the slots) never runs
+            const skipped = new Rng(seed)
+            const full = new Rng(seed)
+            const filtered = mutateProfile(profile, skipped, 0.5, fireOnly)
+            const unfiltered = mutateProfile(profile, full, 0.5)
+            expect(skipped.next(), `mutate ${seed}`).toBe(full.next())
+            for (const { path } of parameterSlots(profile).filter(slot => !dead.includes(slot.path)))
+                expect(getAt(filtered, path), `${seed} ${path}`).toBe(getAt(unfiltered, path))
+
+            const partner = mutateProfile(profile, new Rng(seed + 500), 0.5)
+            const skippedCross = new Rng(seed)
+            const fullCross = new Rng(seed)
+            const crossFiltered = crossoverProfiles(profile, partner, skippedCross, fireOnly)
+            const crossFull = crossoverProfiles(profile, partner, fullCross)
+            expect(skippedCross.next(), `crossover ${seed}`).toBe(fullCross.next())
+            for (const { path } of parameterSlots(profile).filter(slot => !dead.includes(slot.path)))
+                expect(getAt(crossFiltered, path), `${seed} ${path}`).toBe(getAt(crossFull, path))
+        }
+    })
+
+    it('tune() mutates none of them in a Fire-only run', () => {
+        const result = tiny({ generations: 3 })
+        const origins = new Map(archetypes.map(p => [p.name, p]))
+        for (const member of result.population) {
+            const origin = origins.get(member.origin)!
+            for (const { path } of frostSlots(origin))
+                expect(getAt(member.profile, path), `${member.profile.name} ${path}`).toBe(getAt(origin, path))
+        }
     })
 })
 
@@ -344,7 +452,10 @@ describe('tune', () => {
         const result = tiny({ seeds: [bait.profile], population: 3, generations: 1, elite: 0 })
         const members = result.population.map(p => p.profile)
         for (const i of [1, 2]) {
-            const expected = mutateProfile(bait.profile, new Rng(breedSeed(11, 0, i)), MUTATION_RATE)
+            const expected = mutateProfile(bait.profile, new Rng(breedSeed(11, 0, i)), MUTATION_RATE, [
+                METEOR_LOADOUT,
+                OTHER_LOADOUT,
+            ])
             expect(members).toContainEqual({ ...expected, name: `g0-${i}` })
         }
         expect(members).toContainEqual(bait.profile)
@@ -475,5 +586,80 @@ describe('tune', () => {
         expect(early.generations).toHaveLength(0)
         expect(tiny({ maxMatches: 31 }).stopped).toEqual({ generation: 0, scored: 2 })
         expect(() => tiny({ maxMatches: 15 })).toThrow(/below 16/)
+    })
+
+    describe('tuning one archetype (#156)', () => {
+        const one = (extra: Partial<TuningOptions> = {}) =>
+            tiny({ seeds: [bait.profile], compareToStart: true, population: 4, generations: 2, ...extra })
+
+        it('seeds and breeds only that archetype: every candidate descends from it', () => {
+            const result = one()
+            const everyone = [...result.generations.flatMap(g => g.ranking), ...result.population]
+            expect(everyone.length).toBeGreaterThan(4)
+            expect(new Set(everyone.map(c => c.origin))).toEqual(new Set(['bait']))
+            // generation 0 is the untouched archetype, then its mutants
+            expect(result.generations[0].ranking.some(c => c.profile.name === 'bait')).toBe(true)
+            expect(result.config.seeds).toEqual(['bait'])
+            expect(result.config.tunedProfile).toBe('bait')
+            expect(result.best.origin).toBe('bait')
+            // without the restriction the same run seeds all four
+            const all = tiny({ population: 4, generations: 1 })
+            expect(new Set(all.generations[0].ranking.map(c => c.origin)).size).toBeGreaterThan(1)
+            expect(all.config.tunedProfile).toBeNull()
+        })
+
+        it('keeps the same scoring field: the field is not restricted to the tuned profile', () => {
+            const result = one({ field: archetypes })
+            expect(result.config.field).toEqual(archetypes.map(p => p.name))
+        })
+
+        it('scores the untuned archetype on the selection and holdout seeds and reports the improvement', () => {
+            const result = one()
+            const options = { baseline, field: [aggressive.profile], top: 2, generalPairs: 1, games: 2, maxTicks: 600 }
+            const selection = scorer({ ...options, run: runMatch }, result.config.selectionSeed)
+            const holdout = scorer({ ...options, run: runMatch }, result.config.holdoutSeed)
+            expect(result.start).not.toBeNull()
+            expect(result.start!.profile.name).toBe('bait')
+            expect(result.start!.score).toEqual(selection.score(clampProfile(bait.profile)))
+            expect(result.start!.holdout).toEqual(holdout.score(clampProfile(bait.profile)))
+            // elitism keeps the start's score as the floor of the search
+            expect(result.best.score.wins * result.start!.score.games).toBeGreaterThanOrEqual(
+                result.start!.score.wins * result.best.score.games,
+            )
+            const pp = (from: number, to: number) => {
+                const d = Math.round((to - from) * 1000) / 10
+                return `${d > 0 ? '+' : ''}${d.toFixed(1)} pp`
+            }
+            const text = formatTuning(result)
+            const pct = (x: number) => `${(x * 100).toFixed(1)}%`
+            expect(text).toContain('Self-tuning of bait only')
+            expect(text).toContain(
+                `selection seeds: ${pct(result.start!.score.winRate)} (${result.start!.score.wins}/${result.start!.score.games} wins), tuned ${pp(result.start!.score.winRate, result.best.score.winRate)}`,
+            )
+            expect(text).toContain(
+                `fresh seeds (holdout): ${pct(result.start!.holdout.winRate)} (${result.start!.holdout.wins}/${result.start!.holdout.games} wins), tuned ${pp(result.start!.holdout.winRate, result.best.holdout.winRate)}`,
+            )
+            expect(text).toContain('Changed parameters:')
+        })
+
+        it('counts the start holdout re-score in the matches, and in the budget', () => {
+            const result = one()
+            const cost = result.config.matchesPerProfile
+            const plain = tiny({ seeds: [bait.profile], population: 4, generations: 2 })
+            // the same search; one more holdout re-score unless the best is the start itself
+            const same = result.best.profile.name === 'bait'
+            expect(result.matches).toBe(plain.matches + (same ? 0 : cost))
+            expect(() => one({ maxMatches: 2 * cost })).toThrow(/below 24/)
+        })
+
+        it('without compareToStart nothing changes: no start comparison, same result and text', () => {
+            const plain = tiny({ seeds: [bait.profile], population: 4, generations: 2 })
+            expect(plain.start).toBeNull()
+            expect(formatTuning(plain)).not.toContain('Untuned starting point')
+            expect(tiny({ generations: 1 }).start).toBeNull()
+            const withStart = one()
+            expect(withStart.best).toEqual(plain.best)
+            expect(withStart.generations).toEqual(plain.generations)
+        })
     })
 })

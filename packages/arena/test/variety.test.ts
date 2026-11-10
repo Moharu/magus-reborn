@@ -1,6 +1,6 @@
 import { secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
 import { describe, expect, it } from 'vitest'
-import baselineJson from '../baselines/reborn-0.3.0.json'
+import baselineJson from '../baselines/reborn-0.4.0.json'
 import {
     adaptProfile,
     ARCHETYPE_NAMES,
@@ -153,7 +153,7 @@ describe('give-up timers (#136)', () => {
     it('holding Counterspell for a target that never comes gives up and interrupts the next cast', () => {
         const holder = (giveUpSeconds: number | null) =>
             custom(raw => {
-                Object.assign(raw.counterspell, { enabled: true, targets: ['SPELL_METEOR'], giveUpSeconds })
+                Object.assign(raw.counterspell, { enabled: true, giveUpSeconds })
             })
         const fireballs = profileEntrant(
             custom(raw => (raw.rotation = ['SPELL_FIREBALL'])),
@@ -287,7 +287,7 @@ describe('review fixes (#136)', () => {
         // holds Counterspell for Meteor, giving up after 5 s (100 ticks) held; casts Fireballs meanwhile
         const holder = custom(raw => {
             raw.rotation = ['SPELL_FIREBALL']
-            Object.assign(raw.counterspell, { enabled: true, targets: ['SPELL_METEOR'], giveUpSeconds: 5 })
+            Object.assign(raw.counterspell, { enabled: true, giveUpSeconds: 5 })
         })
         // the enemy counters its first Fireball on tick 10 (locked until 70), then casts Fireballs on 105 and 165
         const FIREBALL = slotOf(METEOR_LOADOUT, 'SPELL_FIREBALL')
@@ -350,11 +350,13 @@ describe('review fixes (#136)', () => {
         ])
     })
 
-    it('keeps profile names short (200 characters) while an intent may hold a plan of 600', () => {
+    it('keeps profile names short (200 characters) while an intent may hold a plan of 1200 (Fire and Frost, #150)', () => {
         expect(() => custom(raw => (raw.name = 'n'.repeat(200)))).not.toThrow()
         expect(() => custom(raw => (raw.name = 'n'.repeat(201)))).toThrow(/^name: must be one line of at most 200/)
-        expect(() => custom(raw => (raw.intent = 'i'.repeat(600)))).not.toThrow()
-        expect(() => custom(raw => (raw.intent = 'i'.repeat(601)))).toThrow(/^intent: must be one line of at most 600/)
+        expect(() => custom(raw => (raw.intent = 'i'.repeat(1200)))).not.toThrow()
+        expect(() => custom(raw => (raw.intent = 'i'.repeat(1201)))).toThrow(
+            /^intent: must be one line of at most 1200/,
+        )
     })
 
     describe('drops an entry waiting on a spell the loadout lacks, for every condition that names an effect or spell', () => {

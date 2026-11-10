@@ -2,6 +2,63 @@
 
 All notable changes to Magus Reborn are listed here. Versions follow [semantic versioning](https://semver.org/). Each release is tagged `vX.Y.Z` on `dev` and then merged into `main`, which deploys it.
 
+## [0.4.0] - 2026-11-09
+
+The "Frost" release. Frost is a second element with its own six spells and a Chilling resource. This release includes [#146](https://github.com/Moharu/magus-reborn/pull/146), [#155](https://github.com/Moharu/magus-reborn/pull/155), [#157](https://github.com/Moharu/magus-reborn/pull/157), [#158](https://github.com/Moharu/magus-reborn/pull/158), [#159](https://github.com/Moharu/magus-reborn/pull/159), [#162](https://github.com/Moharu/magus-reborn/pull/162), [#164](https://github.com/Moharu/magus-reborn/pull/164), [#165](https://github.com/Moharu/magus-reborn/pull/165) and [#168](https://github.com/Moharu/magus-reborn/pull/168).
+
+**Engine version:** `ENGINE_VERSION` changes from `reborn-0.3.0` to `reborn-0.4.0`. Frost adds spells and effects, `PlayerState` gains `chilling`, and the element is now inferred from the loadout, so the state and protocol changed. Players with the game open on the old version are asked to refresh when they try to create or join a lobby. Between the server deploy and the client deploy, online play is briefly unavailable for everyone, because the two are on different versions.
+
+### Frost element
+
+#### Added
+
+- **Frost spells and Chilling stacks**, with six Frost spells and Icy Touch as an on-GCD instant (it triggers the GCD and is blocked by it). ([#155](https://github.com/Moharu/magus-reborn/pull/155))
+- **Approved Frost numbers** and the default Frost loadout. ([#159](https://github.com/Moharu/magus-reborn/pull/159))
+
+#### Changed
+
+- **Rebalance against Fire:** Frostbolt 4.5, Icy Touch 2, Fever bonus 6, Glacier 17. ([#168](https://github.com/Moharu/magus-reborn/pull/168), closes [#167](https://github.com/Moharu/magus-reborn/issues/167))
+
+### Web
+
+#### Added
+
+- **Frost in the picker and between-rounds swap**, Chilling stacks and debuffs in the HUD, spell log entries and floating text. ([#158](https://github.com/Moharu/magus-reborn/pull/158))
+- **Chilling meter above the wizard**, a reusable class-resource slot. ([#164](https://github.com/Moharu/magus-reborn/pull/164), [#165](https://github.com/Moharu/magus-reborn/pull/165))
+
+### Server
+
+#### Changed
+
+- Loadout validation is element-aware. ([#155](https://github.com/Moharu/magus-reborn/pull/155))
+
+### Arena
+
+#### Added
+
+- **Frost profiles, the Fire-vs-Frost field** and a Frost dummy-DPS baseline. ([#162](https://github.com/Moharu/magus-reborn/pull/162))
+- **Tuner `--profile`** to tune one archetype. ([#157](https://github.com/Moharu/magus-reborn/pull/157))
+
+#### Changed
+
+- Weak profiles fixed, value-based Counterspell targets and visible-damage attribution. ([#146](https://github.com/Moharu/magus-reborn/pull/146))
+- Tuned bait defaults and a 0.25 s reaction floor. ([#162](https://github.com/Moharu/magus-reborn/pull/162), [#165](https://github.com/Moharu/magus-reborn/pull/165))
+
+### Engine and protocol
+
+#### Changed
+
+- `ENGINE_VERSION` is `reborn-0.4.0`.
+- Arena dummy-DPS baselines `reborn-0.4.0.json` (Fire) and `reborn-0.4.0-frost.json` added for the new version; both match the 0.3.0 tables apart from the version string.
+
+### Known issues
+
+- HUD HP rounding is still open ([#23](https://github.com/Moharu/magus-reborn/issues/23)).
+- [#133](https://github.com/Moharu/magus-reborn/issues/133) is a test-only follow-up with no user impact.
+- Arena workflow input checks per mode could be tighter ([#140](https://github.com/Moharu/magus-reborn/issues/140)).
+- Arena Counterspell value should include what a cast enables, for Frostbolt/Fever setups ([#166](https://github.com/Moharu/magus-reborn/issues/166)).
+- The Fire-vs-Frost Arena split is 54.8% / 44.9%; to be tuned in 0.4.1.
+
 ## [0.3.1] - 2026-11-09
 
 The "Arena strategy" release. This release is Arena-only: it changes the AI-vs-AI testing tools and nothing a player sees, so there is no gameplay change. It includes [#138](https://github.com/Moharu/magus-reborn/pull/138) and [#139](https://github.com/Moharu/magus-reborn/pull/139).

@@ -13,7 +13,10 @@ export interface SpellView {
     readonly cooldownRemaining: number
     /** Ticks the GCD or a Counterspell lock still blocks it (engine `lockRemaining`), 0 if free. */
     readonly lockRemaining: number
-    /** Both of the above are 0: the engine would accept `startCast` for it this tick. */
+    /**
+     * Both of the above are 0, and the player holds the Chilling the spell costs (Icy Touch, #150; the public
+     * `chillingCost`): the engine would accept `startCast` for it this tick.
+     */
     readonly ready: boolean
 }
 
@@ -49,15 +52,43 @@ export interface SelfView {
     readonly casting: OwnCastView | null
     readonly gcdUntil: number
     readonly lockedUntil: number
+    /**
+     * Frost's Chilling stacks on the player (#150), 0 to the cap, as the client's HUD shows them. The runner always
+     * sets it; hand-built views may leave it out (0).
+     */
+    readonly chilling?: number
     /** The player's own buffs and debuffs, in the order the engine applied them. */
     readonly effects: readonly EffectView[]
     /** The player's own loadout, in slot order. */
     readonly spells: readonly SpellView[]
     /**
+     * Every HP change on the player so far, oldest first (#146): what the client's floating combat text shows. The
+     * server streams the engine's attributed HP events (`events` of each `battle` message) to both clients, so each
+     * entry names the spell the change came from. Same timing as the logs: a change on tick `t` shows from the view
+     * on tick `t + 1` on (a release's hit on `t`, an effect's tick or burst on `t + 1` once `Battle.tick()` ran). The
+     * array only grows. The runner always sets it; hand-built views may leave it out.
+     */
+    readonly hpLog?: readonly HpLogEntry[]
+    /**
      * The player's own spell log so far, oldest first (#136), as the client's spell log shows it: what the engine did
      * with its casts (released, interrupted, ...), up to the last tick. Same form and growth as `enemy.log`.
      */
     readonly log: readonly EnemyLogEntry[]
+}
+
+/** One HP change on the player, as its floating combat text shows it (#146). */
+export interface HpLogEntry {
+    /** The engine tick the change happened on. */
+    readonly tick: number
+    /** Negative for damage, positive for healing (a Temporal Shield rewind may be either). */
+    readonly amount: number
+    /**
+     * The spell it came from (the engine event's `source`): the cast that hit, or the one whose effect ticked, burst
+     * or healed. Named like the spell logs' entries; never an effect's internal fields.
+     */
+    readonly spellId: SpellId
+    /** `spell` for a release, `effect` for an effect's tick or expiry. */
+    readonly kind: 'spell' | 'effect'
 }
 
 /**
@@ -80,6 +111,11 @@ export interface EnemyView {
     readonly hp: number
     readonly casting: CastView | null
     readonly lockedUntil: number
+    /**
+     * The opponent's Chilling stacks (#150): every client gets both players' stacks (the HUD shows the opponent's once
+     * it is seen playing Frost). The runner always sets it; hand-built views may leave it out (0).
+     */
+    readonly chilling?: number
     /** The opponent's buffs and debuffs (for example the Ignites on them, Haste, Blur, Temporal Shield). */
     readonly effects: readonly EffectView[]
     /**
@@ -88,6 +124,11 @@ export interface EnemyView {
      * SPELL_RELEASE. The array only grows, and an entry never changes once added, so a controller may keep entries.
      */
     readonly log: readonly EnemyLogEntry[]
+    /**
+     * Every HP change on the opponent so far (#146): the floating combat text over the opponent's wizard, which every
+     * client shows; the same form and timing as `self.hpLog`. The runner always sets it.
+     */
+    readonly hpLog?: readonly HpLogEntry[]
 }
 
 /**
@@ -124,7 +165,7 @@ export type ControllerFactory = (init: ControllerInit) => Controller
 
 export interface Entrant {
     readonly name: string
-    /** A valid loadout for the default element (engine `isValidLoadout`). */
+    /** A valid loadout of one element, Fire or Frost (engine `loadoutElement`, #150). */
     readonly loadout: readonly SpellId[]
     readonly controller: ControllerFactory
 }

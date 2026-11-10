@@ -70,6 +70,54 @@ describe('sim CLI', () => {
         expect(ranks).toEqual([...ranks].sort((a, b) => b - a))
     }, 60_000)
 
+    it('sim:search searches Frost with --frost or --element frost (#147)', () => {
+        const script = fileURLToPath(new URL('../scripts/sim-search.ts', import.meta.url))
+        const run = (...flags: string[]) =>
+            JSON.parse(
+                execFileSync(
+                    'npx',
+                    [
+                        'tsx',
+                        script,
+                        ...flags,
+                        '--general',
+                        'haste,blur',
+                        '--duration',
+                        '5',
+                        '--cap',
+                        '10',
+                        '--top',
+                        '2',
+                        '--jobs',
+                        '1',
+                    ],
+                    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+                ),
+            )
+        const out = run('--frost', 'frostbolt,ice_spear,icy_touch,frost_fever')
+        expect(out.options).toMatchObject({ element: 'FROST', fire: null, loadouts: 1, cap: 10 })
+        expect(out.evaluated).toBe(10)
+        for (const r of out.results)
+            expect(r.elementSpells).toEqual([
+                'SPELL_FROSTBOLT',
+                'SPELL_ICE_SPEAR',
+                'SPELL_ICY_TOUCH',
+                'SPELL_FROST_FEVER',
+            ])
+        // every Frost set, narrowed by --element instead
+        expect(run('--element', 'frost').options).toMatchObject({ element: 'FROST', loadouts: 15 })
+    }, 60_000)
+
+    it('sim:search rejects a mismatched or unknown element', () => {
+        const script = fileURLToPath(new URL('../scripts/sim-search.ts', import.meta.url))
+        const fail = (...args: string[]) =>
+            expect(() => execFileSync('npx', ['tsx', script, ...args], { encoding: 'utf8', stdio: 'pipe' }))
+        fail('--element', 'water').toThrow(/--element must be one of: fire, frost/)
+        fail('--element', 'fire', '--frost', 'frostbolt,glacier,ice_spear,icy_touch').toThrow(/another element/)
+        fail('--fire', 'fireball,ignite,combustion,meteor', '--frost', 'frostbolt').toThrow(/give one of them/)
+        fail('--frost', 'fireball,glacier,ice_spear,icy_touch').toThrow(/not one of the frost spells/)
+    }, 30_000)
+
     it('sim:search rejects the removed --size and --pool, bad pools and a missing flag value', () => {
         const script = fileURLToPath(new URL('../scripts/sim-search.ts', import.meta.url))
         const fail = (...args: string[]) =>

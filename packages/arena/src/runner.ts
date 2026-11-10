@@ -2,9 +2,10 @@ import {
     Battle,
     cooldownRemaining,
     fromCenti,
-    isValidLoadout,
+    loadoutElement,
     lockRemaining,
     secondsToTicks,
+    SPELLS,
     toCenti,
     type EffectState,
     type LogEntry,
@@ -19,6 +20,7 @@ import type {
     Decision,
     EnemyLogEntry,
     Entrant,
+    HpLogEntry,
     MatchEndReason,
     MatchEvent,
     MatchResult,
@@ -52,11 +54,21 @@ interface ViewState {
             casting: OwnCast | null
             gcdUntil: number
             lockedUntil: number
+            chilling: number
             effects: EffectSlot[]
             spells: SpellSlot[]
             log: EnemyLogEntry[]
+            hpLog: HpLogEntry[]
         }
-        enemy: { hp: number; casting: Cast | null; lockedUntil: number; effects: EffectSlot[]; log: EnemyLogEntry[] }
+        enemy: {
+            hp: number
+            casting: Cast | null
+            lockedUntil: number
+            chilling: number
+            effects: EffectSlot[]
+            log: EnemyLogEntry[]
+            hpLog: HpLogEntry[]
+        }
     }
     /** Reused cast objects, linked from the view only while that player is casting. */
     ownCast: OwnCast
@@ -100,11 +112,13 @@ const createView = (loadout: readonly SpellId[]): ViewState => ({
             casting: null,
             gcdUntil: 0,
             lockedUntil: 0,
+            chilling: 0,
             effects: [],
             spells: loadout.map(id => ({ id, castTime: 0, cooldownRemaining: 0, lockRemaining: 0, ready: false })),
             log: [],
+            hpLog: [],
         },
-        enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [], log: [] },
+        enemy: { hp: 0, casting: null, lockedUntil: 0, chilling: 0, effects: [], log: [], hpLog: [] },
     },
     ownCast: emptyCast(),
     enemyCast: emptyEnemyCast(),
@@ -142,7 +156,7 @@ const readCast = (player: PlayerState, into: Cast) => {
 
 /**
  * Fills `view` with what `self` may see. Of the enemy it reads only what a client shows (the server's opponent
- * redaction): HP, the spell being cast, the lock and the buff bar (its spell log is `readEnemyLogs`'). Never the
+ * redaction): HP, the spell being cast, the lock, the Chilling stacks (#150) and the buff bar (its spell log is `readEnemyLogs`'). Never the
  * loadout, cooldowns or GCD.
  */
 const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: number) => {
@@ -152,6 +166,7 @@ const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: 
     own.hp = self.hp
     own.gcdUntil = self.gcdUntil
     own.lockedUntil = self.lockedUntil
+    own.chilling = self.chilling
     readEffects(self.effects, own.effects, state.ownEffects)
     // Haste swaps the engine's spell objects, so read them fresh every tick
     for (let i = 0; i < own.spells.length; i++) {
@@ -160,7 +175,11 @@ const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: 
         slot.castTime = spell.castTime
         slot.cooldownRemaining = cooldownRemaining(spell, tick)
         slot.lockRemaining = lockRemaining(self, spell, tick)
-        slot.ready = slot.cooldownRemaining === 0 && slot.lockRemaining === 0
+        // Icy Touch (#150): the engine also rejects it without the Chilling it costs (public spell data)
+        slot.ready =
+            slot.cooldownRemaining === 0 &&
+            slot.lockRemaining === 0 &&
+            self.chilling >= (SPELLS[spell.id].chillingCost ?? 0)
     }
     if (readCast(self, ownCast)) {
         ownCast.slot = self.cast!
@@ -169,6 +188,7 @@ const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: 
 
     view.enemy.hp = enemy.hp
     view.enemy.lockedUntil = enemy.lockedUntil
+    view.enemy.chilling = enemy.chilling
     readEffects(enemy.effects, view.enemy.effects, state.enemyEffects)
     view.enemy.casting = readCast(enemy, enemyCast) ? enemyCast : null
 }
@@ -243,14 +263,31 @@ const validate = ({ seed, a, b, maxTicks }: MatchOptions & { maxTicks: number })
         ['a', a],
         ['b', b],
     ] as const) {
-        if (!isValidLoadout([...entrant.loadout])) throw new Error(`entrant ${side} (${entrant.name}): invalid loadout`)
+        // one element per player, Fire or Frost (#150); the two players may play different elements
+        if (loadoutElement([...entrant.loadout]) === null)
+            throw new Error(`entrant ${side} (${entrant.name}): invalid loadout`)
         if (typeof entrant.controller !== 'function')
             throw new Error(`entrant ${side} (${entrant.name}): controller must be a function`)
     }
 }
 
 /** Per-side stats and the side-keyed log, from the engine's log and HP events. */
-const summarize = (battle: Battle, withLog: boolean) => {
+/**
+ * Moves the engine's attributed HP events (the `events` the server streams to both clients, #146) into the `hpLog` of
+ * the player each one is about (`self.hpLog`) and its opponent's view of that player (`enemy.hpLog`), and adds the damage to `taken` (centi-HP), for the stats.
+ */
+const readHpEvents = (battle: Battle, views: Record<PlayerKey, ViewState>, taken: Record<Side, number>) => {
+    for (const event of battle.drainEvents()) {
+        const entry = { tick: event.tick, amount: event.amount, spellId: event.source, kind: event.kind }
+        // the floating combat text over each wizard: on the player's own, and on its opponent's view of it; one copy
+        // per view, as for the spell logs
+        views[event.player].view.self.hpLog.push(entry)
+        views[event.player === 'player1' ? 'player2' : 'player1'].view.enemy.hpLog.push({ ...entry })
+        if (event.amount < 0) taken[SIDE_OF[event.player]] += toCenti(-event.amount)
+    }
+}
+
+const summarize = (battle: Battle, withLog: boolean, taken: Record<Side, number>) => {
     const stats: Record<Side, SideStats> = { a: emptyStats(), b: emptyStats() }
     const log: MatchEvent[] = []
     const entries = battle.state.log
@@ -296,10 +333,6 @@ const summarize = (battle: Battle, withLog: boolean) => {
             log.push({ tick: entry.tick, side, type: entry.type, spellId: entry.spellId, source: entry.source })
         else log.push({ tick: entry.tick, side, type: entry.type, spellId: entry.spellId })
     }
-    const taken: Record<Side, number> = { a: 0, b: 0 }
-    for (const event of battle.drainEvents()) {
-        if (event.amount < 0) taken[SIDE_OF[event.player]] += toCenti(-event.amount)
-    }
     stats.a.damageTaken = fromCenti(taken.a)
     stats.b.damageTaken = fromCenti(taken.b)
     return { stats, log }
@@ -332,11 +365,14 @@ export const runMatch = (options: MatchOptions): MatchResult => {
     const views: Record<PlayerKey, ViewState> = { player1: viewA, player2: viewB }
     const lastStarted: Record<PlayerKey, SpellId | undefined> = { player1: undefined, player2: undefined }
     let logRead = 0
+    // damage taken per side, in centi-HP, from the HP events
+    const taken: Record<Side, number> = { a: 0, b: 0 }
 
     let timeout = false
     while (!battle.finished) {
         // what the clients' spell logs have received by now: every entry logged on earlier ticks
         logRead = readEnemyLogs(state.log, logRead, views, lastStarted)
+        readHpEvents(battle, views, taken)
         refresh(viewA, state.player1, state.player2, state.gameTick)
         refresh(viewB, state.player2, state.player1, state.gameTick)
         const decisionA = decideA(viewA.view)
@@ -353,7 +389,8 @@ export const runMatch = (options: MatchOptions): MatchResult => {
 
     const winner: Side | 'draw' = timeout || state.winner === 'draw' ? 'draw' : SIDE_OF[state.winner!]
     const reason: MatchEndReason = timeout ? 'timeout' : state.winner === 'draw' ? 'mutual' : 'death'
-    const summary = summarize(battle, log)
+    readHpEvents(battle, views, taken)
+    const summary = summarize(battle, log, taken)
     summary.stats.a.rejected = rejectedA
     summary.stats.b.rejected = rejectedB
     return {

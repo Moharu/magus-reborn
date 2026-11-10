@@ -14,7 +14,7 @@ describe('spell timings', () => {
         expect(createSpellState('SPELL_HASTE').castTime).toBe(0)
     })
 
-    it('no shipped spell starts a global cooldown (#84)', () => {
+    it('no Fire or general spell starts a global cooldown (#84)', () => {
         for (const id of [...FIRE, ...GENERAL]) expect(createSpellState(id).globalCooldown).toBe(0)
     })
 

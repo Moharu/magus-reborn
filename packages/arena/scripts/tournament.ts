@@ -1,10 +1,12 @@
 // Usage:
-//   npm run arena -- [--top N] [--general-pairs K] [--profiles a,b,...] [--games G] [--seed S] [--max-ticks T]
+//   npm run arena -- [--top N] [--frost-top M] [--general-pairs K] [--profiles a,b,...] [--games G] [--seed S] [--max-ticks T]
 //                    [--baseline VERSION] [--jobs J] [--time-budget SECONDS] [--shard i/n] [--out FILE]
 //                    [--report FILE] [--date YYYY-MM-DD] [--commit SHA] [--bracket-best-of N] [--no-bracket]
 //   npm run arena -- merge SHARD.json... [--allow-missing] [--out FILE] [--report FILE] [--date YYYY-MM-DD] [--commit SHA]
 //                    [--bracket-best-of N] [--no-bracket]
-// (`npm run arena:tournament` is the same command.) Plays a round-robin between entrants (the top N distinct Fire sets, each with its best K general pairs, default all 6, x the profiles) and prints the ranked table:
+// (`npm run arena:tournament` is the same command.) Plays a round-robin between entrants (the top N distinct Fire sets and
+// the top M distinct Frost sets, #150, M defaulting to N when the version has a Frost table and 0 otherwise, each with
+// its best K general pairs, default all 6, x the profiles; Fire faces Frost) and prints the ranked table:
 // win rate only, games per pair even so sides swap equally. --out writes the JSON (the result, or with --shard that
 // shard's pairs, which `merge` combines). --jobs (default 4, values above 4 are clamped to 4 with a warning) runs that
 // many worker processes and never changes the output. --time-budget stops the run when that many seconds have passed
@@ -46,6 +48,7 @@ import {
     intFlag,
     killWorkers,
     loadBaseline,
+    loadFrostBaseline,
     printTable,
     readJson,
     reportOptions,
@@ -93,9 +96,14 @@ const plan = () => {
     for (const name of names)
         if (!(ARCHETYPE_NAMES as string[]).includes(name))
             throw new Error(`--profiles: unknown profile ${name} (one of ${ARCHETYPE_NAMES.join(', ')})`)
+    const top = intFlag('top', DEFAULT_TOP)
+    // Frost sets (#150): as many as Fire ones by default, when the version has a Frost table; --frost-top 0 turns them off
+    const frostTop = flag('frost-top') === undefined ? undefined : intFlag('frost-top', 0)
+    const frostBaseline = frostTop === 0 ? undefined : loadFrostBaseline(frostTop !== undefined)
     return planTournament({
         baseline: loadBaseline(),
-        top: intFlag('top', DEFAULT_TOP),
+        top,
+        ...(frostBaseline ? { frostBaseline, frostTop: frostTop ?? top } : {}),
         generalPairs: intFlag('general-pairs', DEFAULT_GENERAL_PAIRS),
         profiles: names.map(name => ARCHETYPES[name as ArchetypeName].profile),
         games: intFlag('games', DEFAULT_GAMES),
@@ -147,6 +155,10 @@ const main = async () => {
     if (config.top.used < config.top.requested)
         console.error(
             `--top ${config.top.requested}: the ${config.baselineVersion} baseline has ${config.top.used} Fire sets, using all`,
+        )
+    if (config.frost && config.frost.top.used < config.frost.top.requested)
+        console.error(
+            `--frost-top ${config.frost.top.requested}: the ${config.baselineVersion} Frost table has ${config.frost.top.used} Frost sets, using all`,
         )
     const total = pairList(config.entrants.length).length
     const mine = shardPairs(total, shard?.index ?? 0, shard?.count ?? 1)

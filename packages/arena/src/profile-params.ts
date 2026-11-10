@@ -1,10 +1,20 @@
-import { EDGE_GREED_MAX_SECONDS, GENERAL_SPELLS, parseProfile, type Profile } from './profile'
+import {
+    EDGE_GREED_MAX_SECONDS,
+    GENERAL_SPELLS,
+    LETHAL_MARGIN_MAX_HP,
+    parseProfile,
+    RELEASE_HOLD_MAX_SECONDS,
+    type Profile,
+} from './profile'
+import type { SpellId } from '@magus/engine'
+import { buildRotation } from './adapt'
+import { CHILLING_MAX } from './chilling'
 import type { Rng } from './prng'
 
 /**
  * The tunable parameters of a behaviour profile (#102) and their bounds, for the self-tuner (#104). Only these values
  * are ever changed by mutation or crossover: a profile's structure (its rotation and window orders, the conditions it
- * checks, its Counterspell targets and `enabled`, which general spells it uses) stays as written. Every bound lies inside the range the profile
+ * checks, its Counterspell's `enabled`, which general spells it uses) stays as written. Every bound lies inside the range the profile
  * loader accepts, so a profile clamped to these bounds always loads.
  */
 
@@ -46,6 +56,10 @@ export const PROFILE_PARAMETERS: Readonly<Record<string, Parameter>> = {
     'counterspell.reaction.spreadSeconds': num(0, 0.5, 0.01, 0.05),
     'counterspell.timing': { kind: 'choice', options: ['early', 'late'] },
     'counterspell.lateWindowSeconds': num(0, 3, 0.01, 0.2),
+    // which casts are worth a Counterspell (#143), by their value as seen
+    'counterspell.minValue': num(0, 40, 0.1, 3),
+    'counterspell.bestShare': num(0, 1, 0.01, 0.1),
+    'counterspell.unseenValuePerSecond': num(0, 20, 0.1, 1),
     'fakeCast.enabled': { kind: 'choice', options: [true, false] },
     'fakeCast.cancelAfterSeconds': num(REACTION_MIN_SECONDS, 2, 0.01, 0.1),
     'fakeCast.pauseAfterSeconds': num(REACTION_MIN_SECONDS, 2, 0.01, 0.1),
@@ -58,11 +72,15 @@ export const PROFILE_PARAMETERS: Readonly<Record<string, Parameter>> = {
     'counterspell.giveUpSeconds': num(1, 30, 0.01, 2),
     'patience.thresholdGiveUpSeconds': num(REACTION_MIN_SECONDS, 10, 0.01, 0.5),
     'patience.commitGiveUpSeconds': num(REACTION_MIN_SECONDS, 15, 0.01, 1),
+    // holding a completed cast (#143): only tuned when the profile holds (`releaseHold` set)
+    'releaseHold.giveUpSeconds': num(0, RELEASE_HOLD_MAX_SECONDS, 0.01, 0.2),
+    // the lethal-release margin (#146 review), only when the profile has one
+    'releaseHold.lethalMarginHp': num(0, LETHAL_MARGIN_MAX_HP, 0.01, 1),
 }
 
 /**
  * The numeric fields of a condition, wherever it appears (`rotation[i].when`, `lockoutWindow.rotation[i].when`,
- * `fakeCast.when`, `generals.<id>.when`, and the lists of an `anyOf` in any of them).
+ * `fakeCast.when`, `releaseHold.when`, `generals.<id>.when`, and the lists of an `anyOf` in any of them).
  */
 export const CONDITION_PARAMETERS: Readonly<Record<'hp' | 'count' | 'seconds' | 'withinSeconds', NumberParameter>> = {
     hp: num(0, 100, 1, 10),
@@ -71,6 +89,16 @@ export const CONDITION_PARAMETERS: Readonly<Record<'hp' | 'count' | 'seconds' | 
     // `selfCastsAtLeast` (#136): how far back own casts count
     withinSeconds: num(0, 15, 0.01, 1),
 }
+
+/** The `count` of a Chilling condition (#150): stacks, 0 to the cap. */
+export const CHILLING_COUNT_PARAMETER: NumberParameter = num(0, CHILLING_MAX, 1, 1)
+const CHILLING_CONDITIONS = new Set(['selfChillingAtLeast', 'selfChillingBelow', 'enemyChillingAtLeast'])
+
+/** The parameter of a condition's field: Chilling counts have their own bounds, every other field its shared one. */
+const conditionParameter = (condition: object, key: keyof typeof CONDITION_PARAMETERS) =>
+    key === 'count' && CHILLING_CONDITIONS.has((condition as { type?: string }).type ?? '')
+        ? CHILLING_COUNT_PARAMETER
+        : CONDITION_PARAMETERS[key]
 
 /** One tunable value of a given profile: its path (`rotation[0].when[0].count`) and its parameter. */
 export interface ParameterSlot {
@@ -121,6 +149,7 @@ export const parameterSlots = (profile: Profile): ParameterSlot[] => {
             entry.when,
         ]),
         ['fakeCast.when', profile.fakeCast.when],
+        ...(profile.releaseHold ? [['releaseHold.when', profile.releaseHold.when] as [string, readonly object[]]] : []),
         ...GENERAL_SPELLS.flatMap((id): [string, readonly object[]][] => {
             const rule = profile.generals[id]
             return rule === 'never' ? [] : [[`generals.${id}.when`, rule.when]]
@@ -133,7 +162,7 @@ export const parameterSlots = (profile: Profile): ParameterSlot[] => {
                     slots.push({
                         path: `${base}[${j}].${key}`,
                         key,
-                        parameter: CONDITION_PARAMETERS[key],
+                        parameter: conditionParameter(condition, key),
                         condition: true,
                     })
             // an anyOf's lists, in order
@@ -142,6 +171,41 @@ export const parameterSlots = (profile: Profile): ParameterSlot[] => {
         })
     for (const [base, when] of lists) walk(base, when)
     return slots
+}
+
+/**
+ * The rotation lists whose entries can show up in play on at least one of `loadouts` (#163): an entry that
+ * `adaptProfile` drops from every loadout (its spell is on none, or its `when` waits on a spell none has) is never
+ * played, so its condition values have no fitness signal there.
+ */
+const deadWhenPaths = (profile: Profile, loadouts: readonly (readonly SpellId[])[]) => {
+    const dead = new Set<string>()
+    const lists: [string, readonly Profile['rotation'][number][]][] = [
+        ['rotation', profile.rotation],
+        ['lockoutWindow.rotation', profile.lockoutWindow.rotation],
+    ]
+    for (const [name, entries] of lists)
+        entries.forEach((entry, i) => {
+            // a loadout with no entry left plays its own spells with no conditions, so it gives no signal either
+            const played = loadouts.some(loadout => {
+                const kept = buildRotation(entries, loadout)
+                return kept.length > 0 && kept.includes(entry)
+            })
+            if (!played) dead.add(`${name}[${i}].when`)
+        })
+    return dead
+}
+
+/**
+ * The slots of `profile` worth changing when it is scored on `loadouts` (#163): `parameterSlots` without the condition
+ * values of rotation entries that are never played on any of them (a Frost entry in a Fire-only run, and the other way
+ * round). Mutating those would only add drift that the score can't see. Without `loadouts`, every slot.
+ */
+export const tunableSlots = (profile: Profile, loadouts?: readonly (readonly SpellId[])[]): ParameterSlot[] => {
+    const slots = parameterSlots(profile)
+    if (!loadouts) return slots
+    const dead = deadWhenPaths(profile, loadouts)
+    return slots.filter(({ path, condition }) => !(condition && [...dead].some(base => path.startsWith(`${base}[`))))
 }
 
 const decimals = (precision: number) => Math.max(0, -Math.floor(Math.log10(precision)))
@@ -200,16 +264,27 @@ export const behaviourKey = (profile: Profile) => {
  * Mutates each tunable value with probability `rate`: a number moves by up to its `step` either way (at least one
  * `precision`, so rounding never undoes the move), a choice switches to another option. Then `clampProfile`. If that
  * leaves the profile's behaviour unchanged, one more value is drawn and changed until it differs, so a mutant always
- * differs from its (clamped) parent. Every draw comes from `rng`.
+ * differs from its (clamped) parent. Every draw comes from `rng`. With `loadouts`, values with no fitness signal on them
+ * (`tunableSlots`) are left alone, but their draws are still made and discarded: the stream is read the same whether a
+ * slot is skipped or not, so a run's results stay comparable across loadout coverage.
  */
-export const mutateProfile = (profile: Profile, rng: Rng, rate: number): Profile => {
+export const mutateProfile = (
+    profile: Profile,
+    rng: Rng,
+    rate: number,
+    loadouts?: readonly (readonly SpellId[])[],
+): Profile => {
     const out = copy(profile)
+    // a skipped slot is changed on a scratch copy: the same draws are read, and nothing of it reaches the result
+    const scratch = copy(profile)
     const slots = parameterSlots(out)
+    const live = new Set(tunableSlots(out, loadouts).map(slot => slot.path))
     const change = ({ path, parameter }: ParameterSlot) => {
-        const value = getAt(out, path)
+        const target = live.has(path) ? out : scratch
+        const value = getAt(target, path)
         if (parameter.kind === 'choice') {
             const others = parameter.options.filter(option => option !== value)
-            setAt(out, path, others[rng.int(others.length)])
+            setAt(target, path, others[rng.int(others.length)])
             return
         }
         const old = value as number
@@ -219,7 +294,7 @@ export const mutateProfile = (profile: Profile, rng: Rng, rate: number): Profile
         // a move smaller than the precision, or into a bound the value is already on: one precision the other way
         if (next === old) next = clampValue(parameter, old + sign * parameter.precision)
         if (next === old) next = clampValue(parameter, old - sign * parameter.precision)
-        setAt(out, path, next)
+        setAt(target, path, next)
     }
     for (const slot of slots) if (rng.next() < rate) change(slot)
     const parent = behaviourKey(clampProfile(profile))
@@ -234,14 +309,23 @@ export const mutateProfile = (profile: Profile, rng: Rng, rate: number): Profile
 /**
  * Uniform crossover: `a`'s structure, each tunable value taken from `b` with probability 1/2. Condition fields are only
  * taken when both profiles have the same structure (`shapeKey`), since a path like `rotation[0].when[0].count` means
- * something different in another profile. Then `clampProfile`.
+ * something different in another profile. Then `clampProfile`. With `loadouts`, values with no fitness signal on them
+ * (`tunableSlots`) keep `a`'s; their coin flips are still drawn, so the stream is read the same either way.
  */
-export const crossoverProfiles = (a: Profile, b: Profile, rng: Rng): Profile => {
+export const crossoverProfiles = (
+    a: Profile,
+    b: Profile,
+    rng: Rng,
+    loadouts?: readonly (readonly SpellId[])[],
+): Profile => {
     const out = copy(a)
     const sameShape = shapeKey(a) === shapeKey(b)
+    const live = new Set(tunableSlots(out, loadouts).map(slot => slot.path))
     for (const { path, condition } of parameterSlots(out)) {
         const take = rng.next() < 0.5
-        if (take && (sameShape || !condition)) setAt(out, path, getAt(b, path))
+        // a block `b` lacks (`releaseHold`, #143) has no value to give
+        if (take && live.has(path) && (sameShape || !condition) && getAt(b, path) !== undefined)
+            setAt(out, path, getAt(b, path))
     }
     return clampProfile(out)
 }

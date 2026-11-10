@@ -2,8 +2,11 @@ import 'pixi.js/accessibility'
 import { Container, Graphics, Rectangle, Sprite, Text } from 'pixi.js'
 import {
     cooldownRemaining,
+    FROST_NUMBERS,
     HOTKEYS,
     SPELLS,
+    SPELLBOOKS,
+    type LogEntry,
     ticksToSeconds,
     secondsToTicks,
     type PlayerKey,
@@ -22,6 +25,9 @@ import {
     WIDTH,
     type Side,
     mobileBattleLayout,
+    resourceMeterSlot,
+    RESOURCE_METER,
+    type ResourceMeterPosition,
 } from './layout'
 import { keybindsVisible, onKeybindVisibilityChange } from './hotkeys'
 import { iconTexture } from './textures'
@@ -54,6 +60,10 @@ export class PlayerHud extends Container {
     private readonly bars = new Graphics()
     private readonly nameText = label(18, '800')
     private readonly hpText = label(12)
+    /** Future resources (e.g. Lightning polarity) render inside this same slot. */
+    readonly resourceSlot = new Container()
+    private readonly chillingPips = new Graphics()
+    private frostRevealed = false
     private readonly castText = label(13)
     private readonly lockText = label(13)
     private readonly castIcon = new Sprite()
@@ -86,17 +96,23 @@ export class PlayerHud extends Container {
         this.nameText.anchor.set(0, 0)
         this.hpText.anchor.set(1, 0)
         this.hpText.position.set(this.x0 + this.w, 12)
+        this.resourceSlot.addChild(this.chillingPips)
+        this.fitResource()
+        this.chillingPips.accessible = true
+        this.chillingPips.accessibleType = 'img'
+        this.chillingPips.visible = false
         this.castText.anchor.set(0.5)
         this.castText.position.set(this.x0 + this.w / 2 + 14, 89)
         this.castIcon.width = this.castIcon.height = 22
         this.castIcon.position.set(side === 'left' ? this.x0 + 1 : this.x0 + this.w - 23, 78)
         this.lockText.anchor.set(0.5)
-        this.lockText.position.set(this.x0 + this.w / 2, 162)
-        this.effectIcons.position.set(this.x0, 110)
+        this.lockText.position.set(this.x0 + this.w / 2, 180)
+        this.effectIcons.position.set(this.x0, 128)
         this.addChild(
             this.bars,
             this.nameText,
             this.hpText,
+            this.resourceSlot,
             this.castIcon,
             this.castText,
             this.effectIcons,
@@ -104,9 +120,27 @@ export class PlayerHud extends Container {
         )
     }
 
+    /** A shared class-resource slot, independent of the resource's drawing and visibility. */
+    fitResource(width = WIDTH, height = HEIGHT, position?: ResourceMeterPosition) {
+        const slot = resourceMeterSlot(this.side, width, height, position)
+        this.resourceSlot.position.set(slot.x, slot.y)
+        this.resourceSlot.scale.set(slot.width / RESOURCE_METER.width, slot.height / RESOURCE_METER.height)
+    }
+
     /** Flashes the cast bar with the spell that was interrupted. */
     showInterrupted(spell: SpellId, color: number) {
         this.interrupt = { spell, color, left: INTERRUPT_FLASH }
+    }
+
+    /** Only public casts reveal a rival's element, including instant and catch-up releases. */
+    observeCasts(entries: readonly LogEntry[]) {
+        for (const entry of entries)
+            if (
+                (entry.type === 'START_CAST' || entry.type === 'SPELL_RELEASE') &&
+                entry.caster === this.seat &&
+                SPELLBOOKS.FROST.elementSpells.includes(entry.spellId)
+            )
+                this.frostRevealed = true
     }
 
     update(player: PlayerView, tick: number, dt: number) {
@@ -114,6 +148,17 @@ export class PlayerHud extends Container {
             (player.name.length > NAME_MAX_LENGTH ? player.name.slice(0, NAME_MAX_LENGTH - 1) + '…' : player.name) ||
             (this.seat === 'player1' ? 'Player 1' : 'Player 2')
         setText(this.nameText, this.me ? `${this.seat === this.me ? 'YOU' : 'OPPONENT'} · ${name}` : name)
+        const casting = player.cast === null ? null : player.casting
+        if (player.chilling > 0 || (casting && SPELLBOOKS.FROST.elementSpells.includes(casting.id)))
+            this.frostRevealed = true
+        const ownFrost =
+            this.seat === this.me && player.spells?.some(spell => SPELLBOOKS.FROST.elementSpells.includes(spell.id))
+        const pips = this.chillingPips
+        pips.visible = this.seat === this.me ? !!ownFrost : this.frostRevealed
+        pips.accessibleTitle = `Chilling ${player.chilling} / ${FROST_NUMBERS.chillingMaxStacks}`
+        pips.clear()
+        for (let i = 0; i < FROST_NUMBERS.chillingMaxStacks; i++)
+            pips.roundRect(i * 26, 0, 22, 8, 2).fill(i < player.chilling ? 0x9ee7ff : 0x394b60)
         const infinite = player.hp >= INFINITE_HP
         const hp = infinite ? 100 : player.hp
         this.shownHp += (hp - this.shownHp) * (this.reducedMotion ? 1 : Math.min(1, dt / 0.12))
@@ -450,16 +495,20 @@ export class ActionBar extends Container {
                 ? `Locked, ${ticksToSeconds(state.timer).toFixed(1)} seconds. Personal cooldown ${ticksToSeconds(cooldown).toFixed(1)} seconds.`
                 : cooldown > 0
                   ? `Cooldown, ${ticksToSeconds(cooldown).toFixed(1)} seconds.`
-                  : state.fader > 0
-                    ? 'Global cooldown.'
-                    : 'Ready.'
+                  : state.missingChilling
+                    ? 'Not enough Chilling.'
+                    : state.fader > 0
+                      ? 'Global cooldown.'
+                      : 'Ready.'
             b.blockedReason = state.locked
                 ? 'Locked'
                 : cooldown > 0
                   ? 'Cooldown'
-                  : state.fader > 0
-                    ? 'Global cooldown'
-                    : ''
+                  : state.missingChilling
+                    ? 'Need Chilling'
+                    : state.fader > 0
+                      ? 'Global cooldown'
+                      : ''
             if (!b.blockedReason || confirmedTick > b.feedbackUntil) setText(b.feedback, '')
             b.root.accessibleHint = `${b.root.accessibleTitle}. ${reason}`
             this.drawButton(b, state, player.cast === i, keysDown.has(i) || this.pressed.has(i))
@@ -468,11 +517,12 @@ export class ActionBar extends Container {
 
     private drawButton(
         b: ActionBar['buttons'][number],
-        { fader, locked, timer }: ButtonState,
+        { fader, locked, timer, missingChilling }: ButtonState,
         casting: boolean,
         down: boolean,
     ) {
         const o = b.overlay.clear()
+        b.icon.alpha = missingChilling ? 0.4 : 1
         if (fader > 0) {
             const c = BUTTON / 2
             o.moveTo(c, c)

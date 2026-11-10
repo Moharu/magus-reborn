@@ -1,4 +1,4 @@
-import { DEFAULT_SPELLS, isValidLoadout, type SpellId } from '@magus/engine'
+import { DEFAULT_SPELLS, loadoutElement, type SpellId } from '@magus/engine'
 import { sanitizeName } from '@magus/engine/protocol'
 
 const KEYS = {
@@ -40,7 +40,7 @@ export const setName = (name: string) => write(KEYS.name, sanitizeName(name, '')
 export const getLoadout = (): SpellId[] => {
     try {
         const stored = JSON.parse(read(KEYS.loadout) ?? 'null')
-        if (isValidLoadout(stored)) return stored
+        if (loadoutElement(stored)) return stored
     } catch {
         // fall through to defaults
     }

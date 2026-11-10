@@ -1,4 +1,4 @@
-import { DEFAULT_ELEMENT, SPELLS, ticksToSeconds, type PlayerKey, type SnapshotView, type SpellId } from '@magus/engine'
+import { loadoutElement, SPELLS, ticksToSeconds, type PlayerKey, type SnapshotView, type SpellId } from '@magus/engine'
 import {
     BEST_OF_OPTIONS,
     MAX_SPECTATORS,
@@ -19,7 +19,6 @@ import type { BattleView } from '../game/battle-view'
 import { getLoadout, getName, playerId, setLoadout } from '../identity'
 import { connect, type Socket } from '../net'
 import { navigate } from '../router'
-import { loadoutValid } from '../ui/loadout-logic'
 import { canSendLoadout, setupAccess } from '../ui/setup-flow'
 import { spellPicker, type SpellPicker } from '../ui/spell-picker'
 import { BATTLE_SETUP_ERROR, battleErrorPanel, loadBattleChunk } from './battle-chunk'
@@ -356,7 +355,7 @@ const startLobby = (root: HTMLElement, code: string) => {
         if (entering) readyRound = null
         const ready = !!info[mine]?.ready || readyRound === info.round || info.countdown === 0
         const access = setupAccess(info, { ready })
-        const valid = loadoutValid(loadout, DEFAULT_ELEMENT)
+        const valid = loadoutElement(loadout) !== null
         if (entering || !picker) {
             picker = spellPicker(
                 loadout,
@@ -366,7 +365,7 @@ const startLobby = (root: HTMLElement, code: string) => {
                     if (
                         canSendLoadout(
                             setupAccess(lobby ?? info, { ready: !!seatInfo(mine)?.ready || readyRound === info.round }),
-                            loadoutValid(next, DEFAULT_ELEMENT),
+                            loadoutElement(next) !== null,
                         )
                     )
                         send({ t: 'set_spells', spells: next })

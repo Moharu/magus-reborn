@@ -1,7 +1,7 @@
 import { ELEMENT_SPELL_COUNT } from '@magus/engine'
 import { rate, rateWithInterval, table, type ReportOptions } from './report'
 import { wilsonInterval } from './stats'
-import type { StrategyCell, StrategyResult } from './strategy'
+import { setLabel, type StrategyCell, type StrategyResult } from './strategy'
 import { NO_GAMES, percent, spellName } from './tournament-format'
 
 /**
@@ -47,14 +47,14 @@ export const formatStrategyReport = (result: StrategyResult, options: ReportOpti
     const setups = [
         '## Setups',
         '',
-        `Both players of a game get the same loadout, so the only thing that differs is the profile. A setup is a Fire set with a pair of the four non-${spellName('SPELL_COUNTERSPELL')} general spells (Counterspell is always in the loadout). "Dummy baseline" is the best loadout of that Fire set in \`baselines/${config.baselineVersion}.json\` (DPS on a passive dummy, and under the search's Counterspell-pressure model).`,
+        `Both players of a game get the same loadout, so the only thing that differs is the profile. A setup is a Fire set (F<n>, or a Frost set, I<n>, #150) with a pair of the four non-${spellName('SPELL_COUNTERSPELL')} general spells (Counterspell is always in the loadout). "Dummy baseline" is the best loadout of that set in its element's table (\`baselines/${config.baselineVersion}.json\`, or \`baselines/${config.baselineVersion}-frost.json\` for Frost) (DPS on a passive dummy, and under the search's Counterspell-pressure model).`,
         '',
         '### Fire sets',
         '',
         table(
             ['Fire set', 'Spells', 'Source', 'Dummy baseline'],
             config.fireSets.map((set, i) => [
-                `F${i + 1}`,
+                setLabel(set, i),
                 set.spells.map(spellName).join(', '),
                 set.source === 'baseline' ? 'best set of the dummy baseline' : '`--fire-set`',
                 set.baseline
@@ -70,7 +70,7 @@ export const formatStrategyReport = (result: StrategyResult, options: ReportOpti
             ['Setup', 'Fire set', 'Counterspell', 'General pair'],
             config.setups.map(s => [
                 s.id,
-                `F${s.fireSet + 1}`,
+                setLabel(config.fireSets[s.fireSet], s.fireSet),
                 spellName(s.loadout[ELEMENT_SPELL_COUNT]),
                 pairNames(s.pair),
             ]),

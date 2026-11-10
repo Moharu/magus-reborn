@@ -1,4 +1,5 @@
 import { EFFECT_REDUCERS, isSpellId, secondsToTicks, type EffectId, type SpellId } from '@magus/engine'
+import { countAfterRelease } from './effects'
 import type { ArenaView, EffectView } from './types'
 import { fail, isRecord, number, onlyKeys } from './validate'
 
@@ -56,6 +57,20 @@ export type Condition =
     | { type: 'inLockoutWindow' }
     /** At least one of the lists in `of` holds (each list: all of its conditions). Lists hold no `anyOf` of their own. */
     | { type: 'anyOf'; of: Condition[][] }
+    /**
+     * At least `count` Chilling stacks on yourself (#150), those this tick's release leaves included, e.g. Ice Spear at
+     * 4+ stacks.
+     */
+    | { type: 'selfChillingAtLeast'; count: number }
+    /** Fewer than `count` Chilling stacks on yourself (#150), e.g. Glacier only while its 3 stacks all fit under the cap. */
+    | { type: 'selfChillingBelow'; count: number }
+    /** At least `count` Chilling stacks on the enemy (#150), as its HUD shows them: a big Ice Spear may be coming. */
+    | { type: 'enemyChillingAtLeast'; count: number }
+    /**
+     * No spell on your loadout grants Chilling (#150), so your stacks stay at 0: e.g. Ice Spear as a plain nuke on a
+     * Frost loadout without Frostbolt or Glacier. Known from the own loadout and the engine (`chillingSources`).
+     */
+    | { type: 'noChillingSource' }
 
 export type ConditionType = Condition['type']
 
@@ -81,6 +96,18 @@ export interface ConditionInput {
     readonly releases?: readonly OwnRelease[]
     /** Whether the free-cast window is open (`inLockoutWindow`). Default: false. */
     readonly window?: boolean
+    /**
+     * The cast the player released this tick (#143), or null. Its effect is not on the view yet (the view is built
+     * before the tick's actions), so the effect counts (`selfEffectsAtLeast` and the like) add it. Default: none.
+     */
+    readonly released?: SpellId | null
+    /**
+     * The player's Chilling once this tick's release has gone off (#150, `chillingAfter`): the view shows the stacks
+     * from before it. Default: `view.self.chilling`, or 0.
+     */
+    readonly chilling?: number
+    /** Whether the loadout has a spell that grants Chilling (`noChillingSource`). Default: true. */
+    readonly chillingSource?: boolean
 }
 
 const EFFECT_IDS = Object.keys(EFFECT_REDUCERS) as EffectId[]
@@ -94,6 +121,14 @@ const count = (effects: readonly EffectView[], id: EffectId) => {
     for (let i = 0; i < effects.length; i++) if (effects[i].id === id) n += 1
     return n
 }
+
+/** How many effects with id `id` are on a player, the effect of a cast `released` this tick included (#143). */
+const effectsOn = (
+    effects: readonly EffectView[],
+    id: EffectId,
+    whom: 'self' | 'enemy',
+    released: SpellId | null | undefined,
+) => countAfterRelease(count(effects, id), id, whom, released)
 
 /** Some effect with id `id` ends within `ticks` of `tick`. */
 const endsWithin = (effects: readonly EffectView[], id: EffectId, tick: number, ticks: number) => {
@@ -116,13 +151,13 @@ export const conditionHolds = (condition: Condition, input: ConditionInput): boo
         case 'enemyHpAtLeast':
             return enemy.hp >= condition.hp
         case 'selfEffectsAtLeast':
-            return count(self.effects, condition.effect) >= condition.count
+            return effectsOn(self.effects, condition.effect, 'self', input.released) >= condition.count
         case 'selfEffectsBelow':
-            return count(self.effects, condition.effect) < condition.count
+            return effectsOn(self.effects, condition.effect, 'self', input.released) < condition.count
         case 'enemyEffectsAtLeast':
-            return count(enemy.effects, condition.effect) >= condition.count
+            return effectsOn(enemy.effects, condition.effect, 'enemy', input.released) >= condition.count
         case 'enemyEffectsBelow':
-            return count(enemy.effects, condition.effect) < condition.count
+            return effectsOn(enemy.effects, condition.effect, 'enemy', input.released) < condition.count
         case 'selfCasting':
             return casting
         case 'selfNotCasting':
@@ -160,6 +195,14 @@ export const conditionHolds = (condition: Condition, input: ConditionInput): boo
         case 'anyOf':
             for (const when of condition.of) if (allHold(when, input)) return true
             return false
+        case 'selfChillingAtLeast':
+            return (input.chilling ?? self.chilling ?? 0) >= condition.count
+        case 'selfChillingBelow':
+            return (input.chilling ?? self.chilling ?? 0) < condition.count
+        case 'enemyChillingAtLeast':
+            return (enemy.chilling ?? 0) >= condition.count
+        case 'noChillingSource':
+            return input.chillingSource === false
     }
 }
 
@@ -211,6 +254,10 @@ const KEYS: Record<ConditionType, readonly string[]> = {
     selfCastsAtLeast: ['spell', 'count', 'withinSeconds'],
     inLockoutWindow: [],
     anyOf: ['of'],
+    selfChillingAtLeast: ['count'],
+    selfChillingBelow: ['count'],
+    enemyChillingAtLeast: ['count'],
+    noChillingSource: [],
 }
 
 /** Throws an error naming the key unless `raw` is a valid condition. Inside an `anyOf`, `nested` forbids another. */
@@ -239,7 +286,12 @@ export const parseCondition = (raw: unknown, path: string, nested = false): Cond
         case 'enemyLocked':
         case 'nextCastIsLongest':
         case 'inLockoutWindow':
+        case 'noChillingSource':
             return { type }
+        case 'selfChillingAtLeast':
+        case 'selfChillingBelow':
+        case 'enemyChillingAtLeast':
+            return { type, count: number(raw.count, `${path}.count`, 0, MAX_COUNT, true) }
         case 'selfEffectEndsWithin':
         case 'enemyEffectEndsWithin': {
             const { effect } = effectCount({ ...raw, count: 0 }, path)

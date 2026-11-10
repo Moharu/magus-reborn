@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
     DEFAULT_ELEMENT,
+    DEFAULT_LOADOUTS,
     DEFAULT_SPELLS,
+    ELEMENTS,
     ELEMENT_SPELL_COUNT,
     FIXED_SLOT,
     FIXED_SPELL,
     GENERAL_SPELL_COUNT,
     HOTKEYS,
     isValidLoadout,
+    loadoutElement,
     LOADOUT_SIZE,
     SPELL_IDS,
     SPELLBOOKS,
@@ -69,6 +72,20 @@ describe('loadout shape', () => {
         // validity only: the owner has yet to pick the 0.2 default
         expect(isValidLoadout(DEFAULT_SPELLS)).toBe(true)
         expect(isValidLoadout(DEFAULT_SPELLS, DEFAULT_ELEMENT)).toBe(true)
+    })
+
+    it('every element has a valid default loadout; Frost is the one the owner picked (#148)', () => {
+        expect(DEFAULT_LOADOUTS.FIRE).toEqual(DEFAULT_SPELLS)
+        expect(DEFAULT_LOADOUTS.FROST).toEqual([
+            'SPELL_FROSTBOLT',
+            'SPELL_GLACIER',
+            'SPELL_FROST_BOMB',
+            'SPELL_ICE_SPEAR',
+            'SPELL_COUNTERSPELL',
+            'SPELL_HASTE',
+            'SPELL_TEMPORAL_SHIELD',
+        ])
+        for (const element of ELEMENTS) expect(isValidLoadout(DEFAULT_LOADOUTS[element], element)).toBe(true)
     })
 })
 
@@ -143,10 +160,61 @@ describe('isValidLoadout', () => {
         expect(isValidLoadout(spells)).toBe(false)
     })
 
-    it.each(['GENERAL', 'FROST', 'toString', '__proto__'])(
+    it.each(['GENERAL', 'WATER', 'toString', '__proto__'])(
         'rejects every loadout for an element it does not know: %s',
         element => {
             expect(isValidLoadout(VALID, element as SpellElement)).toBe(false)
         },
     )
+})
+
+describe('Frost loadouts (#147)', () => {
+    const FROST_VALID: SpellId[] = [
+        'SPELL_FROSTBOLT',
+        'SPELL_GLACIER',
+        'SPELL_ICE_SPEAR',
+        'SPELL_ICY_TOUCH',
+        'SPELL_COUNTERSPELL',
+        'SPELL_HASTE',
+        'SPELL_TEMPORAL_SHIELD',
+    ]
+
+    it('offers the six Frost spells and the same general spells as Fire', () => {
+        expect([...SPELLBOOKS.FROST.elementSpells].sort()).toEqual(
+            SPELL_IDS.filter(id => SPELLS[id].school === 'FROST').sort(),
+        )
+        expect(SPELLBOOKS.FROST.elementSpells).toHaveLength(6)
+        expect(SPELLBOOKS.FROST.generalSpells).toEqual(SPELLBOOKS.FIRE.generalSpells)
+    })
+
+    it('accepts 4 of the 6 Frost spells, Counterspell and 2 general spells, for Frost only', () => {
+        expect(isValidLoadout(FROST_VALID, 'FROST')).toBe(true)
+        expect(isValidLoadout(FROST_VALID, 'FIRE')).toBe(false)
+        expect(isValidLoadout(FROST_VALID)).toBe(false)
+        expect(loadoutElement(FROST_VALID)).toBe('FROST')
+        expect(loadoutElement(VALID)).toBe('FIRE')
+    })
+
+    it.each<[string, unknown[]]>([
+        ['3 Fire spells and 1 Frost spell', [...VALID.slice(0, 3), 'SPELL_ICY_TOUCH', ...VALID.slice(4)]],
+        ['1 Fire spell and 3 Frost spells', ['SPELL_METEOR', ...FROST_VALID.slice(1)]],
+        [
+            '2 Fire and 2 Frost spells',
+            ['SPELL_FIREBALL', 'SPELL_GLACIER', 'SPELL_METEOR', 'SPELL_FROST_BOMB', ...VALID.slice(4)],
+        ],
+        ['a Frost spell in a general slot', [...FROST_VALID.slice(0, 6), 'SPELL_FROST_FEVER']],
+        ['a repeated Frost spell', [FROST_VALID[0], FROST_VALID[0], ...FROST_VALID.slice(2)]],
+    ])('rejects %s for every element', (_, spells) => {
+        expect(isValidLoadout(spells, 'FIRE')).toBe(false)
+        expect(isValidLoadout(spells, 'FROST')).toBe(false)
+        expect(loadoutElement(spells)).toBeNull()
+    })
+
+    it.each<[string, unknown]>([
+        ['undefined', undefined],
+        ['a string', 'SPELL_FROSTBOLT'],
+        ['an empty list', []],
+    ])('loadoutElement gives null for %s', (_, spells) => {
+        expect(loadoutElement(spells)).toBeNull()
+    })
 })
