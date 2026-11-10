@@ -1,3 +1,4 @@
+import { fullscreenButton, requestMobileFullscreen } from '../fullscreen'
 import { loadoutElement, SPELLS, ticksToSeconds, type PlayerKey, type SnapshotView, type SpellId } from '@magus/engine'
 import {
     BEST_OF_OPTIONS,
@@ -53,6 +54,7 @@ export const lobbyScreen = (root: HTMLElement, [rawCode]: string[]) => {
                 class: 'panel narrow',
                 onsubmit: (e: Event) => {
                     e.preventDefault()
+                    requestMobileFullscreen(e)
                     root.replaceChildren()
                     cleanup = startLobby(root, code)
                 },
@@ -91,6 +93,8 @@ const startLobby = (root: HTMLElement, code: string) => {
     let picker: SpellPicker | null = null
     const content = h('div', { class: 'lobby-screen' })
     const netStatus = h('div', { class: 'net-status' })
+    const toggle = fullscreenButton()
+    toggle?.classList.add('lobby-fullscreen-toggle')
     root.append(content, netStatus)
 
     let socket: Socket | null = null
@@ -132,6 +136,9 @@ const startLobby = (root: HTMLElement, code: string) => {
             if (mode !== 'battle') destroyView()
             if (mode !== 'setup') picker = null
         }
+        // Only battles need a separate control row outside the canvas HUD.
+        if (mode === 'battle' && toggle) root.prepend(toggle)
+        else toggle?.remove()
         switch (mode) {
             case 'connecting':
                 return content.replaceChildren(
@@ -296,6 +303,7 @@ const startLobby = (root: HTMLElement, code: string) => {
                 'header',
                 { class: 'lobby-head' },
                 h('h2', null, 'Lobby ', h('code', null, info.code)),
+                toggle,
                 h(
                     'button',
                     {
@@ -338,7 +346,10 @@ const startLobby = (root: HTMLElement, code: string) => {
                                 {
                                     class: `btn ${ready ? '' : 'primary'}`,
                                     disabled: !info.player1 || !info.player2,
-                                    onclick: () => send({ t: ready ? 'unready' : 'ready' }),
+                                    onclick: (event: Event) => {
+                                        if (!ready) requestMobileFullscreen(event)
+                                        send({ t: ready ? 'unready' : 'ready' })
+                                    },
                                 },
                                 ready ? 'Not ready' : 'Ready',
                             )
@@ -397,6 +408,7 @@ const startLobby = (root: HTMLElement, code: string) => {
             h(
                 'div',
                 { class: 'actions' },
+                toggle,
                 h(
                     'span',
                     { class: 'muted' },
@@ -409,8 +421,9 @@ const startLobby = (root: HTMLElement, code: string) => {
                           {
                               class: 'btn primary',
                               disabled: !valid,
-                              onclick: () => {
+                              onclick: (event: Event) => {
                                   if (!valid) return
+                                  requestMobileFullscreen(event)
                                   readyRound = info.round
                                   picker?.setLocked(true)
                                   send({ t: 'ready' })
@@ -629,6 +642,7 @@ const startLobby = (root: HTMLElement, code: string) => {
 
     render()
     return () => {
+        toggle?.remove()
         clearInterval(pinger)
         socket?.close()
         destroyView()

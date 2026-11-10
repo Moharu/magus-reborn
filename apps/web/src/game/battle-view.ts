@@ -1,3 +1,4 @@
+import { onFullscreenChange } from '../fullscreen'
 import { Application, Container, Graphics, Sprite, Text } from 'pixi.js'
 import {
     GAME_TICK_INTERVAL,
@@ -111,6 +112,7 @@ export class BattleView {
     // Its cast was started at or after that tick; a later snapshot without it means it is gone.
     private readonly unseenReleases = new Map<number, number>()
     private readonly handledKeyUps = new Set<string>()
+    private stopFullscreenListener: (() => void) | null = null
     private resizeObserver: ResizeObserver | null = null
     private destroyed = false
 
@@ -233,6 +235,7 @@ export class BattleView {
         this.app.ticker.add(ticker => this.frame(ticker.deltaMS / 1000))
         this.resizeObserver = new ResizeObserver(() => this.fit())
         this.resizeObserver.observe(this.container)
+        this.stopFullscreenListener = onFullscreenChange(() => this.fit())
         this.fit()
     }
 
@@ -299,6 +302,7 @@ export class BattleView {
         window.removeEventListener('keydown', this.onKeyDown)
         window.removeEventListener('keyup', this.onKeyUp)
         window.removeEventListener('blur', this.releaseAll)
+        this.stopFullscreenListener?.()
         this.resizeObserver?.disconnect()
         this.app?.destroy(true, { children: true })
     }
