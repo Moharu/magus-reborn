@@ -56,5 +56,5 @@
         }
     },
     "//": "overrides: the minimatch entries patch GHSA-g3hv-75wg-m249 in the lint toolchain; drop them once eslint, @eslint/config-array and @typescript-eslint/typescript-estree depend on minimatch ^11. The ts-api-utils entry keeps it next to TypeScript 6 in packages/eslint-config (see its index.js).",
-    "version": "0.4.0"
+    "version": "0.4.1"
 }

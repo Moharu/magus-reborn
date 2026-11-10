@@ -2,6 +2,45 @@
 
 All notable changes to Magus Reborn are listed here. Versions follow [semantic versioning](https://semver.org/). Each release is tagged `vX.Y.Z` on `dev` and then merged into `main`, which deploys it.
 
+## [0.4.1] - 2026-11-10
+
+The "Frost polish" release. It includes [#174](https://github.com/Moharu/magus-reborn/pull/174), [#175](https://github.com/Moharu/magus-reborn/pull/175) and [#177](https://github.com/Moharu/magus-reborn/pull/177).
+
+**Engine version:** `ENGINE_VERSION` changes from `reborn-0.4.0` to `reborn-0.4.1`. The server now sends each player a per-recipient view of the battle, which changes the snapshot shape. Players with the game open on the old version are asked to refresh when they try to create or join a lobby. Between the server deploy and the client deploy, online play is briefly unavailable for everyone, because the two are on different versions.
+
+### Gameplay and engine
+
+#### Changed
+
+- **Frost fine-tune:** Frostbolt 6 and Icy Touch 3. Fire vs Frost in the Arena measured 50.7% / 49.1% in CI run 42746144334 (it was 54.8% / 44.9% in 0.4.0). ([#177](https://github.com/Moharu/magus-reborn/pull/177), closes [#176](https://github.com/Moharu/magus-reborn/issues/176))
+
+### Server and online play
+
+#### Changed
+
+- **The opponent's class resource is hidden.** The server filters it out of each player's view, so a client no longer receives the opponent's Chilling meter. ([#174](https://github.com/Moharu/magus-reborn/pull/174), closes [#171](https://github.com/Moharu/magus-reborn/issues/171))
+
+### Web
+
+#### Added
+
+- **Fullscreen on mobile** during games. ([#175](https://github.com/Moharu/magus-reborn/pull/175), closes [#172](https://github.com/Moharu/magus-reborn/issues/172))
+
+### Engine and protocol
+
+#### Changed
+
+- `ENGINE_VERSION` is `reborn-0.4.1`.
+- Arena dummy-DPS baselines `reborn-0.4.1.json` (Fire) and `reborn-0.4.1-frost.json` added for the new version; both match the 0.4.0 tables apart from the version string. The arena tests now point at them, including `variety.test.ts`.
+
+### Known issues
+
+- HUD HP rounding is still open ([#23](https://github.com/Moharu/magus-reborn/issues/23)).
+- [#133](https://github.com/Moharu/magus-reborn/issues/133) is a test-only follow-up with no user impact.
+- Arena workflow input checks per mode could be tighter ([#140](https://github.com/Moharu/magus-reborn/issues/140)).
+- Arena Counterspell value should include what a cast enables, for Frostbolt/Fever setups ([#166](https://github.com/Moharu/magus-reborn/issues/166)).
+- Accepted side channel: a player can spectate their own match to see both Chilling meters.
+
 ## [0.4.0] - 2026-11-09
 
 The "Frost" release. Frost is a second element with its own six spells and a Chilling resource. This release includes [#146](https://github.com/Moharu/magus-reborn/pull/146), [#155](https://github.com/Moharu/magus-reborn/pull/155), [#157](https://github.com/Moharu/magus-reborn/pull/157), [#158](https://github.com/Moharu/magus-reborn/pull/158), [#159](https://github.com/Moharu/magus-reborn/pull/159), [#162](https://github.com/Moharu/magus-reborn/pull/162), [#164](https://github.com/Moharu/magus-reborn/pull/164), [#165](https://github.com/Moharu/magus-reborn/pull/165) and [#168](https://github.com/Moharu/magus-reborn/pull/168).
