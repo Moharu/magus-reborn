@@ -1293,3 +1293,133 @@ describe('Frost loadouts (#147)', () => {
         expect(lobby.battle!.state.player1.chilling).toBe(0)
     })
 })
+
+describe('keeping class resources from the opponent (#171)', () => {
+    const FROST: SpellId[] = [
+        'SPELL_FROSTBOLT',
+        'SPELL_GLACIER',
+        'SPELL_ICE_SPEAR',
+        'SPELL_ICY_TOUCH',
+        'SPELL_COUNTERSPELL',
+        'SPELL_HASTE',
+        'SPELL_BLUR',
+    ]
+    const ROLE: Record<string, 'player1' | 'player2' | 'spectator'> = {
+        c1: 'player1',
+        c2: 'player2',
+        c2b: 'player2',
+        c3: 'spectator',
+        c4: 'spectator',
+    }
+
+    /** Every battle message a connection got, catch-ups (`send`) and stream (`sendEach`) alike. */
+    const battlesTo = (transport: FakeTransport, connId: string) =>
+        [...transport.to(connId), ...transport.stream(connId), ...transport.broadcasts].filter(isBattle)
+
+    /** Every battle message sent so far: a player's never holds the opponent's Chilling, a spectator's holds both. */
+    const expectRedacted = (transport: FakeTransport) => {
+        const conns = new Set([...transport.sent, ...transport.streamed].map(s => s.to))
+        let checked = 0
+        for (const connId of conns) {
+            const role = ROLE[connId]
+            for (const { snap } of battlesTo(transport, connId)) {
+                checked++
+                for (const key of ['player1', 'player2'] as const) {
+                    if (role === 'spectator' || role === key) expect(snap[key].chilling).toEqual(expect.any(Number))
+                    else expect(JSON.stringify(snap[key]), `${connId} sees ${key}`).not.toContain('chilling')
+                }
+            }
+        }
+        expect(transport.broadcasts.filter(isBattle)).toEqual([])
+        return checked
+    }
+
+    /** Player `connId` casts and releases slot `i` (Frostbolt 0, Glacier 1), so its Chilling goes up. */
+    const castFrost = (lobby: Lobby, connId: 'c1' | 'c2', i: number) => {
+        const key = ROLE[connId] as 'player1' | 'player2'
+        lobby.message(connId, { t: 'start_cast', i })
+        vi.advanceTimersByTime(lobby.battle!.state[key].spells[i].castTime * GAME_TICK_INTERVAL)
+        lobby.message(connId, { t: 'stop_cast', i })
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+    }
+
+    const frostMatch = (settings = {}) => {
+        const ctx = startMatch(settings)
+        ctx.lobby.connect('c3', 'carol-id', 'Carol')
+        ctx.lobby.message('c1', { t: 'set_spells', spells: FROST })
+        ctx.lobby.message('c2', { t: 'set_spells', spells: FROST })
+        toBattle(ctx.lobby)
+        castFrost(ctx.lobby, 'c1', 1)
+        castFrost(ctx.lobby, 'c2', 0)
+        expect(ctx.lobby.battle!.state.player1.chilling).toBe(3)
+        expect(ctx.lobby.battle!.state.player2.chilling).toBe(1)
+        return ctx
+    }
+
+    it("never streams a player the opponent's Chilling, from the first snapshot to every tick; a spectator gets both", () => {
+        const { transport } = frostMatch()
+        const toAlice = transport.stream('c1').filter(isBattle)
+        const toBob = transport.stream('c2').filter(isBattle)
+        expect(toAlice[0].snap.gameTick).toBe(0)
+        expect(toAlice.length).toBeGreaterThan(100)
+        expect(expectRedacted(transport)).toBeGreaterThan(300)
+        expect(toAlice.at(-1)!.snap.player1.chilling).toBe(3)
+        expect(toBob.at(-1)!.snap.player2.chilling).toBe(1)
+        const { snap } = transport.stream('c3').filter(isBattle).at(-1)!
+        expect([snap.player1.chilling, snap.player2.chilling]).toEqual([3, 1])
+    })
+
+    it("leaves the opponent's Chilling out of the catch-up on reconnect, and keeps it in a spectator's", () => {
+        const { lobby, transport } = frostMatch()
+        lobby.disconnect('c2')
+        lobby.connect('c2b', 'bob-id', 'Bob')
+        lobby.connect('c4', 'dave-id', 'Dave')
+        const [bob] = transport.to('c2b').filter(isBattle)
+        expect(bob.snap.player2.chilling).toBe(1)
+        expect(bob.snap.player1).not.toHaveProperty('chilling')
+        const [dave] = transport.to('c4').filter(isBattle)
+        expect([dave.snap.player1.chilling, dave.snap.player2.chilling]).toEqual([3, 1])
+        vi.advanceTimersByTime(500)
+        expect(transport.stream('c2b').filter(isBattle).length).toBeGreaterThan(0)
+        expectRedacted(transport)
+    })
+
+    it('redacts the deciding tick, the round over catch-up and the next round', () => {
+        const { lobby, transport } = frostMatch({ bestOf: 3 })
+        killPlayer2(lobby)
+        expect(lobby.phase).toBe('round_over')
+        const decided = transport.stream('c1').filter(isBattle).at(-1)!
+        expect(decided.snap).toMatchObject({ winner: 'player1', finished: true })
+        expect(decided.snap.player2).not.toHaveProperty('chilling')
+        // a reconnect between rounds catches up on the finished battle
+        lobby.disconnect('c2')
+        lobby.connect('c2b', 'bob-id', 'Bob')
+        expect(transport.to('c2b').filter(isBattle)).toHaveLength(1)
+        seconds(10)
+        expect(lobby.info()).toMatchObject({ phase: 'set_up', round: 2 })
+        transport.clear()
+        lobby.message('c1', { t: 'ready' })
+        lobby.message('c2b', { t: 'ready' })
+        seconds(3)
+        seconds(3)
+        expect(lobby.phase).toBe('battle')
+        castFrost(lobby, 'c1', 0)
+        const round2 = transport.stream('c2b').filter(isBattle)
+        expect(round2[0].snap.gameTick).toBe(0)
+        expect(lobby.battle!.state.player1.chilling).toBe(1)
+        expect(expectRedacted(transport)).toBeGreaterThan(50)
+    })
+
+    it('redacts the end of the match, decided by an action', () => {
+        const { lobby, transport } = frostMatch({ bestOf: 1 })
+        lobby.battle!.state.player2.hp = 1
+        castFrost(lobby, 'c1', 0)
+        vi.advanceTimersByTime(GAME_TICK_INTERVAL)
+        expect(lobby.phase).toBe('match_over')
+        const last = transport.stream('c2').filter(isBattle).at(-1)!
+        expect(last.snap).toMatchObject({ winner: 'player1', finished: true })
+        expect(last.snap.player2.chilling).toBe(1)
+        expect(last.snap.player1).not.toHaveProperty('chilling')
+        expectRedacted(transport)
+    })
+})

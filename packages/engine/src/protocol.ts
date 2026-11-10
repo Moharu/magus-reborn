@@ -103,7 +103,10 @@ export type ServerMessage =
     | { t: 'loadout'; spells: SpellId[] }
     | {
           t: 'battle'
-          /** Redacted per viewer: the opponent's loadout is absent; spectators get both. See `viewSnapshot`. */
+          /**
+           * Redacted per viewer: the opponent's loadout and class resources (#171, e.g. Chilling) are absent;
+           * spectators get both. See `viewSnapshot`.
+           */
           snap: SnapshotView
           /** Log entries starting at index `logFrom`. */
           log: LogEntry[]

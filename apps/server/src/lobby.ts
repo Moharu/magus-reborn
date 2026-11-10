@@ -483,7 +483,7 @@ export class Lobby {
 
     /**
      * The next part of the stream every client follows. It moves the stream on, so it goes to all of them, each with
-     * the snapshot it may see: never a player's loadout to their opponent (`viewSnapshot`).
+     * the snapshot it may see: never a player's loadout or class resources (#171) to their opponent (`viewSnapshot`).
      */
     private sendBattleStream() {
         const battle = this.battle!
@@ -503,7 +503,8 @@ export class Lobby {
 
     /**
      * The battle so far, for one connection that just joined. It leaves the stream alone: whatever is pending goes
-     * to everyone in the next broadcast, the joiner included, which is why the events aren't repeated here.
+     * to everyone in the next broadcast, the joiner included, which is why the events aren't repeated here. Redacted for
+     * `role` like the stream (`viewSnapshot`), so a reconnecting player gets their own resources and not the opponent's.
      */
     private battleCatchUp(role: Role): ServerMessage {
         const battle = this.battle!

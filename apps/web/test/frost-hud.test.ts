@@ -1,6 +1,15 @@
-import { expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Container, Graphics, Text } from 'pixi.js'
-import { Battle, DEFAULT_SPELLS, FROST_NUMBERS, ticksToSeconds, SPELLBOOKS, SPELLS, type SpellId } from '@magus/engine'
+import {
+    Battle,
+    DEFAULT_SPELLS,
+    FROST_NUMBERS,
+    ticksToSeconds,
+    SPELLBOOKS,
+    SPELLS,
+    viewSnapshot,
+    type SpellId,
+} from '@magus/engine'
 import {
     BATTLE_BAR,
     battleLayout,
@@ -34,38 +43,78 @@ const texts = (node: Container): string[] => [
     ...node.children.flatMap(child => texts(child)),
 ]
 
-const pips = (hud: PlayerHud) => (hud as unknown as { chillingPips: Graphics }).chillingPips
+const pips = (hud: PlayerHud) => (hud as unknown as { meters: { chilling: Graphics } }).meters.chilling
 
-it('shows own Frost resource but keeps Fire and unrevealed rivals hidden', () => {
-    const battle = new Battle({ name: 'a', spells }, { name: 'b', spells: DEFAULT_SPELLS })
-    const own = new PlayerHud('left', 'player1', 'player1')
-    const rival = new PlayerHud('right', 'player2', 'player1')
-    own.update(battle.state.player1, 0, 1)
-    expect(pips(own).visible).toBe(true)
-    expect(pips(own).accessibleTitle).toBe(`Chilling 0 / ${FROST_NUMBERS.chillingMaxStacks}`)
-    own.update(battle.state.player2, 0, 1)
-    expect(pips(own).visible).toBe(false)
-    // Even a full local snapshot must not reveal a rival's loadout.
-    rival.update(battle.state.player1, 0, 1)
-    expect(pips(rival).visible).toBe(false)
-    for (const count of [1, FROST_NUMBERS.chillingMaxStacks, 0]) {
-        rival.update({ ...battle.state.player2, spells: undefined, chilling: count }, 0, 1)
-        expect(pips(rival).visible).toBe(true)
-        expect(pips(rival).accessibleTitle).toBe(`Chilling ${count} / ${FROST_NUMBERS.chillingMaxStacks}`)
-    }
-    own.destroy({ children: true })
-    rival.destroy({ children: true })
-})
+/** Frost vs Frost, player 2 with 3 Chilling from a Glacier it cast in the open. */
+const frostDuel = () => {
+    const battle = new Battle({ name: 'a', spells }, { name: 'b', spells })
+    const glacier = spells.indexOf('SPELL_GLACIER')
+    expect(battle.startCast('player2', glacier)).toBe(true)
+    for (let i = 0; i < battle.state.player2.spells[glacier].castTime; i++) battle.tick()
+    expect(battle.stopCast('player2', glacier)).toBe(true)
+    expect(battle.state.player2.chilling).toBe(3)
+    return battle
+}
 
-it.each(['SPELL_FROST_FEVER', 'SPELL_ICY_TOUCH'] as const)('reveals zero-stack rivals from public %s casts', id => {
-    const battle = new Battle({ name: 'a', spells }, { name: 'b', spells: [id] })
-    battle.state.player2.chilling = FROST_NUMBERS.chillingMaxStacks
-    const hud = new PlayerHud('right', 'player2', 'player1')
-    battle.startCast('player2', 0)
-    hud.observeCasts(battle.state.log)
-    hud.update({ ...battle.state.player2, spells: undefined, chilling: 0 }, 0, 1)
-    expect(pips(hud).visible).toBe(true)
-    hud.destroy({ children: true })
+describe('class resource visibility (#171)', () => {
+    it("shows a player their own meter and never the opponent's, even after Frost casts", () => {
+        const battle = frostDuel()
+        const view = viewSnapshot(battle.snapshot(), 'player1')
+        const own = new PlayerHud('left', 'player1', 'player1')
+        const rival = new PlayerHud('right', 'player2', 'player1')
+        own.update(view.player1, 0, 1)
+        expect(pips(own).visible).toBe(true)
+        expect(pips(own).accessibleTitle).toBe(`Chilling 0 / ${FROST_NUMBERS.chillingMaxStacks}`)
+        rival.update(view.player2, 0, 1)
+        expect(pips(rival).visible).toBe(false)
+        // even a snapshot that wrongly kept the opponent's stacks and loadout must not show them
+        for (const count of [0, 1, FROST_NUMBERS.chillingMaxStacks]) {
+            rival.update({ ...battle.state.player2, chilling: count }, 0, 1)
+            expect(pips(rival).visible).toBe(false)
+            expect(pips(rival).accessibleTitle ?? '').not.toContain('Chilling')
+        }
+        own.destroy({ children: true })
+        rival.destroy({ children: true })
+    })
+
+    it("keeps the opponent's meter hidden in a live battle view after their Frost casts", () => {
+        const battle = frostDuel()
+        const Ctor = BattleView as unknown as new (container: HTMLElement, options: { me: 'player1' }) => BattleView
+        const view = new Ctor({} as HTMLElement, { me: 'player1' })
+        const internals = view as unknown as { huds: Record<'left' | 'right', PlayerHud>; frame(dt: number): void }
+        view.update(viewSnapshot(battle.snapshot(), 'player1'), battle.state.log, battle.drainEvents())
+        internals.frame(1 / 60)
+        expect(pips(internals.huds.left).visible).toBe(true)
+        expect(pips(internals.huds.right).visible).toBe(false)
+    })
+
+    it('shows a spectator both Frost meters, and none for a Fire player', () => {
+        const battle = frostDuel()
+        const view = viewSnapshot(battle.snapshot(), 'spectator')
+        const left = new PlayerHud('left')
+        const right = new PlayerHud('right')
+        left.update(view.player1, 0, 1)
+        right.update(view.player2, 0, 1)
+        expect([pips(left).visible, pips(right).visible]).toEqual([true, true])
+        expect(pips(left).accessibleTitle).toBe(`Chilling 0 / ${FROST_NUMBERS.chillingMaxStacks}`)
+        expect(pips(right).accessibleTitle).toBe(`Chilling 3 / ${FROST_NUMBERS.chillingMaxStacks}`)
+        const fire = new Battle({ name: 'a', spells: DEFAULT_SPELLS }, { name: 'b', spells })
+        left.update(viewSnapshot(fire.snapshot(), 'spectator').player1, 0, 1)
+        expect(pips(left).visible).toBe(false)
+        left.destroy({ children: true })
+        right.destroy({ children: true })
+    })
+
+    it('tolerates a snapshot without the resource, and then shows no meter', () => {
+        const battle = new Battle({ name: 'a', spells }, { name: 'b', spells })
+        const { chilling: _chilling, ...withoutResource } = viewSnapshot(battle.snapshot(), 'player1').player1
+        for (const me of ['player1', null] as const) {
+            const hud = new PlayerHud('left', 'player1', me)
+            expect(() => hud.update(withoutResource, 0, 1)).not.toThrow()
+            expect(pips(hud).visible).toBe(false)
+            hud.destroy({ children: true })
+        }
+    })
 })
 
 it.each([
