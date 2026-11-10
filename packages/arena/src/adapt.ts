@@ -44,7 +44,7 @@ const needsMissingSpell = (condition: Condition, loadout: readonly SpellId[]): b
             return condition.count > 0 && !hasChillingSource(loadout)
         // no own spell needed: HP, fewer effects than a count, casting states, the enemy's casts, the longest cast
         // (every loadout has cast-time spells), the free-cast window (the enemy's own Counterspell opens it too), and
-        // (#150) fewer stacks than a count, the enemy's stacks (its own spells) and "no source" (it holds without one)
+        // (#150) fewer stacks than a count and "no source" (it holds without one)
         case 'selfHpBelow':
         case 'selfHpAtLeast':
         case 'enemyHpBelow':
@@ -59,7 +59,6 @@ const needsMissingSpell = (condition: Condition, loadout: readonly SpellId[]): b
         case 'nextCastIsLongest':
         case 'inLockoutWindow':
         case 'selfChillingBelow':
-        case 'enemyChillingAtLeast':
         case 'noChillingSource':
             return false
         default: {

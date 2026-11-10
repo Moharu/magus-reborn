@@ -10,7 +10,7 @@
     ],
     "profile": {
         "name": "bait",
-        "intent": "Fake-casts its longest cast (Meteor, Glacier on Frost) or sacrifices a real low-priority one (Combustion, Glacier) to pull out a Counterspell, then lands its big casts while it is on cooldown. Fire: 1 Ignite and a Living Bomb tick under Meteors. Frost: Frost Bomb and Frost Fever kept up, Ice Spear at 5 Chilling, Icy Touch on Frost Fever, Frostbolt; the window opens with Glacier, then Ice Spear at 3+. Generals: Haste and Magic Eater on its longest cast or in the free-cast window, so a baited window holds one more cast, Magic Eater also on a 4-stack Ice Spear; Temporal Shield to rewind an enemy burst (Meteor, Combustion, Glacier, a 4-stack Ice Spear), its own Living Bomb's explosion or Frost Bomb's last pulse, or 4+ Ignites; Blur as an enemy Living Bomb or Frost Bomb lands, an Ignite when it is between casts or already carries 2 Ignites, or a Frost Bomb with Frost Fever between casts.",
+        "intent": "Fake-casts its longest cast (Meteor, Glacier on Frost) or sacrifices a real low-priority one (Combustion, Glacier) to pull out a Counterspell, then lands its big casts while it is on cooldown. Fire: 1 Ignite and a Living Bomb tick under Meteors. Frost: Frost Bomb and Frost Fever kept up, Ice Spear at 5 Chilling, Icy Touch on Frost Fever, Frostbolt; the window opens with Glacier, then Ice Spear at 3+. Generals: Haste and Magic Eater on its longest cast or in the free-cast window, so a baited window holds one more cast, Magic Eater also on a 4-stack Ice Spear; Temporal Shield to rewind an enemy burst (Meteor, Combustion, Glacier, any Ice Spear, its stacks unseen), its own Living Bomb's explosion or Frost Bomb's last pulse, or 4+ Ignites; Blur as an enemy Living Bomb or Frost Bomb lands, an Ignite when it is between casts or already carries 2 Ignites, or a Frost Bomb with Frost Fever between casts.",
         "rotation": [
             {
                 "spell": "SPELL_IGNITE",
@@ -278,10 +278,6 @@
                                     "type": "enemyCastEndsWithin",
                                     "seconds": 0.3,
                                     "spells": ["SPELL_ICE_SPEAR"]
-                                },
-                                {
-                                    "type": "enemyChillingAtLeast",
-                                    "count": 4
                                 }
                             ],
                             [

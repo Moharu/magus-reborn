@@ -10,7 +10,7 @@
     ],
     "profile": {
         "name": "patient-counter",
-        "intent": "With Counterspell ready it waits up to 3 s (from the start, a window's end or Counterspell's return) for the opponent to commit, then steady short casts. Fire: 3 Ignites, Combustion, Afterburn after Fireballs. Frost: Frost Fever kept up, Icy Touch on it while 2+ Chilling (keeping a stack), Frost Bomb when none is up, Ice Spear at 5, Frostbolt, Glacier last; its window spends 3+ stacks on Ice Spear. Holds Counterspell for the best spell seen (10+ HP), landing it late so fakes don't fool it; after 6 s held it takes any cast. Generals: Haste in the window its Counterspell opens, or on its longest cast; Magic Eater in that window, over 3+ Ignites or over its Frost Bomb and Frost Fever; Temporal Shield to rewind an enemy burst (Meteor, Combustion, Glacier, a 4-stack Ice Spear), a Living Bomb's explosion, a Frost Bomb's last pulse or a 4-Ignite build-up; Blur as an enemy Ignite, Living Bomb, Frost Bomb or Frost Fever lands.",
+        "intent": "With Counterspell ready it waits up to 3 s (from the start, a window's end or Counterspell's return) for the opponent to commit, then steady short casts. Fire: 3 Ignites, Combustion, Afterburn after Fireballs. Frost: Frost Fever kept up, Icy Touch on it while 2+ Chilling (keeping a stack), Frost Bomb when none is up, Ice Spear at 5, Frostbolt, Glacier last; its window spends 3+ stacks on Ice Spear. Holds Counterspell for the best spell seen (10+ HP), landing it late so fakes don't fool it; after 6 s held it takes any cast. Generals: Haste in the window its Counterspell opens, or on its longest cast; Magic Eater in that window, over 3+ Ignites or over its Frost Bomb and Frost Fever; Temporal Shield to rewind an enemy burst (Meteor, Combustion, Glacier, any Ice Spear, its stacks unseen), a Living Bomb's explosion, a Frost Bomb's last pulse or a 4-Ignite build-up; Blur as an enemy Ignite, Living Bomb, Frost Bomb or Frost Fever lands.",
         "rotation": [
             {
                 "spell": "SPELL_COMBUSTION",
@@ -295,10 +295,6 @@
                                     "type": "enemyCastEndsWithin",
                                     "seconds": 0.3,
                                     "spells": ["SPELL_ICE_SPEAR"]
-                                },
-                                {
-                                    "type": "enemyChillingAtLeast",
-                                    "count": 4
                                 }
                             ],
                             [

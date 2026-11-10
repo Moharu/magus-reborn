@@ -258,7 +258,6 @@ export class BattleView {
                 this.combatActive() && fresh,
             )
         if (fresh) this.reconcileReleases()
-        for (const side of SIDES) this.huds[side].observeCasts(newLog)
         this.spellLog?.update(newLog, logFrom, fresh, round, snap)
         if (!fresh) return
         for (const entry of newLog) if (entry.type === 'SPELL_RELEASE') this.onSpellRelease(entry.caster, entry.spellId)

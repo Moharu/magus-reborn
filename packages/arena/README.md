@@ -68,8 +68,9 @@ one early (a fake cast). Use the shared `start(slot)`/`stop(slot)` helpers to av
   message). `spellId` is the spell the change came from, `kind` is `spell` (a release) or `effect` (a tick, a burst, a
   heal). Same timing as the logs: a change on tick `t` shows from tick `t + 1`. `enemy.hpLog` is the same for the
   opponent, the floating combat text over its wizard.
-- `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil`, `chilling`
-  (#150: every client gets both players' stacks), `effects` and `log`. Never the opponent's loadout, cooldowns or GCD.
+- `enemy`: `hp`, `casting` (`spellId`, `startTick`, `castTime`, `completesAt`) or `null`, `lockedUntil`, `effects` and
+  `log`. Never the opponent's loadout, cooldowns, GCD or class resources: the server leaves the opponent's Chilling out
+  of a player's snapshot (#171), so no profile can read it.
 - `enemy.log` (#126) is the opponent's spell log, what the game client's spell log shows: one `{ tick, type, spellId }`
   per engine log entry about the opponent, oldest first. `type` is `START_CAST`, `STOP_CAST` (the cast it stopped),
   `SPELL_RELEASE` (instants included), `CANCEL_CAST` or `INTERRUPTED` (its cast, by us). These are the entries the server
@@ -180,8 +181,7 @@ From #136: `nextCastIsLongest` (that cast is the loadout's longest by base cast 
 `selfCastsAtLeast` (`spell`, `count`, `withinSeconds`: the player's own releases, e.g. Fireballs before Afterburn),
 `inLockoutWindow` (the free-cast window below is open) and `anyOf` (`of`: a list of condition lists, at least one of
 which holds; no `anyOf` inside one). From #150 (Frost): `selfChillingAtLeast` / `selfChillingBelow` (`count`: the
-player's Chilling stacks), `enemyChillingAtLeast` (`count`: the opponent's, as its HUD shows them) and
-`noChillingSource` (no spell of the loadout grants Chilling, so Ice Spear is a plain nuke). The effect counts include the effect of the cast the player releases this tick
+player's Chilling stacks) and `noChillingSource` (no spell of the loadout grants Chilling, so Ice Spear is a plain nuke). The effect counts include the effect of the cast the player releases this tick
 (#143): the view is built before the tick's actions, so it shows that effect only from the next tick, and a profile
 keeping one Living Bomb up would otherwise start a second one on the release tick, replacing its own. The same goes
 for Chilling (#150): the Chilling conditions, and whether Icy Touch is ready, read the stacks the release leaves

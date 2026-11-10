@@ -64,7 +64,6 @@ interface ViewState {
             hp: number
             casting: Cast | null
             lockedUntil: number
-            chilling: number
             effects: EffectSlot[]
             log: EnemyLogEntry[]
             hpLog: HpLogEntry[]
@@ -118,7 +117,7 @@ const createView = (loadout: readonly SpellId[]): ViewState => ({
             log: [],
             hpLog: [],
         },
-        enemy: { hp: 0, casting: null, lockedUntil: 0, chilling: 0, effects: [], log: [], hpLog: [] },
+        enemy: { hp: 0, casting: null, lockedUntil: 0, effects: [], log: [], hpLog: [] },
     },
     ownCast: emptyCast(),
     enemyCast: emptyEnemyCast(),
@@ -155,9 +154,9 @@ const readCast = (player: PlayerState, into: Cast) => {
 }
 
 /**
- * Fills `view` with what `self` may see. Of the enemy it reads only what a client shows (the server's opponent
- * redaction): HP, the spell being cast, the lock, the Chilling stacks (#150) and the buff bar (its spell log is `readEnemyLogs`'). Never the
- * loadout, cooldowns or GCD.
+ * Fills `view` with what `self` may see. Of the enemy it reads only what a client gets (the server's opponent
+ * redaction, `viewSnapshot`): HP, the spell being cast, the lock and the buff bar (its spell log is `readEnemyLogs`').
+ * Never the loadout, cooldowns, GCD or class resources (#171: the opponent's Chilling never reaches a player's client).
  */
 const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: number) => {
     const { view, ownCast, enemyCast } = state
@@ -188,7 +187,6 @@ const refresh = (state: ViewState, self: PlayerState, enemy: PlayerState, tick: 
 
     view.enemy.hp = enemy.hp
     view.enemy.lockedUntil = enemy.lockedUntil
-    view.enemy.chilling = enemy.chilling
     readEffects(enemy.effects, view.enemy.effects, state.enemyEffects)
     view.enemy.casting = readCast(enemy, enemyCast) ? enemyCast : null
 }
