@@ -1,4 +1,4 @@
-import type { EffectReducers, School, SpellDefinition, SpellId } from './types'
+import type { ClassResource, EffectReducers, School, SpellDefinition, SpellId } from './types'
 import { Afterburn } from './spells/fire/afterburn'
 import { Combustion } from './spells/fire/combustion'
 import { Fireball } from './spells/fire/fireball'
@@ -16,6 +16,7 @@ import { Counterspell } from './spells/general/counterspell'
 import { Haste, hasteBuffReducer } from './spells/general/haste'
 import { MagicEater, magicEaterBuffReducer } from './spells/general/magic-eater'
 import { TemporalShield, temporalShieldBuffReducer } from './spells/general/temporal-shield'
+import { FROST_NUMBERS } from './spells/frost/numbers'
 
 /** Grimoire order matches the original game. */
 export const SPELLS: Record<SpellId, SpellDefinition> = {
@@ -84,6 +85,23 @@ export const SPELLBOOKS: Record<SpellElement, Spellbook> = {
 export const ELEMENTS = Object.keys(SPELLBOOKS) as SpellElement[]
 
 export const DEFAULT_ELEMENT: SpellElement = 'FIRE'
+
+/** A class resource (#171) as the catalog knows it: the element whose players build it, its cap and its name. */
+export interface ClassResourceDefinition {
+    element: SpellElement
+    max: number
+    label: string
+}
+
+/**
+ * Every class resource (`ClassResource`): a per-player meter that only its owner and spectators see. `viewSnapshot`
+ * redacts each one for the opponent and the client's HUD shows each one, so a new resource needs only an entry here.
+ */
+export const CLASS_RESOURCES: Readonly<Record<ClassResource, ClassResourceDefinition>> = {
+    chilling: { element: 'FROST', max: FROST_NUMBERS.chillingMaxStacks, label: 'Chilling' },
+}
+
+export const CLASS_RESOURCE_KEYS = Object.keys(CLASS_RESOURCES) as ClassResource[]
 
 export type SlotKind = 'element' | 'fixed' | 'general'
 

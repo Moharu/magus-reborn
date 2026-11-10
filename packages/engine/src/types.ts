@@ -155,14 +155,22 @@ export type BattleSnapshot = Omit<BattleState, 'log'> & {
 }
 
 /**
- * A player as one viewer may see them. `spells` (the loadout) is absent when the viewer isn't allowed to see it, and
- * `casting` then still holds the one spell being cast, which the cast bar shows anyway.
+ * The class resources on a player (#171): per-element meters on `PlayerState`, such as Frost's `chilling` (Lightning's
+ * polarity will join it). Only their owner and spectators may see them, never the opponent (`viewSnapshot`). Add a new
+ * resource here and to `CLASS_RESOURCES` in the catalog, and it is redacted and shown like the others.
  */
-export type PlayerView = Omit<PlayerState, 'spells' | 'effects'> & {
-    spells?: SpellState[]
-    casting?: SpellState | null
-    effects: ViewEffect[]
-}
+export type ClassResource = 'chilling'
+
+/**
+ * A player as one viewer may see them. `spells` (the loadout) and the class resources are absent when the viewer
+ * isn't allowed to see them, and `casting` then still holds the one spell being cast, which the cast bar shows anyway.
+ */
+export type PlayerView = Omit<PlayerState, 'spells' | 'effects' | ClassResource> &
+    Partial<Pick<PlayerState, ClassResource>> & {
+        spells?: SpellState[]
+        casting?: SpellState | null
+        effects: ViewEffect[]
+    }
 
 /** An effect as a viewer sees it. A Haste buff's `backup` holds every slot's cast time, so only the owner gets it. */
 export type ViewEffect = Exclude<EffectState, HasteBuff> | (Omit<HasteBuff, 'backup'> & { backup?: number[] })

@@ -1,3 +1,4 @@
+import { requestMobileFullscreen } from '../fullscreen'
 import {
     LOBBY_CODE_PATTERN,
     NAME_MAX_LENGTH,
@@ -106,6 +107,7 @@ export const homeScreen = (root: HTMLElement) => {
                     error.textContent = 'Lobby codes are 6 letters and numbers.'
                     return
                 }
+                requestMobileFullscreen(e)
                 navigate(`/lobby/${code}`)
             },
         },
@@ -137,6 +139,7 @@ export const homeScreen = (root: HTMLElement) => {
                                   class: `btn small${seatOpen ? ' primary' : ''}`,
                                   href: `/lobby/${lobby.code}`,
                                   'data-link': true,
+                                  onclick: requestMobileFullscreen,
                               },
                               seatOpen ? 'Join' : 'Watch',
                           )
@@ -174,7 +177,11 @@ export const homeScreen = (root: HTMLElement) => {
                 h(
                     'div',
                     { class: 'actions' },
-                    h('a', { class: 'btn', href: '/training', 'data-link': true }, 'Training room'),
+                    h(
+                        'a',
+                        { class: 'btn', href: '/training', 'data-link': true, onclick: requestMobileFullscreen },
+                        'Training room',
+                    ),
                     createButton,
                 ),
                 joinForm,

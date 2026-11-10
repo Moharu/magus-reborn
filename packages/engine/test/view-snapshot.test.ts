@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { Battle, DEFAULT_SPELLS, viewSnapshot } from '../src'
+import {
+    Battle,
+    CLASS_RESOURCE_KEYS,
+    CLASS_RESOURCES,
+    DEFAULT_SPELLS,
+    FROST_NUMBERS,
+    viewSnapshot,
+    type SpellId,
+} from '../src'
 
 const other = [...DEFAULT_SPELLS.slice(0, 4).reverse(), ...DEFAULT_SPELLS.slice(4)]
 
@@ -90,5 +98,71 @@ describe('viewSnapshot and loadout-derived data', () => {
         expect(haste('player2')).not.toHaveProperty('backup')
         expect(haste('player1')).toHaveProperty('backup')
         expect(haste('spectator')).toHaveProperty('backup')
+    })
+})
+
+describe('viewSnapshot and class resources (#171)', () => {
+    const FROST: SpellId[] = [
+        'SPELL_FROSTBOLT',
+        'SPELL_GLACIER',
+        'SPELL_ICE_SPEAR',
+        'SPELL_ICY_TOUCH',
+        'SPELL_COUNTERSPELL',
+        'SPELL_HASTE',
+        'SPELL_BLUR',
+    ]
+
+    /** Frost vs Frost, both with Chilling: player 1 from a Frostbolt, player 2 from a Glacier. */
+    const frostBattle = () => {
+        const b = new Battle({ name: 'A', spells: FROST }, { name: 'B', spells: FROST })
+        b.startCast('player1', 0)
+        b.startCast('player2', 1)
+        for (let i = 0; i < b.state.player2.spells[1].castTime; i++) b.tick()
+        expect(b.stopCast('player1', 0)).toBe(true)
+        expect(b.stopCast('player2', 1)).toBe(true)
+        expect([b.state.player1.chilling, b.state.player2.chilling]).toEqual([1, 3])
+        return b
+    }
+
+    it('covers every class resource on the player state', () => {
+        expect(CLASS_RESOURCE_KEYS).toEqual(['chilling'])
+        expect(CLASS_RESOURCES.chilling).toEqual({
+            element: 'FROST',
+            max: FROST_NUMBERS.chillingMaxStacks,
+            label: 'Chilling',
+        })
+        const player = new Battle({ name: 'A', spells: FROST }, { name: 'B', spells: FROST }).state.player1
+        for (const key of CLASS_RESOURCE_KEYS) expect(player).toHaveProperty(key)
+    })
+
+    it("gives a player their own class resources, leaves out the opponent's and gives a spectator both", () => {
+        const b = frostBattle()
+        const snap = b.snapshot()
+        const copy = JSON.stringify(snap)
+        const one = viewSnapshot(snap, 'player1')
+        expect(one.player1.chilling).toBe(1)
+        expect(one.player2).not.toHaveProperty('chilling')
+        const two = viewSnapshot(snap, 'player2')
+        expect(two.player2.chilling).toBe(3)
+        expect(two.player1).not.toHaveProperty('chilling')
+        expect(JSON.stringify(one.player2)).not.toContain('chilling')
+        expect(JSON.stringify(two.player1)).not.toContain('chilling')
+        const view = viewSnapshot(snap, 'spectator')
+        expect([view.player1.chilling, view.player2.chilling]).toEqual([1, 3])
+        // pure: neither the snapshot nor the engine state changes
+        expect(JSON.stringify(snap)).toBe(copy)
+        expect([b.state.player1.chilling, b.state.player2.chilling]).toEqual([1, 3])
+    })
+
+    it('leaves out the opponent class resources at 0 too, and on the deciding snapshot', () => {
+        const b = new Battle({ name: 'A', spells: FROST }, { name: 'B', spells: FROST })
+        expect(viewSnapshot(b.snapshot(), 'player1').player2).not.toHaveProperty('chilling')
+        b.state.player2.hp = 0
+        b.tick()
+        b.tick()
+        const view = viewSnapshot(b.snapshot(), 'player2')
+        expect(view.finished).toBe(true)
+        expect(view.player1).not.toHaveProperty('chilling')
+        expect(view.player2.chilling).toBe(0)
     })
 })

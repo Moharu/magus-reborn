@@ -1,6 +1,6 @@
 import { secondsToTicks, SPELLS, type SpellId } from '@magus/engine'
 import { describe, expect, it } from 'vitest'
-import baselineJson from '../baselines/reborn-0.4.0.json'
+import baselineJson from '../baselines/reborn-0.4.1.json'
 import {
     adaptProfile,
     ARCHETYPE_NAMES,

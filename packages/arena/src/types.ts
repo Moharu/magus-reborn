@@ -105,17 +105,13 @@ export interface EnemyLogEntry {
 
 /**
  * What a player sees of their opponent, as a real client shows it: HP, the spell being cast (if any), a Counterspell
- * lock, their buffs and debuffs, and their spell log. Never the loadout, cooldowns, GCD or any effect's internal fields.
+ * lock, their buffs and debuffs, and their spell log. Never the loadout, cooldowns, GCD, any effect's internal fields
+ * or the opponent's class resources (#171: the server leaves the opponent's Chilling out of a player's snapshot).
  */
 export interface EnemyView {
     readonly hp: number
     readonly casting: CastView | null
     readonly lockedUntil: number
-    /**
-     * The opponent's Chilling stacks (#150): every client gets both players' stacks (the HUD shows the opponent's once
-     * it is seen playing Frost). The runner always sets it; hand-built views may leave it out (0).
-     */
-    readonly chilling?: number
     /** The opponent's buffs and debuffs (for example the Ignites on them, Haste, Blur, Temporal Shield). */
     readonly effects: readonly EffectView[]
     /**

@@ -1,7 +1,7 @@
 import { ENGINE_VERSION, loadoutElement, secondsToTicks, SPELLS, type EffectId, type SpellId } from '@magus/engine'
 import { describe, expect, it } from 'vitest'
-import fireJson from '../baselines/reborn-0.4.0.json'
-import frostJson from '../baselines/reborn-0.4.0-frost.json'
+import fireJson from '../baselines/reborn-0.4.1.json'
+import frostJson from '../baselines/reborn-0.4.1-frost.json'
 import {
     adaptProfile,
     ARCHETYPE_NAMES,
@@ -143,7 +143,6 @@ const frostView = (
             hp: 100,
             casting: null,
             lockedUntil: 0,
-            chilling: 0,
             effects: enemy.map(id => effect(id, tick)),
             log: [],
         },
@@ -161,8 +160,8 @@ const started = (loadout: readonly SpellId[], decision: ReturnType<ReturnType<Co
         .filter(a => a.type === 'start')
         .map(a => loadout[a.slot])
 
-describe('the view shows Chilling (#150)', () => {
-    it('gives both players the stacks the client HUD shows, and Icy Touch is only ready with a stack', () => {
+describe('the view shows Chilling (#150) to its owner only (#171)', () => {
+    it('gives the player the stacks the client HUD shows, and Icy Touch is only ready with a stack', () => {
         const seen: ArenaView[] = []
         const bolts = priority({ order: ['SPELL_FROSTBOLT'] })
         const enemySeen: ArenaView[] = []
@@ -179,8 +178,36 @@ describe('the view shows Chilling (#150)', () => {
         expect(seen[31].self.chilling).toBe(1)
         expect(seen[31].self.spells[touch].ready).toBe(true)
         expect(seen[100].self.chilling).toBe(3)
-        // the opponent sees the same stacks (a Fire player's view of a Frost player)
-        expect(enemySeen.map(v => v.enemy.chilling)).toEqual(seen.map(v => v.self.chilling))
+        // the opponent never sees them (a Fire player's view of a Frost player), as a player's client never gets them
+        for (const view of enemySeen) {
+            expect(view.enemy).not.toHaveProperty('chilling')
+            expect(JSON.stringify(view.enemy)).not.toContain('hilling')
+        }
+    })
+
+    it("never shows a Frost player the opponent's Chilling, though the engine has it", () => {
+        const seen: ArenaView[] = []
+        const boltsSeen: ArenaView[] = []
+        const bolts = priority({ order: ['SPELL_FROSTBOLT'] })
+        runMatch({
+            seed: 1,
+            a: { name: 'watcher', loadout: FROST_DEFAULT, controller: recording(() => () => null, seen) },
+            b: { name: 'bolts', loadout: FEVER_TOUCH, controller: recording(bolts, boltsSeen) },
+            maxTicks: 100,
+        })
+        expect(boltsSeen.at(-1)!.self.chilling).toBe(3)
+        expect(seen).toHaveLength(boltsSeen.length)
+        for (const view of seen) {
+            expect(Object.keys(view.enemy)).not.toContain('chilling')
+            expect(JSON.stringify(view.enemy)).not.toContain('hilling')
+            expect(view.self.chilling).toBe(0)
+        }
+    })
+
+    it('refuses the removed enemyChillingAtLeast condition, which would read the hidden stacks', () => {
+        expect(() => parseCondition({ type: 'enemyChillingAtLeast', count: 4 }, 'c')).toThrow(/c\.type.*#171/)
+        for (const name of ARCHETYPE_NAMES)
+            expect(JSON.stringify(ARCHETYPES[name].profile)).not.toContain('enemyChilling')
     })
 
     it('plays a Frost loadout against a Fire one, and refuses a loadout that mixes the elements', () => {
@@ -217,10 +244,9 @@ describe('Chilling, measured on the engine (#150)', () => {
 })
 
 describe('Chilling conditions (#150)', () => {
-    it('parse and read the stacks after this tick release, the enemy stacks and a loadout without a source', () => {
+    it('parse and read the stacks after this tick release and a loadout without a source', () => {
         const at = parseCondition({ type: 'selfChillingAtLeast', count: 4 }, 'c')
         const below = parseCondition({ type: 'selfChillingBelow', count: 3 }, 'c')
-        const enemy = parseCondition({ type: 'enemyChillingAtLeast', count: 4 }, 'c')
         const none = parseCondition({ type: 'noChillingSource' }, 'c')
         expect(() => parseCondition({ type: 'selfChillingAtLeast' }, 'c')).toThrow(/c\.count/)
         expect(() => parseCondition({ type: 'noChillingSource', count: 1 }, 'c')).toThrow(/unknown key/)
@@ -231,8 +257,6 @@ describe('Chilling conditions (#150)', () => {
         expect(conditionHolds(at, { ...input, chilling: 4 })).toBe(true)
         expect(conditionHolds(below, input)).toBe(false)
         expect(conditionHolds(below, { ...input, chilling: 2 })).toBe(true)
-        expect(conditionHolds(enemy, input)).toBe(false)
-        expect(conditionHolds(enemy, { ...input, view: { ...view, enemy: { ...view.enemy, chilling: 4 } } })).toBe(true)
         expect(conditionHolds(none, { ...input, chillingSource: true })).toBe(false)
         expect(conditionHolds(none, { ...input, chillingSource: false })).toBe(true)
     })
@@ -328,8 +352,8 @@ describe('Chilling is built and spent sensibly (#150)', () => {
                 const { result, last } = watched(profileEntrant(ARCHETYPES[name].profile, FEVER_TOUCH), idler(), seed)
                 const touches = hitsOf(last.enemy.hpLog, 'SPELL_ICY_TOUCH')
                 expect(touches.length, name).toBeGreaterThan(0)
-                // 2 HP, plus 6 against Frost Fever (the approved numbers)
-                expect(new Set(touches), name).toEqual(new Set([8]))
+                // 3 HP, plus 6 against Frost Fever (the approved numbers)
+                expect(new Set(touches), name).toEqual(new Set([9]))
                 // the GCD and the stack cost are respected: the engine refuses nothing
                 expect(result.stats.a.rejected, name).toBe(0)
             }

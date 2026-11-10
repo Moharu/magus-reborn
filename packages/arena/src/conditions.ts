@@ -64,8 +64,6 @@ export type Condition =
     | { type: 'selfChillingAtLeast'; count: number }
     /** Fewer than `count` Chilling stacks on yourself (#150), e.g. Glacier only while its 3 stacks all fit under the cap. */
     | { type: 'selfChillingBelow'; count: number }
-    /** At least `count` Chilling stacks on the enemy (#150), as its HUD shows them: a big Ice Spear may be coming. */
-    | { type: 'enemyChillingAtLeast'; count: number }
     /**
      * No spell on your loadout grants Chilling (#150), so your stacks stay at 0: e.g. Ice Spear as a plain nuke on a
      * Frost loadout without Frostbolt or Glacier. Known from the own loadout and the engine (`chillingSources`).
@@ -199,8 +197,6 @@ export const conditionHolds = (condition: Condition, input: ConditionInput): boo
             return (input.chilling ?? self.chilling ?? 0) >= condition.count
         case 'selfChillingBelow':
             return (input.chilling ?? self.chilling ?? 0) < condition.count
-        case 'enemyChillingAtLeast':
-            return (enemy.chilling ?? 0) >= condition.count
         case 'noChillingSource':
             return input.chillingSource === false
     }
@@ -256,7 +252,6 @@ const KEYS: Record<ConditionType, readonly string[]> = {
     anyOf: ['of'],
     selfChillingAtLeast: ['count'],
     selfChillingBelow: ['count'],
-    enemyChillingAtLeast: ['count'],
     noChillingSource: [],
 }
 
@@ -264,6 +259,8 @@ const KEYS: Record<ConditionType, readonly string[]> = {
 export const parseCondition = (raw: unknown, path: string, nested = false): Condition => {
     if (!isRecord(raw)) fail(path, 'must be a condition object')
     const type = raw.type as ConditionType
+    if (type === ('enemyChillingAtLeast' as string))
+        fail(`${path}.type`, "enemyChillingAtLeast was removed (#171): a player can't see the opponent's Chilling")
     if (typeof type !== 'string' || !Object.hasOwn(KEYS, type))
         fail(`${path}.type`, `unknown condition type ${JSON.stringify(raw.type)} (${Object.keys(KEYS).join(', ')})`)
     onlyKeys(raw, ['type', ...KEYS[type]], path)
@@ -290,7 +287,6 @@ export const parseCondition = (raw: unknown, path: string, nested = false): Cond
             return { type }
         case 'selfChillingAtLeast':
         case 'selfChillingBelow':
-        case 'enemyChillingAtLeast':
             return { type, count: number(raw.count, `${path}.count`, 0, MAX_COUNT, true) }
         case 'selfEffectEndsWithin':
         case 'enemyEffectEndsWithin': {

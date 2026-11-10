@@ -1,12 +1,12 @@
 import 'pixi.js/accessibility'
 import { Container, Graphics, Rectangle, Sprite, Text } from 'pixi.js'
 import {
+    CLASS_RESOURCE_KEYS,
+    CLASS_RESOURCES,
     cooldownRemaining,
-    FROST_NUMBERS,
     HOTKEYS,
     SPELLS,
-    SPELLBOOKS,
-    type LogEntry,
+    type ClassResource,
     ticksToSeconds,
     secondsToTicks,
     type PlayerKey,
@@ -55,15 +55,35 @@ const INTERRUPT_FLASH = 0.9
 
 const hpColor = (hp: number) => (hp > 65 ? 0x2fb344 : hp > 30 ? 0xf08c00 : 0xe03131)
 
+/** The filled segment colour of each class resource meter. */
+const RESOURCE_COLOR: Record<ClassResource, number> = { chilling: 0x9ee7ff }
+
+/**
+ * Whether the HUD of `seat` shows its `resource` meter to the viewer `me` (null for a spectator), #171: a player sees
+ * their own meter and never the opponent's, a spectator sees both. Only for a loadout of the resource's element, and
+ * never when the snapshot left the resource out (the server redacts the opponent's).
+ */
+export const resourceVisible = (
+    resource: ClassResource,
+    seat: PlayerKey,
+    me: PlayerKey | null,
+    player: PlayerView,
+): boolean =>
+    (me === null || seat === me) &&
+    player[resource] !== undefined &&
+    !!player.spells?.some(spell => SPELLS[spell.id].school === CLASS_RESOURCES[resource].element)
+
 /** HP bar, cast bar and effect icons for one side. */
 export class PlayerHud extends Container {
     private readonly bars = new Graphics()
     private readonly nameText = label(18, '800')
     private readonly hpText = label(12)
-    /** Future resources (e.g. Lightning polarity) render inside this same slot. */
+    /** Every class resource meter (`CLASS_RESOURCES`, e.g. Lightning polarity later) renders inside this same slot. */
     readonly resourceSlot = new Container()
-    private readonly chillingPips = new Graphics()
-    private frostRevealed = false
+    private readonly meters = Object.fromEntries(CLASS_RESOURCE_KEYS.map(key => [key, new Graphics()])) as Record<
+        ClassResource,
+        Graphics
+    >
     private readonly castText = label(13)
     private readonly lockText = label(13)
     private readonly castIcon = new Sprite()
@@ -96,11 +116,13 @@ export class PlayerHud extends Container {
         this.nameText.anchor.set(0, 0)
         this.hpText.anchor.set(1, 0)
         this.hpText.position.set(this.x0 + this.w, 12)
-        this.resourceSlot.addChild(this.chillingPips)
+        for (const meter of Object.values(this.meters)) {
+            this.resourceSlot.addChild(meter)
+            meter.accessible = true
+            meter.accessibleType = 'img'
+            meter.visible = false
+        }
         this.fitResource()
-        this.chillingPips.accessible = true
-        this.chillingPips.accessibleType = 'img'
-        this.chillingPips.visible = false
         this.castText.anchor.set(0.5)
         this.castText.position.set(this.x0 + this.w / 2 + 14, 89)
         this.castIcon.width = this.castIcon.height = 22
@@ -132,33 +154,12 @@ export class PlayerHud extends Container {
         this.interrupt = { spell, color, left: INTERRUPT_FLASH }
     }
 
-    /** Only public casts reveal a rival's element, including instant and catch-up releases. */
-    observeCasts(entries: readonly LogEntry[]) {
-        for (const entry of entries)
-            if (
-                (entry.type === 'START_CAST' || entry.type === 'SPELL_RELEASE') &&
-                entry.caster === this.seat &&
-                SPELLBOOKS.FROST.elementSpells.includes(entry.spellId)
-            )
-                this.frostRevealed = true
-    }
-
     update(player: PlayerView, tick: number, dt: number) {
         const name =
             (player.name.length > NAME_MAX_LENGTH ? player.name.slice(0, NAME_MAX_LENGTH - 1) + '…' : player.name) ||
             (this.seat === 'player1' ? 'Player 1' : 'Player 2')
         setText(this.nameText, this.me ? `${this.seat === this.me ? 'YOU' : 'OPPONENT'} · ${name}` : name)
-        const casting = player.cast === null ? null : player.casting
-        if (player.chilling > 0 || (casting && SPELLBOOKS.FROST.elementSpells.includes(casting.id)))
-            this.frostRevealed = true
-        const ownFrost =
-            this.seat === this.me && player.spells?.some(spell => SPELLBOOKS.FROST.elementSpells.includes(spell.id))
-        const pips = this.chillingPips
-        pips.visible = this.seat === this.me ? !!ownFrost : this.frostRevealed
-        pips.accessibleTitle = `Chilling ${player.chilling} / ${FROST_NUMBERS.chillingMaxStacks}`
-        pips.clear()
-        for (let i = 0; i < FROST_NUMBERS.chillingMaxStacks; i++)
-            pips.roundRect(i * 26, 0, 22, 8, 2).fill(i < player.chilling ? 0x9ee7ff : 0x394b60)
+        for (const resource of CLASS_RESOURCE_KEYS) this.updateMeter(resource, player)
         const infinite = player.hp >= INFINITE_HP
         const hp = infinite ? 100 : player.hp
         this.shownHp += (hp - this.shownHp) * (this.reducedMotion ? 1 : Math.min(1, dt / 0.12))
@@ -197,6 +198,22 @@ export class PlayerHud extends Container {
         const lock = Math.max(0, player.lockedUntil - tick)
         setText(this.lockText, lock > 0 ? `LOCKED ${ticksToSeconds(lock).toFixed(1)}s` : '')
         this.updateEffects(player, tick)
+    }
+
+    /** One class resource meter: a segment per point up to the cap, hidden unless `resourceVisible`. */
+    private updateMeter(resource: ClassResource, player: PlayerView) {
+        const meter = this.meters[resource]
+        meter.visible = resourceVisible(resource, this.seat, this.me, player)
+        meter.clear()
+        if (!meter.visible) {
+            meter.accessibleTitle = ''
+            return
+        }
+        const { max, label } = CLASS_RESOURCES[resource]
+        const value = player[resource] ?? 0
+        meter.accessibleTitle = `${label} ${value} / ${max}`
+        for (let i = 0; i < max; i++)
+            meter.roundRect(i * 26, 0, 22, 8, 2).fill(i < value ? RESOURCE_COLOR[resource] : 0x394b60)
     }
 
     private showCastLabel(spell: SpellId, alpha: number) {

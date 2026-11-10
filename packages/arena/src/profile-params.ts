@@ -92,7 +92,7 @@ export const CONDITION_PARAMETERS: Readonly<Record<'hp' | 'count' | 'seconds' | 
 
 /** The `count` of a Chilling condition (#150): stacks, 0 to the cap. */
 export const CHILLING_COUNT_PARAMETER: NumberParameter = num(0, CHILLING_MAX, 1, 1)
-const CHILLING_CONDITIONS = new Set(['selfChillingAtLeast', 'selfChillingBelow', 'enemyChillingAtLeast'])
+const CHILLING_CONDITIONS = new Set(['selfChillingAtLeast', 'selfChillingBelow'])
 
 /** The parameter of a condition's field: Chilling counts have their own bounds, every other field its shared one. */
 const conditionParameter = (condition: object, key: keyof typeof CONDITION_PARAMETERS) =>

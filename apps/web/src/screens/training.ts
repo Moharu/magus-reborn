@@ -1,3 +1,4 @@
+import { fullscreenButton } from '../fullscreen'
 import { Battle, DamageMeter, DEFAULT_SPELLS, GAME_TICK_INTERVAL } from '@magus/engine'
 import { h } from '../dom'
 import type { BattleView } from '../game/battle-view'
@@ -135,6 +136,7 @@ export const trainingScreen = (root: HTMLElement) => {
                 { class: 'bar' },
                 h('a', { class: 'btn small', href: '/', 'data-link': true }, '← Back'),
                 h('h2', null, 'Training room'),
+                fullscreenButton(),
                 h('span', { class: 'muted' }, 'The dummy never fights back.'),
                 h(
                     'button',

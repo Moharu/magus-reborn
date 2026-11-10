@@ -10,7 +10,7 @@
     ],
     "profile": {
         "name": "aggressive",
-        "intent": "All-out damage. Fire: stack 4 Ignites, Combustion on them, Living Bomb kept up, Meteor otherwise. Frost: Ice Spear at 4+ Chilling, Frost Bomb and Frost Fever kept up (never recast while up), Icy Touch whenever Frost Fever is on and a stack is free (its GCD then holds the next cast), Glacier while its 3 stacks fit, Frostbolt otherwise. An early Counterspell on the biggest threats seen (12+ HP), any cast after 8 s held; a completed cast is held (up to 1.2 s) while the enemy shows a Temporal Shield, unless it would kill. Generals: Haste and Magic Eater on its longest cast (Meteor, Glacier) or in a window, Magic Eater also on a 4-stack Ice Spear; Temporal Shield just before an enemy Meteor, Combustion, Glacier or 4-stack Ice Spear lands, or its Living Bomb explodes or Frost Bomb's last pulse (or on 3+ Ignites, between casts); Blur as an enemy Living Bomb or Frost Bomb lands, an Ignite when between casts or on 2 Ignites, or a Frost Bomb with Frost Fever between casts.",
+        "intent": "All-out damage. Fire: stack 4 Ignites, Combustion on them, Living Bomb kept up, Meteor otherwise. Frost: Ice Spear at 4+ Chilling, Frost Bomb and Frost Fever kept up (never recast while up), Icy Touch whenever Frost Fever is on and a stack is free (its GCD then holds the next cast), Glacier while its 3 stacks fit, Frostbolt otherwise. An early Counterspell on the biggest threats seen (12+ HP), any cast after 8 s held; a completed cast is held (up to 1.2 s) while the enemy shows a Temporal Shield, unless it would kill. Generals: Haste and Magic Eater on its longest cast (Meteor, Glacier) or in a window, Magic Eater also on a 4-stack Ice Spear; Temporal Shield just before an enemy Meteor, Combustion, Glacier or Ice Spear lands, or its Living Bomb explodes or Frost Bomb's last pulse (or on 3+ Ignites, between casts); Blur as an enemy Living Bomb or Frost Bomb lands, an Ignite when between casts or on 2 Ignites, or a Frost Bomb with Frost Fever between casts.",
         "rotation": [
             {
                 "spell": "SPELL_COMBUSTION",
@@ -315,10 +315,6 @@
                                     "type": "enemyCastEndsWithin",
                                     "seconds": 0.3,
                                     "spells": ["SPELL_ICE_SPEAR"]
-                                },
-                                {
-                                    "type": "enemyChillingAtLeast",
-                                    "count": 4
                                 }
                             ],
                             [
