@@ -1149,7 +1149,7 @@ html.touch-keybinds {
     }
     .setup .picker-stage {
         aspect-ratio: auto;
-        height: calc(100dvh - 24px - var(--inset-y));
+        height: calc(100dvh - 24px - var(--inset-y) - var(--fullscreen-row, 0px));
     }
 }
 @media (max-width: 500px) and (orientation: portrait) {
