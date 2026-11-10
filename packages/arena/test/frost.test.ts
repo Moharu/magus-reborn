@@ -352,8 +352,8 @@ describe('Chilling is built and spent sensibly (#150)', () => {
                 const { result, last } = watched(profileEntrant(ARCHETYPES[name].profile, FEVER_TOUCH), idler(), seed)
                 const touches = hitsOf(last.enemy.hpLog, 'SPELL_ICY_TOUCH')
                 expect(touches.length, name).toBeGreaterThan(0)
-                // 2 HP, plus 6 against Frost Fever (the approved numbers)
-                expect(new Set(touches), name).toEqual(new Set([8]))
+                // 3 HP, plus 6 against Frost Fever (the approved numbers)
+                expect(new Set(touches), name).toEqual(new Set([9]))
                 // the GCD and the stack cost are respected: the engine refuses nothing
                 expect(result.stats.a.rejected, name).toBe(0)
             }
