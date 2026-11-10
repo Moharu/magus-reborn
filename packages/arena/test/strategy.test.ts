@@ -26,7 +26,7 @@ import {
     type MatchResult,
     type StrategyResult,
 } from '../src'
-import baselineJson from '../baselines/reborn-0.3.0.json'
+import baselineJson from '../baselines/reborn-0.4.0.json'
 import { METEOR_LOADOUT, OTHER_LOADOUT } from './helpers'
 
 const baseline: Baseline = {

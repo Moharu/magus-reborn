@@ -1,7 +1,7 @@
 import { ENGINE_VERSION, loadoutElement, secondsToTicks, SPELLS, type EffectId, type SpellId } from '@magus/engine'
 import { describe, expect, it } from 'vitest'
-import fireJson from '../baselines/reborn-0.3.0.json'
-import frostJson from '../baselines/reborn-0.3.0-frost.json'
+import fireJson from '../baselines/reborn-0.4.0.json'
+import frostJson from '../baselines/reborn-0.4.0-frost.json'
 import {
     adaptProfile,
     ARCHETYPE_NAMES,
