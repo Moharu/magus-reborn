@@ -1,0 +1,10 @@
+{
+    "name": "Magus Reborn",
+    "short_name": "Magus",
+    "start_url": "/",
+    "display": "fullscreen",
+    "orientation": "landscape",
+    "background_color": "#0b0d1a",
+    "theme_color": "#0b0d1a",
+    "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
