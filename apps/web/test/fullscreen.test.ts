@@ -9,12 +9,14 @@ const gesture = { isTrusted: true } as Event
 let target: EventTarget
 let request: ReturnType<typeof vi.fn>
 let lock: ReturnType<typeof vi.fn>
+let unlock: ReturnType<typeof vi.fn>
 let documentMock: Record<string, unknown>
 let resize: ReturnType<typeof vi.fn>
 beforeEach(() => {
     target = new EventTarget()
     request = vi.fn().mockResolvedValue(undefined)
     lock = vi.fn().mockRejectedValue(new Error('unsupported'))
+    unlock = vi.fn()
     resize = vi.fn()
     documentMock = {
         fullscreenEnabled: true,
@@ -26,7 +28,7 @@ beforeEach(() => {
     vi.stubGlobal('document', documentMock)
     vi.stubGlobal('Node', FakeNode)
     vi.stubGlobal('navigator', { userActivation: { isActive: true } })
-    vi.stubGlobal('screen', { orientation: { lock } })
+    vi.stubGlobal('screen', { orientation: { lock, unlock } })
     vi.stubGlobal('window', { matchMedia: () => ({ matches: true }), dispatchEvent: resize })
 })
 afterEach(() => {
@@ -118,6 +120,7 @@ it('silently handles orientation rejection and refits on entry and exit', async 
     target.dispatchEvent(new Event('fullscreenchange'))
     expect(fit).toHaveBeenCalledTimes(2)
     expect(resize).toHaveBeenCalledTimes(2)
+    expect(unlock).toHaveBeenCalledOnce()
     expect(lock).toHaveBeenCalledTimes(1)
     cleanup()
     stopFit()
@@ -148,4 +151,16 @@ it('links a Vite public manifest with fullscreen, landscape and an existing icon
     expect(manifest).toMatchObject({ display: 'fullscreen', orientation: 'landscape' })
     expect(manifest.icons[0].src).toBe('/favicon.svg')
     expect(icon).toContain('<svg')
+})
+
+it('silently tolerates missing or throwing orientation unlock on exit', () => {
+    const cleanup = installFullscreen()
+    unlock.mockImplementation(() => {
+        throw new Error('unsupported')
+    })
+    expect(() => target.dispatchEvent(new Event('fullscreenchange'))).not.toThrow()
+    expect(unlock).toHaveBeenCalledOnce()
+    vi.stubGlobal('screen', {})
+    expect(() => target.dispatchEvent(new Event('webkitfullscreenchange'))).not.toThrow()
+    cleanup()
 })

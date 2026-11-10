@@ -995,7 +995,7 @@ html.touch-keybinds {
 }
 .setup-viewport {
     position: relative;
-    width: min(100%, calc((100dvh - 24px - var(--inset-y)) * 1.6));
+    width: min(100%, calc((100dvh - 24px - var(--inset-y) - var(--fullscreen-row, 0px)) * 1.6));
 }
 .setup .picker {
     position: relative;
@@ -1122,11 +1122,11 @@ html.touch-keybinds {
 /* Keep the arena's available height identical before and after setup on landscape phones. */
 .lobby-screen {
     flex: none;
-    min-height: calc(100dvh - var(--inset-y));
+    min-height: calc(100dvh - var(--inset-y) - var(--fullscreen-row, 0px));
 }
 .lobby-screen:has(.battle-screen),
 .lobby-screen:has(.panel.setup) {
-    height: calc(100dvh - var(--inset-y));
+    height: calc(100dvh - var(--inset-y) - var(--fullscreen-row, 0px));
 }
 .lobby-screen .battle-screen,
 .lobby-screen .panel.setup {
@@ -1415,9 +1415,13 @@ html.touch-keybinds {
     min-height: 44px;
     flex-shrink: 0;
 }
+/* Reserve space outside the arena; #app already owns all safe-area padding. */
+#app:has(> .lobby-fullscreen-toggle) {
+    --fullscreen-row: 44px;
+}
 .lobby-fullscreen-toggle {
-    position: fixed;
-    top: calc(env(safe-area-inset-top, 0px) + 28px);
-    right: calc(env(safe-area-inset-right, 0px) + 8px);
-    z-index: 20;
+    position: static;
+    align-self: flex-end;
+    height: var(--fullscreen-row);
+    flex: 0 0 var(--fullscreen-row);
 }

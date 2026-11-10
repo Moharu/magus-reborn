@@ -52,12 +52,12 @@ export const onFullscreenChange = (refit: () => void) => {
 
 export const installFullscreen = () =>
     onFullscreenChange(() => {
-        if (fullscreenActive()) {
-            const orientation = screen.orientation as ScreenOrientation & {
-                lock?: (orientation: string) => Promise<void>
-            }
-            quietly(() => orientation?.lock?.('landscape'))
+        const orientation = screen.orientation as ScreenOrientation & {
+            lock?: (orientation: string) => Promise<void>
         }
+        if (fullscreenActive()) {
+            quietly(() => orientation?.lock?.('landscape'))
+        } else quietly(() => orientation?.unlock?.())
         window.dispatchEvent(new Event('resize'))
     })
 
