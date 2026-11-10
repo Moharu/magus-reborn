@@ -995,7 +995,7 @@ html.touch-keybinds {
 }
 .setup-viewport {
     position: relative;
-    width: min(100%, calc((100dvh - 24px - var(--inset-y) - var(--fullscreen-row, 0px)) * 1.6));
+    width: min(100%, calc((100dvh - 24px - var(--inset-y)) * 1.6));
 }
 .setup .picker {
     position: relative;
@@ -1122,11 +1122,11 @@ html.touch-keybinds {
 /* Keep the arena's available height identical before and after setup on landscape phones. */
 .lobby-screen {
     flex: none;
-    min-height: calc(100dvh - var(--inset-y) - var(--fullscreen-row, 0px));
+    min-height: calc(100dvh - var(--inset-y));
 }
 .lobby-screen:has(.battle-screen),
 .lobby-screen:has(.panel.setup) {
-    height: calc(100dvh - var(--inset-y) - var(--fullscreen-row, 0px));
+    height: calc(100dvh - var(--inset-y));
 }
 .lobby-screen .battle-screen,
 .lobby-screen .panel.setup {
@@ -1147,9 +1147,13 @@ html.touch-keybinds {
     .setup-viewport {
         width: 100%;
     }
+    /* Keep the 44px details slot above the fixed-height spell rows, with a 4px gap. */
+    .setup .picker-top {
+        top: min(17%, calc(100% - 262px));
+    }
     .setup .picker-stage {
         aspect-ratio: auto;
-        height: calc(100dvh - 24px - var(--inset-y) - var(--fullscreen-row, 0px));
+        height: calc(100dvh - 24px - var(--inset-y));
     }
 }
 @media (max-width: 500px) and (orientation: portrait) {
@@ -1410,18 +1414,56 @@ html.touch-keybinds {
     }
 }
 
+/* Short phones have 38px between the Ready controls and the first spell row. */
+@media (max-height: 340px) and (orientation: landscape) {
+    .setup .picker-top {
+        top: calc(100% - 252px);
+    }
+    .setup .picker-top > .header-details {
+        height: 36px;
+    }
+    .setup .header-details > div {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        column-gap: 4px;
+    }
+    .setup .header-details .meta {
+        grid-column: 2;
+        grid-row: 1;
+    }
+    .setup .header-details p {
+        grid-column: 1 / -1;
+    }
+}
+
 .fullscreen-toggle {
     min-width: 44px;
     min-height: 44px;
     flex-shrink: 0;
 }
-/* Reserve space outside the arena; #app already owns all safe-area padding. */
-#app:has(> .lobby-fullscreen-toggle) {
-    --fullscreen-row: 44px;
-}
-.lobby-fullscreen-toggle {
-    position: static;
+/* Header controls reuse an existing row; only battles reserve space outside the HUD. */
+#app > .lobby-fullscreen-toggle {
     align-self: flex-end;
-    height: var(--fullscreen-row);
-    flex: 0 0 var(--fullscreen-row);
+    height: 44px;
+    flex: 0 0 44px;
+}
+#app:has(> .lobby-fullscreen-toggle) > .lobby-screen:has(.battle-screen) {
+    height: calc(100dvh - var(--inset-y) - 44px);
+    min-height: 0;
+}
+/* Match the existing desktop bar controls rather than increasing its height. */
+.training > .bar .fullscreen-toggle {
+    min-height: 30px;
+    height: 30px;
+}
+@media (max-height: 500px) and (orientation: landscape) {
+    .training > .bar .fullscreen-toggle {
+        min-height: 44px;
+        height: 44px;
+    }
+    /* The setup header already floats 14px below the free top edge. */
+    .setup-head .fullscreen-toggle {
+        position: relative;
+        top: -14px;
+    }
 }

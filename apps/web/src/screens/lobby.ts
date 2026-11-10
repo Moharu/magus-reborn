@@ -94,10 +94,7 @@ const startLobby = (root: HTMLElement, code: string) => {
     const content = h('div', { class: 'lobby-screen' })
     const netStatus = h('div', { class: 'net-status' })
     const toggle = fullscreenButton()
-    if (toggle) {
-        toggle.classList.add('lobby-fullscreen-toggle')
-        root.append(toggle)
-    }
+    toggle?.classList.add('lobby-fullscreen-toggle')
     root.append(content, netStatus)
 
     let socket: Socket | null = null
@@ -139,6 +136,9 @@ const startLobby = (root: HTMLElement, code: string) => {
             if (mode !== 'battle') destroyView()
             if (mode !== 'setup') picker = null
         }
+        // Only battles need a separate control row outside the canvas HUD.
+        if (mode === 'battle' && toggle) root.prepend(toggle)
+        else toggle?.remove()
         switch (mode) {
             case 'connecting':
                 return content.replaceChildren(
@@ -303,6 +303,7 @@ const startLobby = (root: HTMLElement, code: string) => {
                 'header',
                 { class: 'lobby-head' },
                 h('h2', null, 'Lobby ', h('code', null, info.code)),
+                toggle,
                 h(
                     'button',
                     {
@@ -407,6 +408,7 @@ const startLobby = (root: HTMLElement, code: string) => {
             h(
                 'div',
                 { class: 'actions' },
+                toggle,
                 h(
                     'span',
                     { class: 'muted' },

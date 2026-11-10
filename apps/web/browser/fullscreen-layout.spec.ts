@@ -29,59 +29,105 @@ for (const [width, height] of [
 }
 
 for (const [width, height] of [
-    [667, 375],
+    [640, 360],
+    [568, 320],
     [844, 390],
-    [1000, 500],
+    [1200, 800],
 ]) {
-    for (const toolbar of [false, true]) {
-        test(`setup and swap picker fit with toolbar=${toolbar} at ${width}x${height}`, async ({ page }) => {
-            await page.route('**/*', route =>
-                new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
-            )
-            await page.setViewportSize({ width, height })
-            // Reuse the real picker DOM without connecting to a lobby server.
-            await page.goto('/training')
-            await expect(page.locator('.stage canvas')).toBeVisible()
-            await page.getByRole('button', { name: 'Change spells', exact: true }).last().click()
-            const training = page.locator('.training-picker')
-            const trainingBox = (await training.boundingBox())!
-            expect(trainingBox.y).toBeGreaterThanOrEqual(0)
-            expect(trainingBox.y + trainingBox.height).toBeLessThanOrEqual(height)
-            expect(await training.evaluate(el => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
-            await page.evaluate(toolbar => {
-                const picker = document.querySelector('.training-picker .picker')!
-                const app = document.querySelector('#app')!
-                app.replaceChildren()
-                app.setAttribute('style', 'padding: 12px 24px 8px; --inset-y: 20px')
-                if (toolbar) {
-                    const button = document.createElement('button')
-                    button.className = 'btn small fullscreen-toggle lobby-fullscreen-toggle'
-                    button.textContent = 'Fullscreen'
-                    app.append(button)
-                }
-                const lobby = document.createElement('div')
-                lobby.className = 'lobby-screen'
-                lobby.innerHTML = '<section class="panel setup"><div class="setup-viewport"></div></section>'
-                lobby.querySelector('.setup-viewport')!.append(picker)
-                app.append(lobby)
-            }, toolbar)
-            // Pregame and between-round swap use this same panel and picker structure.
-            const panel = (await page.locator('.panel.setup').boundingBox())!
-            const stage = (await page.locator('.picker-stage').boundingBox())!
-            expect(stage.y).toBeGreaterThanOrEqual(panel.y + 12)
-            expect(stage.y + stage.height).toBeLessThanOrEqual(panel.y + panel.height - 12 + 1)
-            expect(panel.y + panel.height).toBeLessThanOrEqual(height - 8 + 1)
-            for (const control of await page
-                .locator('.picker-stage .slot-wrap, .picker-stage .spell, .picker-stage .bar-panel')
-                .all()) {
-                const box = (await control.boundingBox())!
-                expect(box.x).toBeGreaterThanOrEqual(stage.x)
-                expect(box.x + box.width).toBeLessThanOrEqual(stage.x + stage.width + 1)
-                expect(box.y).toBeGreaterThanOrEqual(stage.y)
-                expect(box.y + box.height).toBeLessThanOrEqual(stage.y + stage.height + 1)
-            }
-            expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(height)
-            expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width)
+    test(`header slots preserve picker geometry and tap targets at ${width}x${height}`, async ({ page }) => {
+        await page.setViewportSize({ width, height })
+        await page.route('**/*', route =>
+            new URL(route.request().url()).hostname === '127.0.0.1' ? route.continue() : route.abort(),
+        )
+        await page.addInitScript(() => localStorage.setItem('magus.name', 'Tester'))
+        let sendMeta: (phase: string, round: number) => void = () => {}
+        await page.routeWebSocket('**/*', ws => {
+            const player = { name: 'Tester', wins: 0, ready: false, connected: true }
+            sendMeta = (phase, round) =>
+                ws.send(
+                    JSON.stringify({
+                        t: 'meta',
+                        lobby: {
+                            code: 'TEST12',
+                            phase,
+                            round,
+                            admin: 'player1',
+                            player1: player,
+                            player2: player,
+                            spectators: [],
+                            rounds: [],
+                            matchStarted: round > 1,
+                            countdown: 60,
+                            settings: { bestOf: 3, setupTime: 60, allowSpellChange: true, maxSpectators: 0 },
+                        },
+                    }),
+                )
+            ws.send(JSON.stringify({ t: 'welcome', role: 'player1' }))
+            sendMeta('lobby', 1)
         })
-    }
+        const clearTargets = async () => {
+            const toggle = page.getByRole('button', { name: 'Toggle fullscreen' })
+            await expect(toggle).toBeVisible()
+            const a = (await toggle.boundingBox())!
+            expect(a.x).toBeGreaterThanOrEqual(0)
+            expect(a.x + a.width).toBeLessThanOrEqual(width)
+            for (const el of await page
+                .locator(
+                    'button, a, input, select, [role="button"], .picker-top, .spell, .slot, .stage, .spell-log-history',
+                )
+                .all()) {
+                if (await el.evaluate(el => el.classList.contains('fullscreen-toggle'))) continue
+                if (!(await el.isVisible())) continue
+                const b = (await el.boundingBox())!
+                expect(
+                    a.x >= b.x + b.width || b.x >= a.x + a.width || a.y >= b.y + b.height || b.y >= a.y + a.height,
+                    JSON.stringify({ element: await el.evaluate(el => el.className), toggle: a, box: b }),
+                ).toBe(true)
+            }
+        }
+        await page.goto('/lobby/TEST12')
+        await clearTargets()
+        for (const round of [1, 2]) {
+            sendMeta('set_up', round)
+            await expect(page.locator('.panel.setup')).toBeVisible()
+            await clearTargets()
+            const geometry = () =>
+                page.locator('.picker-stage, .picker-top, .spell, .slot').evaluateAll(els =>
+                    els.map(el => {
+                        const { x, y, width, height } = el.getBoundingClientRect()
+                        return { x, y, width, height }
+                    }),
+                )
+            const header = (await page.locator('.picker-top').boundingBox())!
+            const firstSpell = (await page.locator('.picker-stage .spell').first().boundingBox())!
+            expect(header.y + header.height).toBeLessThanOrEqual(firstSpell.y)
+            if (height <= 500) {
+                const details = page.locator('.header-details')
+                await expect(details).toBeVisible()
+                const box = (await details.boundingBox())!
+                expect(box.height).toBeGreaterThanOrEqual(height <= 340 ? 36 : 44)
+                expect(box.width).toBeGreaterThan(100)
+                expect(box.y + box.height).toBeLessThanOrEqual(firstSpell.y)
+                await expect(details.locator('strong')).not.toBeEmpty()
+            }
+            const withToggle = await geometry()
+            if (height <= 500) expect((await page.locator('.picker-stage').boundingBox())!.height).toBe(height - 24)
+            // The toggle must not change the corrected picker layout.
+            await page.locator('.fullscreen-toggle').evaluate(el => el.remove())
+            expect(await geometry()).toEqual(withToggle)
+            if (round === 1) {
+                await page.reload()
+                await expect(page.locator('.panel.lobby')).toBeVisible()
+            }
+        }
+        sendMeta('battle', 2)
+        await expect(page.locator('.stage canvas')).toBeVisible()
+        await clearTargets()
+        await page.goto('/training')
+        await expect(page.locator('.stage canvas')).toBeVisible()
+        await clearTargets()
+        const before = await page.locator('.stage').boundingBox()
+        await page.locator('.fullscreen-toggle').evaluate(el => el.remove())
+        expect(await page.locator('.stage').boundingBox()).toEqual(before)
+    })
 }
